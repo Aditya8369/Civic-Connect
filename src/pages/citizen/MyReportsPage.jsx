@@ -2,10 +2,11 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Search, MapPin, CalendarDays, Eye, Pencil, Trash2, FileWarning, Plus } from 'lucide-react'
-import { collection, query, where, orderBy, onSnapshot, doc, deleteDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, deleteDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
 import { useAuth } from '@/hooks/useAuth'
+import { sortByCreatedAtDesc } from '@/utils/sortByCreatedAtDesc'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -58,17 +59,18 @@ export function MyReportsPage() {
     }
     console.log('MyReports: fetching issues for uid:', user.uid)
     setLoading(true)
+    // No orderBy here: where + orderBy on another field needs a composite index,
+    // so the results are sorted on the client instead.
     const q = query(
       collection(db, 'issues'),
-      where('reportedBy', '==', user.uid),
-      orderBy('createdAt', 'desc')
+      where('reportedBy', '==', user.uid)
     )
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
         const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
         console.log('MyReports: received', list.length, 'documents')
-        setComplaints(list)
+        setComplaints(sortByCreatedAtDesc(list))
         setLoading(false)
       },
       (error) => {
@@ -77,7 +79,7 @@ export function MyReportsPage() {
       }
     )
     return unsubscribe
-  }, [user, user.uid])
+  }, [user])
 
   const filtered = complaints.filter(
     (r) =>
