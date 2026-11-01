@@ -1,15 +1,25 @@
 ﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { AlertTriangle, CheckCircle, Clock, Flag, Plus, FileWarning } from 'lucide-react'
-import { collection, query, where, onSnapshot } from 'firebase/firestore'
-import toast from 'react-hot-toast'
+import { AlertTriangle, CheckCircle, Clock, Flag, Plus, FileWarning, Pencil } from 'lucide-react'
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { sortByCreatedAtDesc } from '@/utils/sortByCreatedAtDesc'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import toast from 'react-hot-toast'
 
 const statusVariant = {
   Resolved: 'success',
@@ -29,6 +39,11 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
+  const [editTarget, setEditTarget] = useState(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editAddress, setEditAddress] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
 
   useEffect(() => {
     if (!user) {
@@ -60,6 +75,31 @@ export function DashboardPage() {
     )
     return unsubscribe
   }, [user])
+
+  const openEdit = (complaint) => {
+    setEditTarget(complaint)
+    setEditTitle(complaint.title)
+    setEditDescription(complaint.description)
+    setEditAddress(complaint.address)
+  }
+
+  const handleEditSave = async () => {
+    if (!editTarget) return
+    setSavingEdit(true)
+    try {
+      await updateDoc(doc(db, 'issues', editTarget.id), {
+        title: editTitle,
+        description: editDescription,
+        address: editAddress,
+        updatedAt: serverTimestamp(),
+      })
+      toast.success('Complaint updated successfully')
+      setEditTarget(null)
+    } catch {
+      toast.error('Failed to update complaint')
+    }
+    setSavingEdit(false)
+  }
 
   const total = complaints.length
   const pending = complaints.filter((c) => c.status === 'Pending').length
@@ -139,15 +179,57 @@ export function DashboardPage() {
                       {report.createdAt?.toDate?.().toLocaleDateString() || ''}
                     </p>
                   </div>
-                  <Badge variant={statusVariant[report.status] || 'default'} className="capitalize">
-                    {report.status}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={statusVariant[report.status] || 'default'} className="capitalize">
+                      {report.status}
+                    </Badge>
+                    {report.status === 'Pending' && (
+                      <Button variant="ghost" size="sm" className="gap-1.5 text-xs h-8" onClick={() => openEdit(report)}>
+                        <Pencil className="h-3.5 w-3.5" /> Edit
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!editTarget} onOpenChange={(open) => { if (!open) setEditTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Complaint</DialogTitle>
+            <DialogDescription>Update the details of your pending complaint.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-title">Title</Label>
+              <Input id="edit-title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-desc">Description</Label>
+              <textarea
+                id="edit-desc"
+                rows={3}
+                className="flex w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 resize-none"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-addr">Address</Label>
+              <Input id="edit-addr" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button onClick={handleEditSave} disabled={savingEdit}>
+              {savingEdit ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

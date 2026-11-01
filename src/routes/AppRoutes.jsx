@@ -16,6 +16,7 @@ import { AdminComplaintDetailsPage } from '@/pages/admin/AdminComplaintDetailsPa
 import { AdminNotificationsPage } from '@/pages/admin/AdminNotificationsPage'
 import { AdminSettingsPage } from '@/pages/admin/AdminSettingsPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
+import { HelpPage } from '@/pages/citizen/HelpPage'
 
 export function AppRoutes() {
   return (
@@ -36,6 +37,7 @@ export function AppRoutes() {
         <Route path="/report/:id" element={<ComplaintDetailsPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/help" element={<HelpPage />} />
       </Route>
 
       <Route
