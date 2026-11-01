@@ -75,6 +75,7 @@ export function MyReportsPage() {
       },
       (error) => {
         console.error('MyReports Firestore error:', error)
+        toast.error('Could not load your reports. Please try again later.', { id: 'my-reports-error' })
         setLoading(false)
       }
     )

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { AlertTriangle, CheckCircle, Clock, Flag, Plus, FileWarning } from 'lucide-react'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
+import toast from 'react-hot-toast'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { sortByCreatedAtDesc } from '@/utils/sortByCreatedAtDesc'
@@ -53,6 +54,7 @@ export function DashboardPage() {
       },
       (error) => {
         console.error('Dashboard Firestore error:', error)
+        toast.error('Could not load your reports. Please try again later.', { id: 'dashboard-error' })
         setLoading(false)
       }
     )
