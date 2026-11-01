@@ -11,6 +11,7 @@ import {
   BarChart3,
   Settings,
   Flag,
+  HelpCircle,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/hooks/useAuth'
@@ -21,6 +22,7 @@ const citizenLinks = [
   { to: '/my-reports', label: 'My Reports', icon: ClipboardList },
   { to: '/notifications', label: 'Notifications', icon: Bell },
   { to: '/profile', label: 'Profile', icon: User },
+  { to: '/help', label: 'Help & Support', icon: HelpCircle },
 ]
 
 const adminLinks = [
