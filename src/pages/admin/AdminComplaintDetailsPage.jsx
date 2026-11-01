@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, Loader2, Save } from 'lucide-react'
+import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, Loader2, Save, HardHat, Phone } from 'lucide-react'
 import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId, generateComplaintId } from '@/firebase/complaintId'
@@ -8,8 +8,17 @@ import { createNotification } from '@/firebase/notifications'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import toast from 'react-hot-toast'
 
 const statusVariant = {
@@ -26,6 +35,13 @@ const nextStatus = {
 
 const departments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
 
+// Accepts a 10-digit Indian mobile number with an optional +91 or 0 prefix.
+// Returns it as "+91 XXXXXXXXXX", or null if invalid.
+function normalizePhone(value) {
+  const digits = value.replace(/[\s-]/g, '').replace(/^(\+91|0)/, '')
+  return /^[6-9]\d{9}$/.test(digits) ? `+91 ${digits}` : null
+}
+
 export function AdminComplaintDetailsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -36,6 +52,11 @@ export function AdminComplaintDetailsPage() {
   const [department, setDepartment] = useState('')
   const [resolutionNotes, setResolutionNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const [workerDialogOpen, setWorkerDialogOpen] = useState(false)
+  const [workerName, setWorkerName] = useState('')
+  const [workerPhone, setWorkerPhone] = useState('')
+  const [workerError, setWorkerError] = useState('')
+  const [savingWorker, setSavingWorker] = useState(false)
   const backfilledRef = useRef(false)
 
   useEffect(() => {
@@ -134,6 +155,40 @@ export function AdminComplaintDetailsPage() {
       console.error(err)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const openWorkerDialog = () => {
+    setWorkerName(complaint.assignedWorker?.name || '')
+    setWorkerPhone(complaint.assignedWorker?.phone || '')
+    setWorkerError('')
+    setWorkerDialogOpen(true)
+  }
+
+  const handleSaveWorker = async () => {
+    const name = workerName.trim()
+    const phone = normalizePhone(workerPhone)
+    if (!name) {
+      setWorkerError('Please enter the worker name')
+      return
+    }
+    if (!phone) {
+      setWorkerError('Please enter a valid 10-digit mobile number')
+      return
+    }
+    setSavingWorker(true)
+    try {
+      await updateDoc(doc(db, 'issues', id), {
+        assignedWorker: { name, phone, assignedAt: serverTimestamp() },
+        updatedAt: serverTimestamp(),
+      })
+      toast.success(`Worker assigned: ${name}`)
+      setWorkerDialogOpen(false)
+    } catch (err) {
+      toast.error('Failed to assign worker')
+      console.error(err)
+    } finally {
+      setSavingWorker(false)
     }
   }
 
@@ -299,6 +354,40 @@ export function AdminComplaintDetailsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
+                <HardHat className="h-5 w-5 text-primary-600 dark:text-primary-400" />
+                Field Worker
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {complaint.assignedWorker ? (
+                <>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Name</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{complaint.assignedWorker.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Contact</p>
+                    <a
+                      href={`tel:${complaint.assignedWorker.phone.replace(/\s/g, '')}`}
+                      className="inline-flex items-center gap-1.5 font-medium text-primary-600 hover:underline dark:text-primary-400"
+                    >
+                      <Phone className="h-3.5 w-3.5" />
+                      {complaint.assignedWorker.phone}
+                    </a>
+                  </div>
+                </>
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400">No worker assigned yet.</p>
+              )}
+              <Button variant="outline" size="sm" className="w-full" onClick={openWorkerDialog}>
+                {complaint.assignedWorker ? 'Change Worker' : 'Assign Worker'}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
                 <MapPin className="h-5 w-5 text-primary-600 dark:text-primary-400" />
                 Location
               </CardTitle>
@@ -319,6 +408,43 @@ export function AdminComplaintDetailsPage() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={workerDialogOpen} onOpenChange={setWorkerDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Field Worker</DialogTitle>
+            <DialogDescription>Enter the details of the worker responsible for this complaint.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="worker-name">Worker Name</Label>
+              <Input
+                id="worker-name"
+                placeholder="e.g. Ramesh Kumar"
+                value={workerName}
+                onChange={(e) => setWorkerName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="worker-phone">Contact Number</Label>
+              <Input
+                id="worker-phone"
+                type="tel"
+                placeholder="e.g. +91 9876543210"
+                value={workerPhone}
+                onChange={(e) => setWorkerPhone(e.target.value)}
+              />
+            </div>
+            {workerError && <p className="text-sm text-red-600 dark:text-red-400">{workerError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWorkerDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveWorker} disabled={savingWorker}>
+              {savingWorker ? 'Saving...' : 'Save Worker'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
