@@ -35,11 +35,13 @@ const nextStatus = {
 
 const departments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
 
-// Accepts a 10-digit Indian mobile number with an optional +91 or 0 prefix.
+// Accepts a 10-digit phone number with an optional +91, 91 or 0 prefix,
+// ignoring spaces, dashes, dots and brackets.
 // Returns it as "+91 XXXXXXXXXX", or null if invalid.
 function normalizePhone(value) {
-  const digits = value.replace(/[\s-]/g, '').replace(/^(\+91|0)/, '')
-  return /^[6-9]\d{9}$/.test(digits) ? `+91 ${digits}` : null
+  if (!/^[\d\s()+.-]+$/.test(value.trim())) return null
+  const digits = value.replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '')
+  return /^\d{10}$/.test(digits) ? `+91 ${digits}` : null
 }
 
 export function AdminComplaintDetailsPage() {
@@ -173,7 +175,7 @@ export function AdminComplaintDetailsPage() {
       return
     }
     if (!phone) {
-      setWorkerError('Please enter a valid 10-digit mobile number')
+      setWorkerError('Please enter a 10-digit phone number (optionally with +91)')
       return
     }
     setSavingWorker(true)
