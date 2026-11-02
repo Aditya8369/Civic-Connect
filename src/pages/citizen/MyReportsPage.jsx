@@ -5,9 +5,12 @@ import { Search, MapPin, CalendarDays, Eye, Pencil, Trash2, FileWarning, Plus } 
 import { collection, query, where, onSnapshot, doc, deleteDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
+import { isUnconfirmedEmpty } from '@/firebase/snapshot'
 import { useAuth } from '@/hooks/useAuth'
 import { sortByCreatedAtDesc } from '@/utils/sortByCreatedAtDesc'
 import { PageHeader } from '@/components/common/PageHeader'
+import { ComplaintCardSkeleton } from '@/components/common/ComplaintCardSkeleton'
+import { ConnectionErrorBanner } from '@/components/common/ConnectionErrorBanner'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -43,6 +46,8 @@ export function MyReportsPage() {
   const navigate = useNavigate()
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [editTarget, setEditTarget] = useState(null)
@@ -59,6 +64,7 @@ export function MyReportsPage() {
     }
     console.log('MyReports: fetching issues for uid:', user.uid)
     setLoading(true)
+    setLoadError(false)
     // No orderBy here: where + orderBy on another field needs a composite index,
     // so the results are sorted on the client instead.
     const q = query(
@@ -67,20 +73,29 @@ export function MyReportsPage() {
     )
     const unsubscribe = onSnapshot(
       q,
+      { includeMetadataChanges: true },
       (snapshot) => {
+        if (isUnconfirmedEmpty(snapshot)) {
+          if (!navigator.onLine) {
+            setLoadError(true)
+            setLoading(false)
+          }
+          return
+        }
         const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
         console.log('MyReports: received', list.length, 'documents')
         setComplaints(sortByCreatedAtDesc(list))
+        setLoadError(false)
         setLoading(false)
       },
       (error) => {
         console.error('MyReports Firestore error:', error)
-        toast.error('Could not load your reports. Please try again later.', { id: 'my-reports-error' })
+        setLoadError(true)
         setLoading(false)
       }
     )
     return unsubscribe
-  }, [user])
+  }, [user, reloadKey])
 
   const filtered = complaints.filter(
     (r) =>
@@ -142,15 +157,13 @@ export function MyReportsPage() {
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {loading ? (
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-busy={loading}>
+        {loadError ? (
           <div className="sm:col-span-2 xl:col-span-3">
-            <Card>
-              <CardContent className="flex items-center justify-center py-16">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent" />
-              </CardContent>
-            </Card>
+            <ConnectionErrorBanner onRetry={() => setReloadKey((k) => k + 1)} />
           </div>
+        ) : loading ? (
+          Array.from({ length: 6 }, (_, i) => <ComplaintCardSkeleton key={i} />)
         ) : filtered.length === 0 ? (
           <div className="sm:col-span-2 xl:col-span-3">
             <Card>

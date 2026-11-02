@@ -21,6 +21,16 @@
   --radius-card: 0.75rem;
   --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
   --shadow-card-hover: 0 4px 12px 0 rgb(0 0 0 / 0.08);
+  --animate-shimmer: shimmer 1.5s ease-in-out infinite;
+
+  @keyframes shimmer {
+    from {
+      translate: -100% 0;
+    }
+    to {
+      translate: 100% 0;
+    }
+  }
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
