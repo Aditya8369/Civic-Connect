@@ -4,9 +4,12 @@ import { motion } from 'framer-motion'
 import { AlertTriangle, CheckCircle, Clock, Flag, Plus, FileWarning, Pencil } from 'lucide-react'
 import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/services'
+import { isUnconfirmedEmpty } from '@/firebase/snapshot'
 import { useAuth } from '@/hooks/useAuth'
 import { sortByCreatedAtDesc } from '@/utils/sortByCreatedAtDesc'
+import { ConnectionErrorBanner } from '@/components/common/ConnectionErrorBanner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,6 +42,8 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [editTarget, setEditTarget] = useState(null)
   const [editTitle, setEditTitle] = useState('')
   const [editDescription, setEditDescription] = useState('')
@@ -53,6 +58,7 @@ export function DashboardPage() {
     }
     console.log('Dashboard: fetching issues for uid:', user.uid)
     setLoading(true)
+    setLoadError(false)
     // No orderBy here: where + orderBy on another field needs a composite index,
     // so the results are sorted on the client instead.
     const q = query(
@@ -61,20 +67,29 @@ export function DashboardPage() {
     )
     const unsubscribe = onSnapshot(
       q,
+      { includeMetadataChanges: true },
       (snapshot) => {
+        if (isUnconfirmedEmpty(snapshot)) {
+          if (!navigator.onLine) {
+            setLoadError(true)
+            setLoading(false)
+          }
+          return
+        }
         const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
         console.log('Dashboard: received', list.length, 'documents')
         setComplaints(sortByCreatedAtDesc(list))
+        setLoadError(false)
         setLoading(false)
       },
       (error) => {
         console.error('Dashboard Firestore error:', error)
-        toast.error('Could not load your reports. Please try again later.', { id: 'dashboard-error' })
+        setLoadError(true)
         setLoading(false)
       }
     )
     return unsubscribe
-  }, [user])
+  }, [user, reloadKey])
 
   const openEdit = (complaint) => {
     setEditTarget(complaint)
@@ -143,7 +158,11 @@ export function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{stat.value}</p>
+                    {loading ? (
+                      <Skeleton className="h-8 w-12 mt-1" />
+                    ) : (
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{loadError ? '-' : stat.value}</p>
+                    )}
                   </div>
                   <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${stat.color}`}>
                     <stat.icon className="h-6 w-6" />
@@ -160,9 +179,19 @@ export function DashboardPage() {
           <CardTitle>Recent Reports</CardTitle>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent" />
+          {loadError ? (
+            <ConnectionErrorBanner onRetry={() => setReloadKey((k) => k + 1)} />
+          ) : loading ? (
+            <div className="divide-y divide-gray-100 dark:divide-gray-800" aria-busy="true">
+              {Array.from({ length: 3 }, (_, i) => (
+                <div key={i} aria-hidden="true" className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-48" />
+                    <Skeleton className="h-3 w-20" />
+                  </div>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+              ))}
             </div>
           ) : recent.length === 0 && !loading ? (
             <div className="flex flex-col items-center justify-center py-8">

@@ -5,8 +5,11 @@ import { collection, query, orderBy, onSnapshot, doc, getDoc } from 'firebase/fi
 import toast from 'react-hot-toast'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
+import { isUnconfirmedEmpty } from '@/firebase/snapshot'
 import { toCsv, downloadCsv, formatDateStamp } from '@/utils/csv'
 import { PageHeader } from '@/components/common/PageHeader'
+import { ComplaintCardSkeleton } from '@/components/common/ComplaintCardSkeleton'
+import { ConnectionErrorBanner } from '@/components/common/ConnectionErrorBanner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -66,6 +69,8 @@ function toCsvRow(c) {
 export function AdminReportsPage() {
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [departmentFilter, setDepartmentFilter] = useState('all')
@@ -99,22 +104,34 @@ export function AdminReportsPage() {
   }
 
   useEffect(() => {
+    setLoading(true)
+    setLoadError(false)
     const q = query(collection(db, 'issues'), orderBy('createdAt', 'desc'))
     const unsub = onSnapshot(
       q,
+      { includeMetadataChanges: true },
       async (snapshot) => {
+        if (isUnconfirmedEmpty(snapshot)) {
+          if (!navigator.onLine) {
+            setLoadError(true)
+            setLoading(false)
+          }
+          return
+        }
         const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
         setComplaints(list)
+        setLoadError(false)
         setLoading(false)
         fetchUsers(list)
       },
       (err) => {
         console.error('AdminReports Firestore error:', err)
+        setLoadError(true)
         setLoading(false)
       }
     )
     return unsub
-  }, [])
+  }, [reloadKey])
 
   const filtered = complaints.filter((c) => {
     if (statusFilter !== 'all') {
@@ -203,9 +220,11 @@ export function AdminReportsPage() {
         </Select>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent" />
+      {loadError ? (
+        <ConnectionErrorBanner onRetry={() => setReloadKey((k) => k + 1)} />
+      ) : loading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
+          {Array.from({ length: 6 }, (_, i) => <ComplaintCardSkeleton key={i} />)}
         </div>
       ) : filtered.length === 0 ? (
         <Card>
