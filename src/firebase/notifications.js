@@ -1,7 +1,7 @@
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, addDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { db } from './services'
 
-export async function createNotification({
+function buildNotification({
   recipientUid = null,
   recipientRole,
   senderUid,
@@ -10,7 +10,7 @@ export async function createNotification({
   title,
   message,
 }) {
-  await addDoc(collection(db, 'notifications'), {
+  return {
     recipientUid,
     recipientRole,
     senderUid,
@@ -20,5 +20,14 @@ export async function createNotification({
     message,
     read: false,
     createdAt: serverTimestamp(),
-  })
+  }
+}
+
+export async function createNotification(fields) {
+  await addDoc(collection(db, 'notifications'), buildNotification(fields))
+}
+
+// Queues the notification on an existing writeBatch so it commits atomically with the caller's other writes.
+export function addNotificationToBatch(batch, fields) {
+  batch.set(doc(collection(db, 'notifications')), buildNotification(fields))
 }

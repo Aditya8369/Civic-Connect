@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { MapPin, Crosshair, Send } from 'lucide-react'
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, doc, writeBatch, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { generateComplaintId } from '@/firebase/complaintId'
-import { createNotification } from '@/firebase/notifications'
+import { addNotificationToBatch } from '@/firebase/notifications'
 import { useAuth } from '@/hooks/useAuth'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -67,7 +67,10 @@ export function ReportPage() {
     setSubmitting(true)
     try {
       const complaintId = await generateComplaintId()
-      const docRef = await addDoc(collection(db, 'issues'), {
+      // Complaint and admin notification commit together, so a failed notification
+      // can't leave behind a saved complaint that the citizen then re-submits.
+      const batch = writeBatch(db)
+      batch.set(doc(collection(db, 'issues')), {
         complaintId,
         title,
         description,
@@ -81,7 +84,7 @@ export function ReportPage() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
-      await createNotification({
+      addNotificationToBatch(batch, {
         recipientRole: 'admin',
         senderUid: user.uid,
         issueId: complaintId,
@@ -89,9 +92,11 @@ export function ReportPage() {
         title: 'New Complaint Submitted',
         message: 'A citizen has submitted a new complaint.',
       })
+      await batch.commit()
       toast.success('Complaint submitted successfully!')
       navigate('/my-reports')
     } catch (err) {
+      console.error('Complaint submission failed:', err)
       toast.error('Failed to submit complaint. Please try again.')
       setSubmitting(false)
     }
