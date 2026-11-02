@@ -5,6 +5,7 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
+  sendPasswordResetEmail,
 } from 'firebase/auth'
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '@/firebase/services'
@@ -72,12 +73,17 @@ export function AuthProvider({ children }) {
     setUser(null)
   }, [])
 
+    const resetPassword = useCallback(async (email) => {
+    await sendPasswordResetEmail(auth, email)
+  }, [])
+
   const value = {
     user,
     loading,
     login,
     register,
     logout,
+    resetPassword,
     isAuthenticated: !!user,
     authInitialized,
   }
