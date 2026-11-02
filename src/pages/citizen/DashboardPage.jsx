@@ -2,9 +2,10 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { AlertTriangle, CheckCircle, Clock, Flag, Plus, FileWarning, Pencil } from 'lucide-react'
-import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
+import { sortByCreatedAtDesc } from '@/utils/sortByCreatedAtDesc'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -52,26 +53,28 @@ export function DashboardPage() {
     }
     console.log('Dashboard: fetching issues for uid:', user.uid)
     setLoading(true)
+    // No orderBy here: where + orderBy on another field needs a composite index,
+    // so the results are sorted on the client instead.
     const q = query(
       collection(db, 'issues'),
-      where('reportedBy', '==', user.uid),
-      orderBy('createdAt', 'desc')
+      where('reportedBy', '==', user.uid)
     )
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
         const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
         console.log('Dashboard: received', list.length, 'documents')
-        setComplaints(list)
+        setComplaints(sortByCreatedAtDesc(list))
         setLoading(false)
       },
       (error) => {
         console.error('Dashboard Firestore error:', error)
+        toast.error('Could not load your reports. Please try again later.', { id: 'dashboard-error' })
         setLoading(false)
       }
     )
     return unsubscribe
-  }, [user, user.uid])
+  }, [user])
 
   const openEdit = (complaint) => {
     setEditTarget(complaint)
