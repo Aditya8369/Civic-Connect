@@ -10,7 +10,7 @@ import { useAuth } from '@/hooks/useAuth'
 import toast from 'react-hot-toast'
 
 export function AuthPage() {
-  const { login, register } = useAuth()
+  const { login, register, resetPassword } = useAuth()
   const navigate = useNavigate()
   const [role, setRole] = useState('citizen')
   const [mode, setMode] = useState('signin')
@@ -25,6 +25,34 @@ export function AuthPage() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (submitting) return
+
+    if (mode === 'reset') {
+      if (!email.trim()) {
+        toast.error('Please enter your email')
+        return
+      }
+      setSubmitting(true)
+      try {
+        await resetPassword(email.trim())
+        toast.success('If an account exists for this email, a reset link has been sent.')
+        setMode('signin')
+        setPassword('')
+      } catch (err) {
+        const msg =
+          err.code === 'auth/invalid-email'
+            ? 'Please enter a valid email address'
+            : err.code === 'auth/too-many-requests'
+              ? 'Too many attempts. Please try again later.'
+              : err.code === 'auth/network-request-failed'
+                ? 'Network error. Please check your connection.'
+                : 'Could not send the reset email. Please try again.'
+        toast.error(msg)
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+
     if (mode === 'signup') {
       if (!name.trim()) {
         toast.error('Please enter your name')
@@ -166,6 +194,12 @@ export function AuthPage() {
                 </div>
               )}
 
+              {mode === 'reset' && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Enter your account email and we'll send you a link to reset your password.
+                </p>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -178,26 +212,43 @@ export function AuthPage() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
+              {mode !== 'reset' && (
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {mode === 'signin' && role !== 'admin' && (
+                <div className="flex justify-end -mt-2">
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    onClick={() => {
+                      setMode('reset')
+                      setPassword('')
+                    }}
+                    className="text-xs font-medium text-primary-600 hover:underline dark:text-primary-400"
                   >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    Forgot password?
                   </button>
                 </div>
-              </div>
+              )}
 
               {mode === 'signup' && (
                 <div className="space-y-2">
@@ -224,8 +275,19 @@ export function AuthPage() {
 
               <Button type="submit" className="w-full gap-2 h-11" disabled={submitting}>
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                {mode === 'signin' ? 'Sign In' : 'Create Account'}
+                {mode === 'signin' ? 'Sign In' : mode === 'signup' ? 'Create Account' : 'Send Reset Link'}
               </Button>
+
+              {mode === 'reset' && (
+                <button
+                  type="button"
+                  onClick={() => setMode('signin')}
+                  className="w-full text-center text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  Back to Sign In
+                </button>
+              )}
+
               {role === 'admin' && (
                 <p className="text-xs text-center text-gray-400 dark:text-gray-500 mt-4">
                   Administrator accounts are created and managed by the municipal system.
