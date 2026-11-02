@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Flag, Search } from 'lucide-react'
+import { Download, Flag, Search } from 'lucide-react'
 import { collection, query, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore'
+import toast from 'react-hot-toast'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
+import { toCsv, downloadCsv, formatDateStamp } from '@/utils/csv'
 import { PageHeader } from '@/components/common/PageHeader'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -33,6 +36,32 @@ const allCategories = [
 ]
 
 const allDepartments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
+
+const csvHeaders = [
+  'Complaint ID',
+  'Date',
+  'Title',
+  'Category',
+  'Department',
+  'Status',
+  'Address',
+  'Assigned Worker Name',
+  'Assigned Worker Phone',
+]
+
+function toCsvRow(c) {
+  return [
+    getDisplayId(c),
+    c.createdAt?.toDate ? formatDateStamp(c.createdAt.toDate()) : '',
+    c.title,
+    c.category,
+    c.department,
+    c.status,
+    c.address,
+    c.assignedWorker?.name,
+    c.assignedWorker?.phone,
+  ]
+}
 
 export function AdminReportsPage() {
   const [complaints, setComplaints] = useState([])
@@ -110,11 +139,23 @@ export function AdminReportsPage() {
     return true
   })
 
+  const handleExport = () => {
+    const csv = toCsv(csvHeaders, filtered.map(toCsvRow))
+    downloadCsv(`civic-reports-${formatDateStamp(new Date())}.csv`, csv)
+    toast.success(`Exported ${filtered.length} report${filtered.length === 1 ? '' : 's'}`)
+  }
+
   return (
     <div>
       <PageHeader
         title="Manage Reports"
         description="Review and manage all citizen reports"
+        actions={
+          <Button variant="outline" onClick={handleExport} disabled={loading || filtered.length === 0}>
+            <Download />
+            Export to CSV
+          </Button>
+        }
       />
 
       <div className="flex flex-wrap gap-3 mb-6">
