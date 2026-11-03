@@ -30,6 +30,8 @@ const statusVariant = {
   Resolved: 'success',
   'In Progress': 'warning',
   Pending: 'destructive',
+  Rejected: 'secondary',
+  Reopened: 'warning',
 }
 
 function formatDate(timestamp) {

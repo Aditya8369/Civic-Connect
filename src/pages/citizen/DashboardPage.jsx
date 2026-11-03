@@ -28,6 +28,8 @@ const statusVariant = {
   Resolved: 'success',
   'In Progress': 'warning',
   Pending: 'destructive',
+  Rejected: 'secondary',
+  Reopened: 'warning',
 }
 
 function getGreeting() {
@@ -117,7 +119,7 @@ export function DashboardPage() {
   }
 
   const total = complaints.length
-  const pending = complaints.filter((c) => c.status === 'Pending').length
+  const pending = complaints.filter((c) => c.status === 'Pending' || c.status === 'Reopened').length
   const inProgress = complaints.filter((c) => c.status === 'In Progress').length
   const resolved = complaints.filter((c) => c.status === 'Resolved').length
   const recent = complaints.slice(0, 5)

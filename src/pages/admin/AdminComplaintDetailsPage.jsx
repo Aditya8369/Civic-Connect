@@ -25,12 +25,16 @@ const statusVariant = {
   Resolved: 'success',
   'In Progress': 'warning',
   Pending: 'destructive',
+  Rejected: 'secondary',
+  Reopened: 'warning',
 }
 
 const nextStatus = {
   Pending: 'In Progress',
   'In Progress': 'Resolved',
+  Reopened: 'In Progress',
   Resolved: null,
+  Rejected: null,
 }
 
 const departments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
@@ -60,6 +64,8 @@ export function AdminComplaintDetailsPage() {
   const [workerError, setWorkerError] = useState('')
   const [savingWorker, setSavingWorker] = useState(false)
   const backfilledRef = useRef(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -105,6 +111,7 @@ export function AdminComplaintDetailsPage() {
     try {
       await updateDoc(doc(db, 'issues', id), {
         status: next,
+        ...(next === 'Resolved' && { resolvedAt: serverTimestamp() }),
         updatedAt: serverTimestamp(),
       })
       if (complaint.reportedBy) {
@@ -121,6 +128,41 @@ export function AdminComplaintDetailsPage() {
       toast.success(`Status updated to "${next}"`)
     } catch (err) {
       toast.error('Failed to update status')
+      console.error(err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleReject = async () => {
+    const reason = rejectReason.trim()
+    if (!reason) {
+      toast.error('Please enter a rejection reason')
+      return
+    }
+    setSaving(true)
+    try {
+      await updateDoc(doc(db, 'issues', id), {
+        status: 'Rejected',
+        rejectionReason: reason,
+        updatedAt: serverTimestamp(),
+      })
+      if (complaint.reportedBy) {
+        await createNotification({
+          recipientUid: complaint.reportedBy,
+          recipientRole: 'citizen',
+          senderUid: '',
+          issueId: complaint.complaintId || complaint.id,
+          type: 'status_update',
+          title: 'Complaint Rejected',
+          message: `Your complaint was rejected: ${reason}`,
+        })
+      }
+      toast.success('Complaint rejected')
+      setRejectOpen(false)
+      setRejectReason('')
+    } catch (err) {
+      toast.error('Failed to reject complaint')
       console.error(err)
     } finally {
       setSaving(false)
@@ -214,6 +256,8 @@ export function AdminComplaintDetailsPage() {
     )
   }
 
+  const canReject = ['Pending', 'In Progress', 'Reopened'].includes(complaint.status)
+
   return (
     <div>
       <Button
@@ -239,17 +283,29 @@ export function AdminComplaintDetailsPage() {
                   </div>
                   <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-1">{complaint.title}</h1>
                 </div>
-                {nextStatus[complaint.status] && (
-                  <Button
-                    onClick={handleStatusUpdate}
-                    disabled={saving}
-                    size="sm"
-                    className="gap-2 shrink-0"
-                  >
-                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    Mark {nextStatus[complaint.status]}
-                  </Button>
-                )}
+                <div className="flex gap-2 shrink-0">
+                  {canReject && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setRejectOpen(true)}
+                      disabled={saving}
+                    >
+                      Reject
+                    </Button>
+                  )}
+                  {nextStatus[complaint.status] && (
+                    <Button
+                      onClick={handleStatusUpdate}
+                      disabled={saving}
+                      size="sm"
+                      className="gap-2"
+                    >
+                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      Mark {nextStatus[complaint.status]}
+                    </Button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 border-y border-gray-100 dark:border-gray-800">
@@ -279,6 +335,20 @@ export function AdminComplaintDetailsPage() {
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">{complaint.description}</p>
               </div>
+
+              {complaint.status === 'Rejected' && complaint.rejectionReason && (
+                <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm dark:bg-red-900/20">
+                  <p className="font-medium text-red-700 dark:text-red-300">Rejection reason</p>
+                  <p className="mt-1 text-gray-700 dark:text-gray-300">{complaint.rejectionReason}</p>
+                </div>
+              )}
+
+              {complaint.status === 'Reopened' && complaint.reopenReason && (
+                <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-900/20">
+                  <p className="font-medium text-amber-800 dark:text-amber-300">Citizen feedback (reopened)</p>
+                  <p className="mt-1 text-gray-700 dark:text-gray-300">{complaint.reopenReason}</p>
+                </div>
+              )}
 
               <div className="mt-4 flex items-start gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
@@ -443,6 +513,28 @@ export function AdminComplaintDetailsPage() {
             <Button variant="outline" onClick={() => setWorkerDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveWorker} disabled={savingWorker}>
               {savingWorker ? 'Saving...' : 'Save Worker'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Complaint</DialogTitle>
+            <DialogDescription>A reason is required and will be shown to the citizen.</DialogDescription>
+          </DialogHeader>
+          <textarea
+            rows={4}
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="e.g. Outside municipal jurisdiction, Duplicate report"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleReject} disabled={saving}>
+              {saving ? 'Rejecting...' : 'Reject'}
             </Button>
           </DialogFooter>
         </DialogContent>
