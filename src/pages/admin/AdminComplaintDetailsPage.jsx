@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, Loader2, Save, HardHat, Phone } from 'lucide-react'
+import { ArrowLeft, MapPin, Building2, FileText, Loader2, Save, HardHat, Phone } from 'lucide-react'
 import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId, generateComplaintId } from '@/firebase/complaintId'

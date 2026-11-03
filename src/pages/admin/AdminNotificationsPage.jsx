@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Bell } from 'lucide-react'
 import { collection, query, where, onSnapshot, doc, writeBatch } from 'firebase/firestore'
 import { db } from '@/firebase/services'
@@ -26,7 +25,6 @@ function sortByCreatedDesc(list) {
 }
 
 export function AdminNotificationsPage() {
-  const navigate = useNavigate()
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true)
 
