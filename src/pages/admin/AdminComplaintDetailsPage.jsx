@@ -57,6 +57,7 @@ export function AdminComplaintDetailsPage() {
   const [citizen, setCitizen] = useState(null)
   const [department, setDepartment] = useState('')
   const [resolutionNotes, setResolutionNotes] = useState('')
+  const isDirty = useRef(false)
   const [saving, setSaving] = useState(false)
   const [workerDialogOpen, setWorkerDialogOpen] = useState(false)
   const [workerName, setWorkerName] = useState('')
@@ -68,6 +69,7 @@ export function AdminComplaintDetailsPage() {
   const [rejectReason, setRejectReason] = useState('')
 
   useEffect(() => {
+    isDirty.current = false
     const unsub = onSnapshot(
       doc(db, 'issues', id),
       (snap) => {
@@ -81,7 +83,9 @@ export function AdminComplaintDetailsPage() {
           }
           setComplaint(data)
           setDepartment(data.department || '')
-          setResolutionNotes(data.resolutionNotes || '')
+          if (!isDirty.current) {
+            setResolutionNotes(data.resolutionNotes || '')
+          }
           setLoading(false)
           if (data.reportedBy) {
             getDoc(doc(db, 'users', data.reportedBy)).then((userSnap) => {
@@ -193,6 +197,7 @@ export function AdminComplaintDetailsPage() {
         resolutionNotes,
         updatedAt: serverTimestamp(),
       })
+      isDirty.current = false
       toast.success('Resolution notes saved')
     } catch (err) {
       toast.error('Failed to save resolution notes')
@@ -390,7 +395,10 @@ export function AdminComplaintDetailsPage() {
             <CardContent>
               <textarea
                 value={resolutionNotes}
-                onChange={(e) => setResolutionNotes(e.target.value)}
+                onChange={(e) => {
+                  isDirty.current = true
+                  setResolutionNotes(e.target.value)
+                }}
                 placeholder="Enter resolution notes..."
                 rows={5}
                 className="flex w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 mb-4"
