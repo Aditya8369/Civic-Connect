@@ -56,7 +56,7 @@ describe.each([['My Reports', MyReportsPage], ['Dashboard', DashboardPage]])('%s
   const dialog = () => nodes(tree).find(node => node.type === Dialog && text(node).includes('Edit Complaint'))
   const draft = () => ['edit-title', 'edit-desc', 'edit-addr'].map(id => input(id).props.value)
 
-  beforeEach(() => {
+  const mount = () => {
     vi.clearAllMocks()
     hooks.values = []; hooks.effects = []; hooks.mounted = false
     updateDoc.mockResolvedValue(undefined)
@@ -66,7 +66,29 @@ describe.each([['My Reports', MyReportsPage], ['Dashboard', DashboardPage]])('%s
     render()
     button('Edit').props.onClick()
     render()
-  })
+  }
+  beforeEach(mount)
+
+  for (const field of ['title', 'description', 'address']) {
+    it.each([null, undefined])(`rejects a legacy record with ${field}=%s without throwing`, async value => {
+      const original = fixture[field]
+      try {
+        fixture[field] = value
+        mount()
+        const before = draft()
+        await button('Save Changes').props.onClick()
+        render()
+        expect(updateDoc).not.toHaveBeenCalled()
+        expect(toast.success).not.toHaveBeenCalled()
+        expect(toast.error).toHaveBeenCalledWith(expect.stringContaining(field))
+        expect(dialog().props.open).toBe(true)
+        expect(draft()).toEqual(before)
+        expect(button('Save Changes').props.disabled).toBe(false)
+      } finally {
+        fixture[field] = original
+      }
+    })
+  }
 
   for (const [id, label] of [['edit-title', 'title'], ['edit-desc', 'description'], ['edit-addr', 'address']]) {
     it.each(['', '   ', '\t\n ', ' \t\r\n  '])(`blocks blank ${label}: %j and preserves the draft`, async value => {
