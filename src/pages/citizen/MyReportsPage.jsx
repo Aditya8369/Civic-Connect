@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import toast from 'react-hot-toast'
+import { getComplaintEditError } from '@/utils/complaintEdit'
 
 const statusVariant = {
   Resolved: 'success',
@@ -125,13 +126,20 @@ export function MyReportsPage() {
   }
 
   const handleEditSave = async () => {
-    if (!editTarget) return
+    if (!editTarget || savingEdit) return
+    const error = getComplaintEditError({
+      title: editTitle, description: editDescription, address: editAddress,
+    })
+    if (error) {
+      toast.error(error)
+      return
+    }
     setSavingEdit(true)
     try {
       await updateDoc(doc(db, 'issues', editTarget.id), {
-        title: editTitle,
-        description: editDescription,
-        address: editAddress,
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        address: editAddress.trim(),
         updatedAt: serverTimestamp(),
       })
       toast.success('Complaint updated successfully')
