@@ -20,6 +20,8 @@ const statusVariant = {
   Pending: 'destructive',
   'In Progress': 'warning',
   Resolved: 'success',
+  Rejected: 'secondary',
+  Reopened: 'warning',
 }
 
 function formatDate(ts) {
@@ -194,6 +196,8 @@ export function AdminReportsPage() {
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="in-progress">In Progress</SelectItem>
             <SelectItem value="resolved">Resolved</SelectItem>
+            <SelectItem value="rejected">Rejected</SelectItem>
+            <SelectItem value="reopened">Reopened</SelectItem>
           </SelectContent>
         </Select>
         <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
