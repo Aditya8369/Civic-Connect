@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, MapPin, Building2, FileText, Loader2, Save, HardHat, Phone } from 'lucide-react'
 import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
 import { db } from '@/firebase/services'
-import { getDisplayId, generateComplaintId } from '@/firebase/complaintId'
+import { getDisplayId, ensureComplaintId } from '@/firebase/complaintId'
 import { createNotification } from '@/firebase/notifications'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -63,21 +63,39 @@ export function AdminComplaintDetailsPage() {
   const [workerPhone, setWorkerPhone] = useState('')
   const [workerError, setWorkerError] = useState('')
   const [savingWorker, setSavingWorker] = useState(false)
-  const backfilledRef = useRef(false)
+  const [backfillError, setBackfillError] = useState(false)
+  const [backfillRetry, setBackfillRetry] = useState(0)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
 
   useEffect(() => {
+    let active = true
+    let attempted = false
+    let committedId = null
     const unsub = onSnapshot(
       doc(db, 'issues', id),
       (snap) => {
+        if (!active) return
         if (snap.exists()) {
           const data = { id: snap.id, ...snap.data() }
-          if (!data.complaintId && !backfilledRef.current) {
-            backfilledRef.current = true
-            generateComplaintId().then((cid) => {
-              updateDoc(doc(db, 'issues', id), { complaintId: cid })
-            }).catch(console.error)
+          if (data.complaintId) {
+            committedId = data.complaintId
+            setBackfillError(false)
+          } else if (committedId) {
+            data.complaintId = committedId
+          } else if (!attempted) {
+            attempted = true
+            ensureComplaintId(id).then(cid => {
+              if (!active) return
+              committedId = cid
+              setComplaint(current => current?.id === id && !current.complaintId
+                ? { ...current, complaintId: cid } : current)
+              setBackfillError(false)
+            }).catch(err => {
+              if (!active || committedId) return
+              console.error('Complaint ID backfill failed:', err)
+              setBackfillError(true)
+            })
           }
           setComplaint(data)
           setDepartment(data.department || '')
@@ -85,8 +103,10 @@ export function AdminComplaintDetailsPage() {
           setLoading(false)
           if (data.reportedBy) {
             getDoc(doc(db, 'users', data.reportedBy)).then((userSnap) => {
+              if (!active) return
               setCitizen(userSnap.exists() ? userSnap.data() : { name: 'Unknown User', email: null })
             }).catch(() => {
+              if (!active) return
               setCitizen({ name: 'Unknown User', email: null })
             })
           }
@@ -96,13 +116,14 @@ export function AdminComplaintDetailsPage() {
         }
       },
       (err) => {
+        if (!active) return
         console.error('AdminComplaintDetails Firestore error:', err)
         setNotFound(true)
         setLoading(false)
       }
     )
-    return unsub
-  }, [id])
+    return () => { active = false; unsub() }
+  }, [id, backfillRetry])
 
   const handleStatusUpdate = async () => {
     const next = nextStatus[complaint.status]
@@ -282,6 +303,17 @@ export function AdminComplaintDetailsPage() {
                     </Badge>
                   </div>
                   <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-1">{complaint.title}</h1>
+                  {backfillError && (
+                    <div role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+                      Could not assign a ticket ID.{' '}
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setBackfillError(false)
+                        setBackfillRetry(value => value + 1)
+                      }}>
+                        Retry ticket ID
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2 shrink-0">
                   {canReject && (
