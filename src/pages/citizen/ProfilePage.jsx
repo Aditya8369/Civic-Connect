@@ -42,7 +42,7 @@ export function ProfilePage() {
                     {initials}
                   </AvatarFallback>
                 </Avatar>
-                <button className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-primary-600 text-white shadow-sm hover:bg-primary-700 transition-colors">
+                <button className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-primary-600 text-white shadow-sm hover:bg-primary-700 transition-colors" aria-label="Upload profile photo">
                   <Camera className="h-3.5 w-3.5" />
                 </button>
               </div>
