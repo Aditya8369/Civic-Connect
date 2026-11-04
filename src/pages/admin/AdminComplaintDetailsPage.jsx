@@ -4,7 +4,7 @@ import { ArrowLeft, MapPin, Building2, FileText, Loader2, Save, HardHat, Phone }
 import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId, ensureComplaintId } from '@/firebase/complaintId'
-import { createNotification } from '@/firebase/notifications'
+import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -59,6 +59,7 @@ export function AdminComplaintDetailsPage() {
   const [resolutionNotes, setResolutionNotes] = useState('')
   const isDirty = useRef(false)
   const [saving, setSaving] = useState(false)
+  const transitionPending = useRef(false)
   const [workerDialogOpen, setWorkerDialogOpen] = useState(false)
   const [workerName, setWorkerName] = useState('')
   const [workerPhone, setWorkerPhone] = useState('')
@@ -143,61 +144,63 @@ export function AdminComplaintDetailsPage() {
 
   const handleStatusUpdate = async () => {
     const next = nextStatus[complaint.status]
-    if (!next) return
+    if (!next || saving || transitionPending.current) return
+    transitionPending.current = true
     setSaving(true)
     try {
-      await updateDoc(doc(db, 'issues', id), {
+      await commitComplaintTransition(id, complaint.status, {
         status: next,
         ...(next === 'Resolved' && { resolvedAt: serverTimestamp() }),
         updatedAt: serverTimestamp(),
-      })
-      if (complaint.reportedBy) {
-        await createNotification({
-          recipientUid: complaint.reportedBy,
-          recipientRole: 'citizen',
-          senderUid: '',
-          issueId: complaint.complaintId || complaint.id,
-          type: 'status_update',
-          title: 'Complaint Status Updated',
-          message:
-            next === 'Resolved'
-              ? 'Your complaint has been Resolved.'
-              : 'Your complaint is now In Progress.',
-        })
-      }
+      }, current => current.reportedBy ? {
+        recipientUid: current.reportedBy,
+        recipientRole: 'citizen',
+        senderUid: '',
+        issueId: current.complaintId || id,
+        type: 'status_update',
+        title: 'Complaint Status Updated',
+        message:
+          next === 'Resolved'
+            ? 'Your complaint has been Resolved.'
+            : 'Your complaint is now In Progress.',
+      } : null)
       toast.success(`Status updated to "${next}"`)
     } catch (err) {
       toast.error('Failed to update status')
       console.error(err)
     } finally {
+      transitionPending.current = false
       setSaving(false)
     }
   }
 
   const handleReject = async () => {
+    if (saving || transitionPending.current) return
+    if (!canReject) {
+      toast.error('This complaint can no longer be rejected')
+      return
+    }
     const reason = rejectReason.trim()
     if (!reason) {
       toast.error('Please enter a rejection reason')
       return
     }
+    transitionPending.current = true
     setSaving(true)
     try {
-      await updateDoc(doc(db, 'issues', id), {
+      await commitComplaintTransition(id, complaint.status, {
         status: 'Rejected',
         rejectionReason: reason,
         updatedAt: serverTimestamp(),
-      })
-      if (complaint.reportedBy) {
-        await createNotification({
-          recipientUid: complaint.reportedBy,
-          recipientRole: 'citizen',
-          senderUid: '',
-          issueId: complaint.complaintId || complaint.id,
-          type: 'status_update',
-          title: 'Complaint Rejected',
-          message: `Your complaint was rejected: ${reason}`,
-        })
-      }
+      }, current => current.reportedBy ? {
+        recipientUid: current.reportedBy,
+        recipientRole: 'citizen',
+        senderUid: '',
+        issueId: current.complaintId || id,
+        type: 'status_update',
+        title: 'Complaint Rejected',
+        message: `Your complaint was rejected: ${reason}`,
+      } : null)
       toast.success('Complaint rejected')
       setRejectOpen(false)
       setRejectReason('')
@@ -205,6 +208,7 @@ export function AdminComplaintDetailsPage() {
       toast.error('Failed to reject complaint')
       console.error(err)
     } finally {
+      transitionPending.current = false
       setSaving(false)
     }
   }
