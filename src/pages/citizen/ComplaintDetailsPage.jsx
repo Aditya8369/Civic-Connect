@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, ClipboardCheck, AlertTriangle } from 'lucide-react'
-import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
-import { createNotification } from '@/firebase/notifications'
+import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -38,6 +38,12 @@ const statusSteps = {
 
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
+function canReopenComplaint(complaint) {
+  const resolvedAt = complaint.resolvedAt?.toDate?.()
+  return complaint.status === 'Resolved' && !!resolvedAt &&
+    Date.now() - resolvedAt.getTime() <= REOPEN_WINDOW_MS
+}
+
 export function ComplaintDetailsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -48,6 +54,7 @@ export function ComplaintDetailsPage() {
   const [reopenOpen, setReopenOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [saving, setSaving] = useState(false)
+  const transitionPending = useRef(false)
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -94,35 +101,32 @@ export function ComplaintDetailsPage() {
   const completedCount = steps.length
   const lastUpdated = complaint.updatedAt?.toDate?.() || complaint.createdAt?.toDate?.()
 
-  const resolvedAt = complaint.resolvedAt?.toDate?.()
-  const canReopen =
-    complaint.status === 'Resolved' &&
-    !!resolvedAt &&
-    Date.now() - resolvedAt.getTime() <= REOPEN_WINDOW_MS
+  const canReopen = canReopenComplaint(complaint)
 
   const handleReopen = async () => {
+    if (!canReopen || transitionPending.current) return
     const reason = feedback.trim()
     if (!reason) {
       toast.error('Please tell us what is still not fixed')
       return
     }
+    transitionPending.current = true
     setSaving(true)
     try {
-      await updateDoc(doc(db, 'issues', id), {
+      await commitComplaintTransition(id, 'Resolved', {
         status: 'Reopened',
         reopenReason: reason,
         reopenedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      })
-      await createNotification({
+      }, current => ({
         recipientUid: null,
         recipientRole: 'admin',
         senderUid: user.uid,
-        issueId: complaint.complaintId || complaint.id,
+        issueId: current.complaintId || id,
         type: 'status_update',
         title: 'Complaint Reopened',
         message: `A citizen reopened a resolved complaint: ${reason}`,
-      })
+      }), canReopenComplaint)
       toast.success('Complaint reopened')
       setReopenOpen(false)
       setFeedback('')
@@ -130,6 +134,7 @@ export function ComplaintDetailsPage() {
       toast.error('Failed to reopen complaint')
       console.error(err)
     } finally {
+      transitionPending.current = false
       setSaving(false)
     }
   }
