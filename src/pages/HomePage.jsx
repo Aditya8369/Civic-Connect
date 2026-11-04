@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 import { Flag, FileText, Building2, CheckCircle2, ArrowRight, ChevronRight, Landmark } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/useAuth'
@@ -30,6 +30,7 @@ const steps = [
 
 export function HomePage() {
   const { user } = useAuth()
+  const shouldReduceMotion = useReducedMotion()
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950">
@@ -72,9 +73,9 @@ export function HomePage() {
           <div className="absolute inset-0 bg-[linear-gradient(to_right,#f0f0f0_1px,transparent_1px),linear-gradient(to_bottom,#f0f0f0_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_110%)] dark:bg-[linear-gradient(to_right,#1a1a2e_1px,transparent_1px),linear-gradient(to_bottom,#1a1a2e_1px,transparent_1px)]" />
           <div className="relative mx-auto max-w-6xl px-4 pt-32 pb-28 sm:px-6 lg:px-8">
             <motion.div
-              initial={{ opacity: 0, y: 24 }}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.6 }}
               className="text-center max-w-4xl mx-auto"
             >
               <span className="inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-4 py-1.5 text-xs font-medium text-primary-700 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300 mb-8">
@@ -108,10 +109,10 @@ export function HomePage() {
         <section id="how-it-works" className="border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50">
           <div className="mx-auto max-w-6xl px-4 py-24 sm:px-6 lg:px-8">
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-100px' }}
-              transition={{ duration: 0.5 }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.5 }}
               className="text-center mb-16"
             >
               <span className="text-xs font-semibold uppercase tracking-widest text-primary-600 dark:text-primary-400">How It Works</span>
@@ -130,10 +131,10 @@ export function HomePage() {
                 {steps.map((step, index) => (
                   <motion.div
                     key={step.title}
-                    initial={{ opacity: 0, y: 24 }}
+                    initial={shouldReduceMotion ? false : { opacity: 0, y: 24 }}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, margin: '-50px' }}
-                    transition={{ duration: 0.5, delay: index * 0.15 }}
+                    transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.5, delay: index * 0.15 }}
                     className="relative flex flex-col items-center text-center lg:px-8"
                   >
                     <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${step.color} ring-4 ring-white dark:ring-gray-950 relative z-10`}>

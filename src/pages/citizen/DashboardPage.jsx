@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { AlertTriangle, CheckCircle, Clock, Flag, Plus, FileWarning, Pencil } from 'lucide-react'
@@ -40,9 +40,27 @@ function getGreeting() {
   return 'Good Evening'
 }
 
+function useReducedMotionPreference() {
+  const [shouldReduceMotion, setShouldReduceMotion] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const handleChange = (e) => setShouldReduceMotion(e.matches)
+    mediaQuery.addEventListener('change', handleChange)
+    return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [])
+
+  return shouldReduceMotion
+}
+
 export function DashboardPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const shouldReduceMotion = useReducedMotionPreference()
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -159,9 +177,9 @@ export function DashboardPage() {
         {stats.map((stat, index) => (
           <motion.div
             key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: index * 0.05 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.3, delay: index * 0.05 }}
           >
             <Card>
               <CardContent className="p-6">
