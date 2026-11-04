@@ -68,7 +68,7 @@ export function Navbar({ onMenuClick }) {
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-gray-200 bg-white/80 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/80 px-4 sm:px-6">
-      <Button variant="ghost" size="icon" onClick={onMenuClick} className="lg:hidden rounded-full">
+      <Button variant="ghost" size="icon" onClick={onMenuClick} className="lg:hidden rounded-full" aria-label="Open navigation menu">
         <Menu className="h-5 w-5" />
       </Button>
 
@@ -76,7 +76,7 @@ export function Navbar({ onMenuClick }) {
 
       <ThemeToggle />
 
-      <Button variant="ghost" size="icon" className="relative rounded-full" onClick={handleBellClick}>
+      <Button variant="ghost" size="icon" className="relative rounded-full" onClick={handleBellClick} aria-label="View notifications">
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white leading-none">
