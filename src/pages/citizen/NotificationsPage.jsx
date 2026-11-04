@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Bell } from 'lucide-react'
-import { collection, query, where, onSnapshot, doc, writeBatch } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, writeBatch, getDocs, limit } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -32,8 +33,30 @@ const icons = {
 
 export function NotificationsPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true)
+
+  const handleNotificationClick = async (n) => {
+    if (!n.issueId) return
+
+    try {
+      const q = query(
+        collection(db, 'issues'),
+        where('complaintId', '==', n.issueId),
+        limit(1)
+      )
+      const snap = await getDocs(q)
+      if (!snap.empty) {
+        navigate(`/report/${snap.docs[0].id}`)
+        return
+      }
+      navigate(`/report/${n.issueId}`)
+    } catch (err) {
+      console.error('Error navigating to complaint:', err)
+      navigate(`/report/${n.issueId}`)
+    }
+  }
 
   useEffect(() => {
     if (!user) return
@@ -92,7 +115,8 @@ export function NotificationsPage() {
           {notifications.map((n) => (
             <div
               key={n.id}
-              className={`flex items-start gap-4 p-4 rounded-xl border transition-colors ${
+              onClick={() => handleNotificationClick(n)}
+              className={`flex items-start gap-4 p-4 rounded-xl border transition-colors cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
                 !n.read
                   ? 'bg-primary-50/50 dark:bg-primary-900/10 border-primary-200 dark:border-primary-800'
                   : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800'
