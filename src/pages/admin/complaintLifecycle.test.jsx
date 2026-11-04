@@ -199,3 +199,19 @@ it('preserves progression for a legacy complaint without a notification recipien
   expect(notices()).toEqual([])
   expect(toast.success).toHaveBeenCalledOnce()
 })
+
+it.each([
+  ['rejection', actions[1], { status: 'Resolved' }],
+  ['reopening', actions[2], { resolvedAt: Date.now() - 8 * 24 * 60 * 60 * 1000 }],
+])('explains why a stale %s dialog cannot submit after a newer snapshot', async (_label, action, patch) => {
+  const ui = setup(action)
+  ui.fill('Still broken')
+  const latest = { ...ui.original, ...patch }
+  runtime.store.write(path, latest)
+  runtime.listeners.at(-1)(snapshot(latest))
+  await ui.submit()()
+  expect(runtime.store.read(path)).toEqual(latest)
+  expect(notices()).toEqual([])
+  expect(toast.error).toHaveBeenCalledOnce()
+  expect(nodes(dialog(ui.instance.render(), action)).find(node => node.type === 'textarea').props.value).toBe('Still broken')
+})

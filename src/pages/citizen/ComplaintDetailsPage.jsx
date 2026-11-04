@@ -104,7 +104,11 @@ export function ComplaintDetailsPage() {
   const canReopen = canReopenComplaint(complaint)
 
   const handleReopen = async () => {
-    if (!canReopen || transitionPending.current) return
+    if (transitionPending.current) return
+    if (!canReopen) {
+      toast.error('This complaint is no longer eligible for reopening')
+      return
+    }
     const reason = feedback.trim()
     if (!reason) {
       toast.error('Please tell us what is still not fixed')

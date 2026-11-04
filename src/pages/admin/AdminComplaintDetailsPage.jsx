@@ -175,7 +175,11 @@ export function AdminComplaintDetailsPage() {
   }
 
   const handleReject = async () => {
-    if (!canReject || saving || transitionPending.current) return
+    if (saving || transitionPending.current) return
+    if (!canReject) {
+      toast.error('This complaint can no longer be rejected')
+      return
+    }
     const reason = rejectReason.trim()
     if (!reason) {
       toast.error('Please enter a rejection reason')
