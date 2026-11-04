@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, MapPin, Building2, FileText, Loader2, Save, HardHat, Phone } from 'lucide-react'
 import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
@@ -69,15 +69,13 @@ export function AdminComplaintDetailsPage() {
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
 
- useEffect(() => {
-  let active = true
-  let attempted = false
-  let committedId = null
-  isDirty.current = false
+  useEffect(() => {
+    let active = true
+    let attempted = false
+    let committedId = null
+    isDirty.current = false
 
-  const unsub = onSnapshot(
-    doc(db, 'issues', id),
-    (snap) => {
+    const unsub = onSnapshot(
       doc(db, 'issues', id),
       (snap) => {
         if (!active) return
@@ -90,17 +88,22 @@ export function AdminComplaintDetailsPage() {
             data.complaintId = committedId
           } else if (!attempted) {
             attempted = true
-            ensureComplaintId(id).then(cid => {
-              if (!active) return
-              committedId = cid
-              setComplaint(current => current?.id === id && !current.complaintId
-                ? { ...current, complaintId: cid } : current)
-              setBackfillError(false)
-            }).catch(err => {
-              if (!active || committedId) return
-              console.error('Complaint ID backfill failed:', err)
-              setBackfillError(true)
-            })
+            ensureComplaintId(id)
+              .then((cid) => {
+                if (!active) return
+                committedId = cid
+                setComplaint((current) =>
+                  current?.id === id && !current.complaintId
+                    ? { ...current, complaintId: cid }
+                    : current
+                )
+                setBackfillError(false)
+              })
+              .catch((err) => {
+                if (!active || committedId) return
+                console.error('Complaint ID backfill failed:', err)
+                setBackfillError(true)
+              })
           }
           setComplaint(data)
           setDepartment(data.department || '')
@@ -109,13 +112,15 @@ export function AdminComplaintDetailsPage() {
           }
           setLoading(false)
           if (data.reportedBy) {
-            getDoc(doc(db, 'users', data.reportedBy)).then((userSnap) => {
-              if (!active) return
-              setCitizen(userSnap.exists() ? userSnap.data() : { name: 'Unknown User', email: null })
-            }).catch(() => {
-              if (!active) return
-              setCitizen({ name: 'Unknown User', email: null })
-            })
+            getDoc(doc(db, 'users', data.reportedBy))
+              .then((userSnap) => {
+                if (!active) return
+                setCitizen(userSnap.exists() ? userSnap.data() : { name: 'Unknown User', email: null })
+              })
+              .catch(() => {
+                if (!active) return
+                setCitizen({ name: 'Unknown User', email: null })
+              })
           }
         } else {
           setNotFound(true)
@@ -129,7 +134,11 @@ export function AdminComplaintDetailsPage() {
         setLoading(false)
       }
     )
-    return () => { active = false; unsub() }
+
+    return () => {
+      active = false
+      unsub()
+    }
   }, [id, backfillRetry])
 
   const handleStatusUpdate = async () => {
@@ -150,7 +159,10 @@ export function AdminComplaintDetailsPage() {
           issueId: complaint.complaintId || complaint.id,
           type: 'status_update',
           title: 'Complaint Status Updated',
-          message: next === 'Resolved' ? 'Your complaint has been Resolved.' : 'Your complaint is now In Progress.',
+          message:
+            next === 'Resolved'
+              ? 'Your complaint has been Resolved.'
+              : 'Your complaint is now In Progress.',
         })
       }
       toast.success(`Status updated to "${next}"`)
