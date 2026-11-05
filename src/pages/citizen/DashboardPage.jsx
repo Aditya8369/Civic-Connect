@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { AlertTriangle, CheckCircle, Clock, Flag, Plus, FileWarning, Pencil } from 'lucide-react'
@@ -23,11 +23,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import toast from 'react-hot-toast'
+import { getComplaintEditError } from '@/utils/complaintEdit'
 
 const statusVariant = {
   Resolved: 'success',
   'In Progress': 'warning',
   Pending: 'destructive',
+  Rejected: 'secondary',
+  Reopened: 'warning',
 }
 
 function getGreeting() {
@@ -37,9 +40,27 @@ function getGreeting() {
   return 'Good Evening'
 }
 
+function useReducedMotionPreference() {
+  const [shouldReduceMotion, setShouldReduceMotion] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const handleChange = (e) => setShouldReduceMotion(e.matches)
+    mediaQuery.addEventListener('change', handleChange)
+    return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [])
+
+  return shouldReduceMotion
+}
+
 export function DashboardPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const shouldReduceMotion = useReducedMotionPreference()
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -99,13 +120,20 @@ export function DashboardPage() {
   }
 
   const handleEditSave = async () => {
-    if (!editTarget) return
+    if (!editTarget || savingEdit) return
+    const error = getComplaintEditError({
+      title: editTitle, description: editDescription, address: editAddress,
+    })
+    if (error) {
+      toast.error(error)
+      return
+    }
     setSavingEdit(true)
     try {
       await updateDoc(doc(db, 'issues', editTarget.id), {
-        title: editTitle,
-        description: editDescription,
-        address: editAddress,
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        address: editAddress.trim(),
         updatedAt: serverTimestamp(),
       })
       toast.success('Complaint updated successfully')
@@ -117,7 +145,7 @@ export function DashboardPage() {
   }
 
   const total = complaints.length
-  const pending = complaints.filter((c) => c.status === 'Pending').length
+  const pending = complaints.filter((c) => c.status === 'Pending' || c.status === 'Reopened').length
   const inProgress = complaints.filter((c) => c.status === 'In Progress').length
   const resolved = complaints.filter((c) => c.status === 'Resolved').length
   const recent = complaints.slice(0, 5)
@@ -149,9 +177,9 @@ export function DashboardPage() {
         {stats.map((stat, index) => (
           <motion.div
             key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: index * 0.05 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.3, delay: index * 0.05 }}
           >
             <Card>
               <CardContent className="p-6">

@@ -1,32 +1,60 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, ClipboardCheck, Clock, AlertTriangle } from 'lucide-react'
-import { doc, onSnapshot } from 'firebase/firestore'
+import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, ClipboardCheck, AlertTriangle } from 'lucide-react'
+import { doc, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
+import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
+import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import toast from 'react-hot-toast'
 
 const statusVariant = {
   Resolved: 'success',
   'In Progress': 'warning',
   Pending: 'destructive',
+  Rejected: 'secondary',
+  Reopened: 'warning',
 }
 
 const statusSteps = {
   Pending: ['Submitted', 'Under Review'],
   'In Progress': ['Submitted', 'Under Review', 'Assigned to Department', 'In Progress'],
   Resolved: ['Submitted', 'Under Review', 'Assigned to Department', 'In Progress', 'Resolved'],
+  Rejected: ['Submitted', 'Under Review', 'Rejected'],
+  Reopened: ['Submitted', 'Under Review', 'Assigned to Department', 'In Progress', 'Resolved', 'Reopened'],
+}
+
+const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+function canReopenComplaint(complaint) {
+  const resolvedAt = complaint.resolvedAt?.toDate?.()
+  return complaint.status === 'Resolved' && !!resolvedAt &&
+    Date.now() - resolvedAt.getTime() <= REOPEN_WINDOW_MS
 }
 
 export function ComplaintDetailsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [complaint, setComplaint] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [reopenOpen, setReopenOpen] = useState(false)
+  const [feedback, setFeedback] = useState('')
+  const [saving, setSaving] = useState(false)
+  const transitionPending = useRef(false)
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -73,6 +101,48 @@ export function ComplaintDetailsPage() {
   const completedCount = steps.length
   const lastUpdated = complaint.updatedAt?.toDate?.() || complaint.createdAt?.toDate?.()
 
+  const canReopen = canReopenComplaint(complaint)
+
+  const handleReopen = async () => {
+    if (transitionPending.current) return
+    if (!canReopen) {
+      toast.error('This complaint is no longer eligible for reopening')
+      return
+    }
+    const reason = feedback.trim()
+    if (!reason) {
+      toast.error('Please tell us what is still not fixed')
+      return
+    }
+    transitionPending.current = true
+    setSaving(true)
+    try {
+      await commitComplaintTransition(id, 'Resolved', {
+        status: 'Reopened',
+        reopenReason: reason,
+        reopenedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }, current => ({
+        recipientUid: null,
+        recipientRole: 'admin',
+        senderUid: user.uid,
+        issueId: current.complaintId || id,
+        type: 'status_update',
+        title: 'Complaint Reopened',
+        message: `A citizen reopened a resolved complaint: ${reason}`,
+      }), canReopenComplaint)
+      toast.success('Complaint reopened')
+      setReopenOpen(false)
+      setFeedback('')
+    } catch (err) {
+      toast.error('Failed to reopen complaint')
+      console.error(err)
+    } finally {
+      transitionPending.current = false
+      setSaving(false)
+    }
+  }
+
   return (
     <div>
       <motion.div
@@ -109,6 +179,11 @@ export function ComplaintDetailsPage() {
                     </div>
                     <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-1">{complaint.title}</h1>
                   </div>
+                  {canReopen && (
+                    <Button size="sm" className="shrink-0" onClick={() => setReopenOpen(true)}>
+                      Reopen Issue
+                    </Button>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 border-y border-gray-100 dark:border-gray-800">
@@ -138,6 +213,20 @@ export function ComplaintDetailsPage() {
                   <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">{complaint.description}</p>
                 </div>
+
+                {complaint.status === 'Rejected' && complaint.rejectionReason && (
+                  <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm dark:bg-red-900/20">
+                    <p className="font-medium text-red-700 dark:text-red-300">Reason for rejection</p>
+                    <p className="mt-1 text-gray-700 dark:text-gray-300">{complaint.rejectionReason}</p>
+                  </div>
+                )}
+
+                {complaint.status === 'Reopened' && complaint.reopenReason && (
+                  <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-900/20">
+                    <p className="font-medium text-amber-800 dark:text-amber-300">Your reopen feedback</p>
+                    <p className="mt-1 text-gray-700 dark:text-gray-300">{complaint.reopenReason}</p>
+                  </div>
+                )}
 
                 <div className="mt-4 flex items-start gap-2 text-sm text-gray-500 dark:text-gray-400">
                   <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
@@ -260,6 +349,30 @@ export function ComplaintDetailsPage() {
           </motion.div>
         </div>
       </div>
+
+      <Dialog open={reopenOpen} onOpenChange={setReopenOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reopen Issue</DialogTitle>
+            <DialogDescription>
+              Tell us what is still not fixed. Issues can be reopened within 7 days of resolution.
+            </DialogDescription>
+          </DialogHeader>
+          <textarea
+            rows={4}
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="Describe what is still wrong..."
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReopenOpen(false)}>Cancel</Button>
+            <Button onClick={handleReopen} disabled={saving}>
+              {saving ? 'Submitting...' : 'Reopen'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

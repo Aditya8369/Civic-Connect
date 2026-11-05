@@ -13,6 +13,8 @@ const statusVariant = {
   Pending: 'destructive',
   'In Progress': 'warning',
   Resolved: 'success',
+  Rejected: 'secondary',
+  Reopened: 'warning',
 }
 
 export function AdminDashboardPage() {
@@ -42,7 +44,7 @@ export function AdminDashboardPage() {
     let pending = 0, inProgress = 0, resolved = 0
     const uniqueUsers = new Set()
     for (const c of complaints) {
-      if (c.status === 'Pending') pending++
+      if (c.status === 'Pending' || c.status === 'Reopened') pending++
       else if (c.status === 'In Progress') inProgress++
       else if (c.status === 'Resolved') resolved++
       if (c.reportedBy) uniqueUsers.add(c.reportedBy)

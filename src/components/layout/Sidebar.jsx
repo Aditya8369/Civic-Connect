@@ -8,7 +8,6 @@ import {
   User,
   LogOut,
   Shield,
-  BarChart3,
   Settings,
   Flag,
   HelpCircle,

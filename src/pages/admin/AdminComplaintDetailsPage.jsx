@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, Loader2, Save, HardHat, Phone } from 'lucide-react'
+import { ArrowLeft, MapPin, Building2, FileText, Loader2, Save, HardHat, Phone } from 'lucide-react'
 import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
 import { db } from '@/firebase/services'
-import { getDisplayId, generateComplaintId } from '@/firebase/complaintId'
-import { createNotification } from '@/firebase/notifications'
+import { getDisplayId, ensureComplaintId } from '@/firebase/complaintId'
+import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -25,12 +25,16 @@ const statusVariant = {
   Resolved: 'success',
   'In Progress': 'warning',
   Pending: 'destructive',
+  Rejected: 'secondary',
+  Reopened: 'warning',
 }
 
 const nextStatus = {
   Pending: 'In Progress',
   'In Progress': 'Resolved',
+  Reopened: 'In Progress',
   Resolved: null,
+  Rejected: null,
 }
 
 const departments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
@@ -53,36 +57,71 @@ export function AdminComplaintDetailsPage() {
   const [citizen, setCitizen] = useState(null)
   const [department, setDepartment] = useState('')
   const [resolutionNotes, setResolutionNotes] = useState('')
+  const isDirty = useRef(false)
   const [saving, setSaving] = useState(false)
+  const transitionPending = useRef(false)
   const [workerDialogOpen, setWorkerDialogOpen] = useState(false)
   const [workerName, setWorkerName] = useState('')
   const [workerPhone, setWorkerPhone] = useState('')
   const [workerError, setWorkerError] = useState('')
   const [savingWorker, setSavingWorker] = useState(false)
-  const backfilledRef = useRef(false)
+  const [backfillError, setBackfillError] = useState(false)
+  const [backfillRetry, setBackfillRetry] = useState(0)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
 
   useEffect(() => {
+    let active = true
+    let attempted = false
+    let committedId = null
+    isDirty.current = false
+
     const unsub = onSnapshot(
       doc(db, 'issues', id),
       (snap) => {
+        if (!active) return
         if (snap.exists()) {
           const data = { id: snap.id, ...snap.data() }
-          if (!data.complaintId && !backfilledRef.current) {
-            backfilledRef.current = true
-            generateComplaintId().then((cid) => {
-              updateDoc(doc(db, 'issues', id), { complaintId: cid })
-            }).catch(console.error)
+          if (data.complaintId) {
+            committedId = data.complaintId
+            setBackfillError(false)
+          } else if (committedId) {
+            data.complaintId = committedId
+          } else if (!attempted) {
+            attempted = true
+            ensureComplaintId(id)
+              .then((cid) => {
+                if (!active) return
+                committedId = cid
+                setComplaint((current) =>
+                  current?.id === id && !current.complaintId
+                    ? { ...current, complaintId: cid }
+                    : current
+                )
+                setBackfillError(false)
+              })
+              .catch((err) => {
+                if (!active || committedId) return
+                console.error('Complaint ID backfill failed:', err)
+                setBackfillError(true)
+              })
           }
           setComplaint(data)
           setDepartment(data.department || '')
-          setResolutionNotes(data.resolutionNotes || '')
+          if (!isDirty.current) {
+            setResolutionNotes(data.resolutionNotes || '')
+          }
           setLoading(false)
           if (data.reportedBy) {
-            getDoc(doc(db, 'users', data.reportedBy)).then((userSnap) => {
-              setCitizen(userSnap.exists() ? userSnap.data() : { name: 'Unknown User', email: null })
-            }).catch(() => {
-              setCitizen({ name: 'Unknown User', email: null })
-            })
+            getDoc(doc(db, 'users', data.reportedBy))
+              .then((userSnap) => {
+                if (!active) return
+                setCitizen(userSnap.exists() ? userSnap.data() : { name: 'Unknown User', email: null })
+              })
+              .catch(() => {
+                if (!active) return
+                setCitizen({ name: 'Unknown User', email: null })
+              })
           }
         } else {
           setNotFound(true)
@@ -90,39 +129,86 @@ export function AdminComplaintDetailsPage() {
         }
       },
       (err) => {
+        if (!active) return
         console.error('AdminComplaintDetails Firestore error:', err)
         setNotFound(true)
         setLoading(false)
       }
     )
-    return unsub
-  }, [id])
+
+    return () => {
+      active = false
+      unsub()
+    }
+  }, [id, backfillRetry])
 
   const handleStatusUpdate = async () => {
     const next = nextStatus[complaint.status]
-    if (!next) return
+    if (!next || saving || transitionPending.current) return
+    transitionPending.current = true
     setSaving(true)
     try {
-      await updateDoc(doc(db, 'issues', id), {
+      await commitComplaintTransition(id, complaint.status, {
         status: next,
+        ...(next === 'Resolved' && { resolvedAt: serverTimestamp() }),
         updatedAt: serverTimestamp(),
-      })
-      if (complaint.reportedBy) {
-        await createNotification({
-          recipientUid: complaint.reportedBy,
-          recipientRole: 'citizen',
-          senderUid: '',
-          issueId: complaint.complaintId || complaint.id,
-          type: 'status_update',
-          title: 'Complaint Status Updated',
-          message: next === 'Resolved' ? 'Your complaint has been Resolved.' : 'Your complaint is now In Progress.',
-        })
-      }
+      }, current => current.reportedBy ? {
+        recipientUid: current.reportedBy,
+        recipientRole: 'citizen',
+        senderUid: '',
+        issueId: current.complaintId || id,
+        type: 'status_update',
+        title: 'Complaint Status Updated',
+        message:
+          next === 'Resolved'
+            ? 'Your complaint has been Resolved.'
+            : 'Your complaint is now In Progress.',
+      } : null)
       toast.success(`Status updated to "${next}"`)
     } catch (err) {
       toast.error('Failed to update status')
       console.error(err)
     } finally {
+      transitionPending.current = false
+      setSaving(false)
+    }
+  }
+
+  const handleReject = async () => {
+    if (saving || transitionPending.current) return
+    if (!canReject) {
+      toast.error('This complaint can no longer be rejected')
+      return
+    }
+    const reason = rejectReason.trim()
+    if (!reason) {
+      toast.error('Please enter a rejection reason')
+      return
+    }
+    transitionPending.current = true
+    setSaving(true)
+    try {
+      await commitComplaintTransition(id, complaint.status, {
+        status: 'Rejected',
+        rejectionReason: reason,
+        updatedAt: serverTimestamp(),
+      }, current => current.reportedBy ? {
+        recipientUid: current.reportedBy,
+        recipientRole: 'citizen',
+        senderUid: '',
+        issueId: current.complaintId || id,
+        type: 'status_update',
+        title: 'Complaint Rejected',
+        message: `Your complaint was rejected: ${reason}`,
+      } : null)
+      toast.success('Complaint rejected')
+      setRejectOpen(false)
+      setRejectReason('')
+    } catch (err) {
+      toast.error('Failed to reject complaint')
+      console.error(err)
+    } finally {
+      transitionPending.current = false
       setSaving(false)
     }
   }
@@ -151,6 +237,7 @@ export function AdminComplaintDetailsPage() {
         resolutionNotes,
         updatedAt: serverTimestamp(),
       })
+      isDirty.current = false
       toast.success('Resolution notes saved')
     } catch (err) {
       toast.error('Failed to save resolution notes')
@@ -214,6 +301,8 @@ export function AdminComplaintDetailsPage() {
     )
   }
 
+  const canReject = ['Pending', 'In Progress', 'Reopened'].includes(complaint.status)
+
   return (
     <div>
       <Button
@@ -238,18 +327,41 @@ export function AdminComplaintDetailsPage() {
                     </Badge>
                   </div>
                   <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-1">{complaint.title}</h1>
+                  {backfillError && (
+                    <div role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+                      Could not assign a ticket ID.{' '}
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setBackfillError(false)
+                        setBackfillRetry(value => value + 1)
+                      }}>
+                        Retry ticket ID
+                      </Button>
+                    </div>
+                  )}
                 </div>
-                {nextStatus[complaint.status] && (
-                  <Button
-                    onClick={handleStatusUpdate}
-                    disabled={saving}
-                    size="sm"
-                    className="gap-2 shrink-0"
-                  >
-                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    Mark {nextStatus[complaint.status]}
-                  </Button>
-                )}
+                <div className="flex gap-2 shrink-0">
+                  {canReject && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setRejectOpen(true)}
+                      disabled={saving}
+                    >
+                      Reject
+                    </Button>
+                  )}
+                  {nextStatus[complaint.status] && (
+                    <Button
+                      onClick={handleStatusUpdate}
+                      disabled={saving}
+                      size="sm"
+                      className="gap-2"
+                    >
+                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      Mark {nextStatus[complaint.status]}
+                    </Button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 border-y border-gray-100 dark:border-gray-800">
@@ -279,6 +391,20 @@ export function AdminComplaintDetailsPage() {
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">{complaint.description}</p>
               </div>
+
+              {complaint.status === 'Rejected' && complaint.rejectionReason && (
+                <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm dark:bg-red-900/20">
+                  <p className="font-medium text-red-700 dark:text-red-300">Rejection reason</p>
+                  <p className="mt-1 text-gray-700 dark:text-gray-300">{complaint.rejectionReason}</p>
+                </div>
+              )}
+
+              {complaint.status === 'Reopened' && complaint.reopenReason && (
+                <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-900/20">
+                  <p className="font-medium text-amber-800 dark:text-amber-300">Citizen feedback (reopened)</p>
+                  <p className="mt-1 text-gray-700 dark:text-gray-300">{complaint.reopenReason}</p>
+                </div>
+              )}
 
               <div className="mt-4 flex items-start gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
@@ -320,7 +446,10 @@ export function AdminComplaintDetailsPage() {
             <CardContent>
               <textarea
                 value={resolutionNotes}
-                onChange={(e) => setResolutionNotes(e.target.value)}
+                onChange={(e) => {
+                  isDirty.current = true
+                  setResolutionNotes(e.target.value)
+                }}
                 placeholder="Enter resolution notes..."
                 rows={5}
                 className="flex w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 mb-4"
@@ -443,6 +572,28 @@ export function AdminComplaintDetailsPage() {
             <Button variant="outline" onClick={() => setWorkerDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveWorker} disabled={savingWorker}>
               {savingWorker ? 'Saving...' : 'Save Worker'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Complaint</DialogTitle>
+            <DialogDescription>A reason is required and will be shown to the citizen.</DialogDescription>
+          </DialogHeader>
+          <textarea
+            rows={4}
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="e.g. Outside municipal jurisdiction, Duplicate report"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleReject} disabled={saving}>
+              {saving ? 'Rejecting...' : 'Reject'}
             </Button>
           </DialogFooter>
         </DialogContent>
