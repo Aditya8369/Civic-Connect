@@ -99,3 +99,30 @@ it('keeps the global counter continuous across years without renumbering an exis
   expect(await ensureComplaintId('a')).toBe(original)
   expect(await generateComplaintId()).toBe('CMP-2027-0002')
 })
+
+it.each([
+  [1, '0001'],
+  [12, '0012'],
+  [123, '0123'],
+  [1234, '1234'],
+  [10000, '10000'],
+])(
+  'formats complaint number %i with zero-padding',
+  async (number, expected) => {
+    backend.store.write(counter, { lastNumber: number - 1 })
+
+    await expect(generateComplaintId()).resolves.toBe(
+      `CMP-2026-${expected}`,
+    )
+  },
+)
+
+it.each([
+  ['existing complaint ID', { complaintId: 'CMP-2020-0042' }, 'CMP-2020-0042'],
+  ['missing complaint ID', { status: 'Pending' }, 'CMP-2026-XXXX'],
+  ['empty complaint ID', { complaintId: '' }, 'CMP-2026-XXXX'],
+  ['undefined complaint', undefined, 'CMP-2026-XXXX'],
+  ['null complaint', null, 'CMP-2026-XXXX'],
+])('handles %s correctly', (_description, complaint, expected) => {
+  expect(getDisplayId(complaint)).toBe(expected)
+})
