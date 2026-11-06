@@ -19,7 +19,8 @@ vi.mock('react', async original => ({
   useEffect(effect) { if (!runtime.current.mounted) runtime.current.effects.push(effect) },
 }))
 vi.mock('react-router-dom', () => ({ useParams: () => ({ id: 'legacy' }), useNavigate: () => vi.fn() }))
-vi.mock('@/firebase/services', () => ({ db: {} }))
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { uid: 'admin-1' } }) }))
+vi.mock('@/firebase/services', () => ({ db: {}, auth: { currentUser: { uid: 'admin-1' } } }))
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('firebase/firestore', () => ({
   doc: (_db, ...parts) => parts.join('/'),
