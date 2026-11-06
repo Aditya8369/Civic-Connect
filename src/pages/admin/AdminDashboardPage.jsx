@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Flag, Shield, BarChart3, Users, Clock, ArrowRight } from 'lucide-react'
+import { Flag, Shield, BarChart3, Users, Clock, ArrowRight, Star } from 'lucide-react'
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
@@ -42,14 +42,28 @@ export function AdminDashboardPage() {
   const stats = useMemo(() => {
     const total = complaints.length
     let pending = 0, inProgress = 0, resolved = 0
+    let totalRating = 0, ratedCount = 0
     const uniqueUsers = new Set()
     for (const c of complaints) {
       if (c.status === 'Pending' || c.status === 'Reopened') pending++
       else if (c.status === 'In Progress') inProgress++
       else if (c.status === 'Resolved') resolved++
       if (c.reportedBy) uniqueUsers.add(c.reportedBy)
+      if (c.feedback?.rating && typeof c.feedback.rating === 'number') {
+        totalRating += c.feedback.rating
+        ratedCount++
+      }
     }
-    return { total, pending, inProgress, resolved, activeCitizens: uniqueUsers.size }
+    const avgRating = ratedCount > 0 ? (totalRating / ratedCount).toFixed(1) : null
+    return {
+      total,
+      pending,
+      inProgress,
+      resolved,
+      activeCitizens: uniqueUsers.size,
+      avgRating,
+      ratedCount,
+    }
   }, [complaints])
 
   const recentReports = complaints.slice(0, 5)
@@ -142,6 +156,7 @@ export function AdminDashboardPage() {
               <div className="space-y-4">
                 {[
                   { icon: Users, label: 'Active Citizens', desc: 'Unique complainants', value: stats.activeCitizens, bg: 'bg-gray-50 dark:bg-gray-800/50', iconColor: 'text-primary-600 dark:text-primary-400' },
+                  { icon: Star, label: 'Citizen Satisfaction', desc: stats.ratedCount ? `${stats.ratedCount} review${stats.ratedCount === 1 ? '' : 's'}` : 'No ratings yet', value: stats.avgRating ? `${stats.avgRating} ★` : '-', bg: 'bg-amber-50 dark:bg-amber-900/20', iconColor: 'text-amber-500 fill-amber-500' },
                   { icon: Clock, label: 'Pending', desc: 'Awaiting action', value: stats.pending, bg: 'bg-red-50 dark:bg-red-900/20', iconColor: 'text-red-600 dark:text-red-400' },
                   { icon: BarChart3, label: 'In Progress', desc: 'Being addressed', value: stats.inProgress, bg: 'bg-amber-50 dark:bg-amber-900/20', iconColor: 'text-amber-600 dark:text-amber-400' },
                   { icon: Shield, label: 'Resolved', desc: 'Completed', value: stats.resolved, bg: 'bg-emerald-50 dark:bg-emerald-900/20', iconColor: 'text-emerald-600 dark:text-emerald-400' },

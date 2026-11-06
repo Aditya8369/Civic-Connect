@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, ClipboardCheck, AlertTriangle } from 'lucide-react'
-import { doc, onSnapshot, serverTimestamp } from 'firebase/firestore'
+import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, ClipboardCheck, AlertTriangle, Star } from 'lucide-react'
+import { doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
@@ -38,6 +38,14 @@ const statusSteps = {
 
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
+const ratingLabels = {
+  1: 'Poor',
+  2: 'Fair',
+  3: 'Good',
+  4: 'Very Good',
+  5: 'Excellent',
+}
+
 function canReopenComplaint(complaint) {
   const resolvedAt = complaint.resolvedAt?.toDate?.()
   return complaint.status === 'Resolved' && !!resolvedAt &&
@@ -53,6 +61,10 @@ export function ComplaintDetailsPage() {
   const [notFound, setNotFound] = useState(false)
   const [reopenOpen, setReopenOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
+  const [rating, setRating] = useState(0)
+  const [ratingHover, setRatingHover] = useState(0)
+  const [feedbackComment, setFeedbackComment] = useState('')
+  const [submittingFeedback, setSubmittingFeedback] = useState(false)
   const [saving, setSaving] = useState(false)
   const transitionPending = useRef(false)
 
@@ -140,6 +152,30 @@ export function ComplaintDetailsPage() {
     } finally {
       transitionPending.current = false
       setSaving(false)
+    }
+  }
+
+  const handleSubmitFeedback = async () => {
+    if (rating < 1 || rating > 5) {
+      toast.error('Please select a star rating from 1 to 5')
+      return
+    }
+    setSubmittingFeedback(true)
+    try {
+      await updateDoc(doc(db, 'issues', id), {
+        feedback: {
+          rating,
+          comment: feedbackComment.trim(),
+          submittedAt: serverTimestamp(),
+        },
+        updatedAt: serverTimestamp(),
+      })
+      toast.success('Thank you for your feedback!')
+    } catch (err) {
+      toast.error('Failed to submit feedback')
+      console.error(err)
+    } finally {
+      setSubmittingFeedback(false)
     }
   }
 
@@ -287,6 +323,135 @@ export function ComplaintDetailsPage() {
               </CardContent>
             </Card>
           </motion.div>
+
+          {complaint.status === 'Resolved' && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.15 }}
+            >
+              {complaint.feedback ? (
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
+                        Your Feedback
+                      </CardTitle>
+                      <Badge variant="success">Submitted</Badge>
+                    </div>
+                    <CardDescription>
+                      Thank you for helping us improve our municipal services.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            key={s}
+                            className={`h-5 w-5 ${
+                              s <= complaint.feedback.rating
+                                ? 'text-amber-400 fill-amber-400'
+                                : 'text-gray-300 dark:text-gray-700'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                        {complaint.feedback.rating} / 5
+                      </span>
+                      {ratingLabels[complaint.feedback.rating] && (
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          ({ratingLabels[complaint.feedback.rating]})
+                        </span>
+                      )}
+                    </div>
+                    {complaint.feedback.comment && (
+                      <p className="mt-3 text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800">
+                        {complaint.feedback.comment}
+                      </p>
+                    )}
+                    {complaint.feedback.submittedAt && (
+                      <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                        Submitted on {complaint.feedback.submittedAt.toDate?.().toLocaleDateString() || '-'}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="border-amber-200 dark:border-amber-900/50">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
+                      Rate Resolution
+                    </CardTitle>
+                    <CardDescription>
+                      This complaint has been resolved. How satisfied are you with the resolution?
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                        Satisfaction Rating <span className="text-red-500">*</span>
+                      </p>
+                      <div className="flex items-center gap-1.5" onMouseLeave={() => setRatingHover(0)}>
+                        {[1, 2, 3, 4, 5].map((s) => {
+                          const active = s <= (ratingHover || rating)
+                          return (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => setRating(s)}
+                              onMouseEnter={() => setRatingHover(s)}
+                              aria-label={`Rate ${s} star${s > 1 ? 's' : ''}`}
+                              className="p-1 transition-transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded cursor-pointer"
+                            >
+                              <Star
+                                className={`h-6 w-6 transition-colors ${
+                                  active
+                                    ? 'text-amber-400 fill-amber-400'
+                                    : 'text-gray-300 dark:text-gray-700'
+                                }`}
+                              />
+                            </button>
+                          )
+                        })}
+                        {(ratingHover || rating) > 0 && (
+                          <span className="text-sm font-medium text-amber-600 dark:text-amber-400 ml-2">
+                            {ratingLabels[ratingHover || rating]}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label htmlFor="feedback-comment" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                        Feedback Comments (Optional)
+                      </label>
+                      <textarea
+                        id="feedback-comment"
+                        rows={3}
+                        value={feedbackComment}
+                        onChange={(e) => setFeedbackComment(e.target.value)}
+                        placeholder="Tell us what went well or what could be improved..."
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
+                      />
+                    </div>
+
+                    <Button
+                      onClick={handleSubmitFeedback}
+                      disabled={rating === 0 || submittingFeedback}
+                      size="sm"
+                      className="gap-2"
+                    >
+                      {submittingFeedback ? 'Submitting...' : 'Submit Feedback'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+            </motion.div>
+          )}
         </div>
 
         <div className="space-y-6">
