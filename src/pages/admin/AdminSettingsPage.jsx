@@ -1,5 +1,7 @@
-import { useState } from 'react'
-import { Save, Shield, Bell, Globe } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Save, Shield, Bell, Globe, Loader2 } from 'lucide-react'
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { db } from '@/firebase/services'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,11 +14,58 @@ export function AdminSettingsPage() {
   const [city, setCity] = useState('New York')
   const [email, setEmail] = useState('admin@civicconnect.gov')
   const [autoAssign, setAutoAssign] = useState(true)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    getDoc(doc(db, 'settings', 'general'))
+      .then((snap) => {
+        if (cancelled || !snap.exists()) return
+        const data = snap.data()
+        if (data.city !== undefined) setCity(data.city)
+        if (data.adminEmail !== undefined) setEmail(data.adminEmail)
+        if (data.autoAssign !== undefined) setAutoAssign(data.autoAssign)
+      })
+      .catch((err) => {
+        console.error('Settings load error:', err)
+        toast.error('Could not load saved settings')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleSave = async (e) => {
     e.preventDefault()
-    await new Promise((r) => setTimeout(r, 600))
-    toast.success('Settings saved successfully!')
+    if (saving) return
+    const cleanCity = city.trim()
+    const cleanEmail = email.trim()
+    if (!cleanCity) {
+      toast.error('Please enter the city or municipality')
+      return
+    }
+    if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) {
+      toast.error('Please enter a valid admin email')
+      return
+    }
+    setSaving(true)
+    try {
+      await setDoc(
+        doc(db, 'settings', 'general'),
+        { city: cleanCity, adminEmail: cleanEmail, autoAssign, updatedAt: serverTimestamp() },
+        { merge: true }
+      )
+      toast.success('Settings saved successfully!')
+    } catch (err) {
+      console.error('Settings save error:', err)
+      toast.error('Failed to save settings')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -43,11 +92,11 @@ export function AdminSettingsPage() {
             <form onSubmit={handleSave} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="city">City / Municipality</Label>
-                <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} />
+                <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} disabled={loading} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="adminEmail">Admin Email</Label>
-                <Input id="adminEmail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <Input id="adminEmail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={loading} />
               </div>
               <Separator />
               <div className="flex items-center justify-between">
@@ -57,15 +106,17 @@ export function AdminSettingsPage() {
                 </div>
                 <button
                   type="button"
+                  disabled={loading}
                   onClick={() => setAutoAssign(!autoAssign)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${autoAssign ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-700'}`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${autoAssign ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-700'}`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoAssign ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
               <div className="flex justify-end pt-2">
-                <Button type="submit" className="gap-2">
-                  <Save className="h-4 w-4" /> Save Settings
+                <Button type="submit" className="gap-2" disabled={saving || loading}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {saving ? 'Saving...' : 'Save Settings'}
                 </Button>
               </div>
             </form>

@@ -72,7 +72,19 @@ export function AuthProvider({ children }) {
     await signOut(auth)
     setUser(null)
   }, [])
-
+  
+    const updateUserProfile = useCallback(async ({ name, phone, address }) => {
+    const current = auth.currentUser
+    if (!current) throw new Error('Not signed in')
+    // Only these fields are written, never role
+    await setDoc(
+      doc(db, 'users', current.uid),
+      { name, phone, address, updatedAt: serverTimestamp() },
+      { merge: true }
+    )
+    await updateProfile(current, { displayName: name })
+    setUser((prev) => (prev ? { ...prev, name } : prev))
+  }, [])
     const resetPassword = useCallback(async (email) => {
     await sendPasswordResetEmail(auth, email)
   }, [])
@@ -86,6 +98,7 @@ export function AuthProvider({ children }) {
     resetPassword,
     isAuthenticated: !!user,
     authInitialized,
+    updateUserProfile,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
