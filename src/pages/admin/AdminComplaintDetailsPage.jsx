@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, MapPin, Building2, FileText, Loader2, Save, HardHat, Phone, Star } from 'lucide-react'
-import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
-import { db } from '@/firebase/services'
+import { doc, collection, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
+import { auth, db } from '@/firebase/services'
+import { useAuth } from '@/hooks/useAuth'
+import { logComplaintEvent } from '@/firebase/complaintEvents'
 import { getDisplayId, ensureComplaintId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
 import { Button } from '@/components/ui/button'
@@ -11,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { normalizePhone } from '@/utils/phone'
 import {
   Dialog,
   DialogContent,
@@ -50,15 +53,21 @@ const ratingLabels = {
 // Accepts a 10-digit phone number with an optional +91, 91 or 0 prefix,
 // ignoring spaces, dashes, dots and brackets.
 // Returns it as "+91 XXXXXXXXXX", or null if invalid.
-function normalizePhone(value) {
-  if (!/^[\d\s()+.-]+$/.test(value.trim())) return null
-  const digits = value.replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '')
-  return /^\d{10}$/.test(digits) ? `+91 ${digits}` : null
+
+function canRejectComplaint(complaint) {
+  return ['Pending', 'In Progress', 'Reopened'].includes(complaint?.status)
 }
 
 export function AdminComplaintDetailsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  let authUser = null
+  try {
+    authUser = useAuth()?.user
+  } catch {
+    authUser = auth?.currentUser ? { uid: auth.currentUser.uid } : null
+  }
+  const actorUid = authUser?.uid || auth?.currentUser?.uid || null
   const [complaint, setComplaint] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -156,22 +165,35 @@ export function AdminComplaintDetailsPage() {
     transitionPending.current = true
     setSaving(true)
     try {
-      await commitComplaintTransition(id, complaint.status, {
-        status: next,
-        ...(next === 'Resolved' && { resolvedAt: serverTimestamp() }),
-        updatedAt: serverTimestamp(),
-      }, current => current.reportedBy ? {
-        recipientUid: current.reportedBy,
-        recipientRole: 'citizen',
-        senderUid: '',
-        issueId: current.complaintId || id,
-        type: 'status_update',
-        title: 'Complaint Status Updated',
-        message:
-          next === 'Resolved'
-            ? 'Your complaint has been Resolved.'
-            : 'Your complaint is now In Progress.',
-      } : null)
+      await commitComplaintTransition(
+        id,
+        complaint.status,
+        {
+          status: next,
+          ...(next === 'Resolved' && { resolvedAt: serverTimestamp() }),
+          updatedAt: serverTimestamp(),
+        },
+        current => current.reportedBy ? {
+          recipientUid: current.reportedBy,
+          recipientRole: 'citizen',
+          senderUid: '',
+          issueId: current.complaintId || id,
+          type: 'status_update',
+          title: 'Complaint Status Updated',
+          message:
+            next === 'Resolved'
+              ? 'Your complaint has been Resolved.'
+              : 'Your complaint is now In Progress.',
+        } : null,
+        () => true,
+        current => ({
+          actorUid,
+          action: 'Status changed',
+          previousStatus: current.status,
+          newStatus: next,
+          remarks: `Status updated to ${next}`,
+        })
+      )
       toast.success(`Status updated to "${next}"`)
     } catch (err) {
       toast.error('Failed to update status')
@@ -184,7 +206,7 @@ export function AdminComplaintDetailsPage() {
 
   const handleReject = async () => {
     if (saving || transitionPending.current) return
-    if (!canReject) {
+    if (!canRejectComplaint(complaint)) {
       toast.error('This complaint can no longer be rejected')
       return
     }
@@ -196,19 +218,32 @@ export function AdminComplaintDetailsPage() {
     transitionPending.current = true
     setSaving(true)
     try {
-      await commitComplaintTransition(id, complaint.status, {
-        status: 'Rejected',
-        rejectionReason: reason,
-        updatedAt: serverTimestamp(),
-      }, current => current.reportedBy ? {
-        recipientUid: current.reportedBy,
-        recipientRole: 'citizen',
-        senderUid: '',
-        issueId: current.complaintId || id,
-        type: 'status_update',
-        title: 'Complaint Rejected',
-        message: `Your complaint was rejected: ${reason}`,
-      } : null)
+      await commitComplaintTransition(
+        id,
+        complaint.status,
+        {
+          status: 'Rejected',
+          rejectionReason: reason,
+          updatedAt: serverTimestamp(),
+        },
+        current => current.reportedBy ? {
+          recipientUid: current.reportedBy,
+          recipientRole: 'citizen',
+          senderUid: '',
+          issueId: current.complaintId || id,
+          type: 'status_update',
+          title: 'Complaint Rejected',
+          message: `Your complaint was rejected: ${reason}`,
+        } : null,
+        canRejectComplaint,
+        current => ({
+          actorUid,
+          action: 'Status changed',
+          previousStatus: current.status,
+          newStatus: 'Rejected',
+          remarks: reason,
+        })
+      )
       toast.success('Complaint rejected')
       setRejectOpen(false)
       setRejectReason('')
@@ -229,6 +264,13 @@ export function AdminComplaintDetailsPage() {
         department: val,
         updatedAt: serverTimestamp(),
       })
+      await logComplaintEvent(id, {
+        actorUid,
+        action: 'Department assigned',
+        previousStatus: complaint.status,
+        newStatus: complaint.status,
+        remarks: `Department assigned: ${val}`,
+      })
       toast.success(`Department assigned: ${val}`)
     } catch (err) {
       toast.error('Failed to assign department')
@@ -244,6 +286,13 @@ export function AdminComplaintDetailsPage() {
       await updateDoc(doc(db, 'issues', id), {
         resolutionNotes,
         updatedAt: serverTimestamp(),
+      })
+      await logComplaintEvent(id, {
+        actorUid,
+        action: 'Resolution notes updated',
+        previousStatus: complaint.status,
+        newStatus: complaint.status,
+        remarks: resolutionNotes,
       })
       isDirty.current = false
       toast.success('Resolution notes saved')
@@ -279,6 +328,13 @@ export function AdminComplaintDetailsPage() {
         assignedWorker: { name, phone, assignedAt: serverTimestamp() },
         updatedAt: serverTimestamp(),
       })
+      await logComplaintEvent(id, {
+        actorUid,
+        action: 'Field worker designated',
+        previousStatus: complaint.status,
+        newStatus: complaint.status,
+        remarks: `Assigned to ${name} (${phone})`,
+      })
       toast.success(`Worker assigned: ${name}`)
       setWorkerDialogOpen(false)
     } catch (err) {
@@ -309,7 +365,7 @@ export function AdminComplaintDetailsPage() {
     )
   }
 
-  const canReject = ['Pending', 'In Progress', 'Reopened'].includes(complaint.status)
+  const canReject = canRejectComplaint(complaint)
 
   return (
     <div>
