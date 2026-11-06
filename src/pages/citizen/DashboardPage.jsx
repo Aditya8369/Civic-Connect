@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import CommunityFeed from '@/components/citizen/CommunityFeed'
 import {
   Dialog,
   DialogContent,
@@ -70,6 +71,7 @@ export function DashboardPage() {
   const [editDescription, setEditDescription] = useState('')
   const [editAddress, setEditAddress] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
+  const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'community'
 
   useEffect(() => {
     if (!user) {
@@ -172,7 +174,34 @@ export function DashboardPage() {
           <Plus className="h-5 w-5" /> New Complaint
         </Button>
       </div>
+      {/* Dashboard Tabs */}
+      <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6 gap-2">
+        <button
+          onClick={() => setActiveTab('overview')}
+          className={`py-2 px-4 text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === 'overview'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+          }`}
+        >
+          My Overview
+        </button>
+        <button
+          onClick={() => setActiveTab('community')}
+          className={`py-2 px-4 text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === 'community'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+          }`}
+        >
+          Community Feed
+        </button>
+      </div>
 
+      {activeTab === 'community' ? (
+        <CommunityFeed />
+      ) : (
+        <>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
         {stats.map((stat, index) => (
           <motion.div
@@ -201,7 +230,7 @@ export function DashboardPage() {
           </motion.div>
         ))}
       </div>
-
+      
       <Card>
         <CardHeader>
           <CardTitle>Recent Reports</CardTitle>
@@ -252,7 +281,8 @@ export function DashboardPage() {
           )}
         </CardContent>
       </Card>
-
+      </>
+      )}
       <Dialog open={!!editTarget} onOpenChange={(open) => { if (!open) setEditTarget(null) }}>
         <DialogContent>
           <DialogHeader>
