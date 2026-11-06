@@ -17,6 +17,7 @@ import {
 import { db } from '@/firebase/services'
 import { generateComplaintId, getDisplayId } from '@/firebase/complaintId'
 import { addNotificationToBatch } from '@/firebase/notifications'
+import { addComplaintEventToBatch } from '@/firebase/complaintEvents'
 import { useAuth } from '@/hooks/useAuth'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -223,7 +224,8 @@ export function ReportPage() {
       // Complaint and admin notification commit together, so a failed notification
       // can't leave behind a saved complaint that the citizen then re-submits.
       const batch = writeBatch(db)
-      batch.set(doc(collection(db, 'issues')), {
+      const issueRef = doc(collection(db, 'issues'))
+      batch.set(issueRef, {
         complaintId,
         title,
         description,
@@ -238,6 +240,13 @@ export function ReportPage() {
         endorsementCount: 0,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
+      })
+      addComplaintEventToBatch(batch, issueRef.id, {
+        actorUid: user.uid,
+        action: 'Complaint submitted',
+        previousStatus: null,
+        newStatus: 'Pending',
+        remarks: description || 'Complaint submitted',
       })
       addNotificationToBatch(batch, {
         recipientRole: 'admin',

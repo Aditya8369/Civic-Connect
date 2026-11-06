@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, ClipboardCheck, AlertTriangle } from 'lucide-react'
-import { doc, onSnapshot, serverTimestamp } from 'firebase/firestore'
+import { doc, collection, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
@@ -28,14 +28,6 @@ const statusVariant = {
   Reopened: 'warning',
 }
 
-const statusSteps = {
-  Pending: ['Submitted', 'Under Review'],
-  'In Progress': ['Submitted', 'Under Review', 'Assigned to Department', 'In Progress'],
-  Resolved: ['Submitted', 'Under Review', 'Assigned to Department', 'In Progress', 'Resolved'],
-  Rejected: ['Submitted', 'Under Review', 'Rejected'],
-  Reopened: ['Submitted', 'Under Review', 'Assigned to Department', 'In Progress', 'Resolved', 'Reopened'],
-}
-
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 function canReopenComplaint(complaint) {
@@ -44,11 +36,48 @@ function canReopenComplaint(complaint) {
     Date.now() - resolvedAt.getTime() <= REOPEN_WINDOW_MS
 }
 
+function sortEvents(list) {
+  const getMillis = (val) => {
+    if (!val) return 0
+    if (typeof val.toMillis === 'function') return val.toMillis()
+    if (typeof val.toDate === 'function') return val.toDate().getTime()
+    if (typeof val.seconds === 'number') return val.seconds * 1000
+    if (typeof val === 'number') return val
+    const parsed = new Date(val).getTime()
+    return isNaN(parsed) ? 0 : parsed
+  }
+  return [...list].sort((a, b) => getMillis(a.timestamp) - getMillis(b.timestamp))
+}
+
+function formatEventDate(ts) {
+  if (!ts) return ''
+  let date = null
+  if (typeof ts?.toDate === 'function') {
+    date = ts.toDate()
+  } else if (ts instanceof Date) {
+    date = ts
+  } else if (typeof ts?.seconds === 'number') {
+    date = new Date(ts.seconds * 1000)
+  } else if (typeof ts === 'number' || typeof ts === 'string') {
+    const d = new Date(ts)
+    if (!isNaN(d.getTime())) date = d
+  }
+  if (!date) return ''
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 export function ComplaintDetailsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
   const [complaint, setComplaint] = useState(null)
+  const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [reopenOpen, setReopenOpen] = useState(false)
@@ -57,7 +86,20 @@ export function ComplaintDetailsPage() {
   const transitionPending = useRef(false)
 
   useEffect(() => {
-    const unsub = onSnapshot(
+    const unsubEvents = onSnapshot(
+      collection(db, `issues/${id}/events`),
+      (snap) => {
+        if (snap?.docs) {
+          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+          setEvents(sortEvents(list))
+        }
+      },
+      (error) => {
+        console.error('ComplaintDetails events Firestore error:', error)
+      }
+    )
+
+    const unsubComplaint = onSnapshot(
       doc(db, 'issues', id),
       (snap) => {
         if (snap.exists()) {
@@ -73,7 +115,11 @@ export function ComplaintDetailsPage() {
         setLoading(false)
       }
     )
-    return unsub
+
+    return () => {
+      unsubEvents?.()
+      unsubComplaint?.()
+    }
   }, [id])
 
   if (loading) {
@@ -97,11 +143,38 @@ export function ComplaintDetailsPage() {
     )
   }
 
-  const steps = statusSteps[complaint.status] || ['Submitted']
-  const completedCount = steps.length
   const lastUpdated = complaint.updatedAt?.toDate?.() || complaint.createdAt?.toDate?.()
-
   const canReopen = canReopenComplaint(complaint)
+
+  const timelineEvents = (events && events.length > 0)
+    ? events.map((evt) => ({
+        ...evt,
+        formattedDate: formatEventDate(evt.timestamp),
+      }))
+    : [
+        {
+          id: 'initial',
+          action: 'Complaint submitted',
+          newStatus: 'Pending',
+          remarks: 'Complaint submitted',
+          formattedDate: formatEventDate(complaint.createdAt),
+        },
+        ...(complaint.status && complaint.status !== 'Pending'
+          ? [
+              {
+                id: 'status-update',
+                action: 'Status changed',
+                previousStatus: 'Pending',
+                newStatus: complaint.status,
+                remarks:
+                  complaint.rejectionReason ||
+                  complaint.reopenReason ||
+                  `Status updated to ${complaint.status}`,
+                formattedDate: formatEventDate(complaint.updatedAt || complaint.createdAt),
+              },
+            ]
+          : []),
+      ]
 
   const handleReopen = async () => {
     if (transitionPending.current) return
@@ -117,20 +190,33 @@ export function ComplaintDetailsPage() {
     transitionPending.current = true
     setSaving(true)
     try {
-      await commitComplaintTransition(id, 'Resolved', {
-        status: 'Reopened',
-        reopenReason: reason,
-        reopenedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }, current => ({
-        recipientUid: null,
-        recipientRole: 'admin',
-        senderUid: user.uid,
-        issueId: current.complaintId || id,
-        type: 'status_update',
-        title: 'Complaint Reopened',
-        message: `A citizen reopened a resolved complaint: ${reason}`,
-      }), canReopenComplaint)
+      await commitComplaintTransition(
+        id,
+        'Resolved',
+        {
+          status: 'Reopened',
+          reopenReason: reason,
+          reopenedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        current => ({
+          recipientUid: null,
+          recipientRole: 'admin',
+          senderUid: user.uid,
+          issueId: current.complaintId || id,
+          type: 'status_update',
+          title: 'Complaint Reopened',
+          message: `A citizen reopened a resolved complaint: ${reason}`,
+        }),
+        canReopenComplaint,
+        current => ({
+          actorUid: user.uid,
+          action: 'Status changed',
+          previousStatus: current.status,
+          newStatus: 'Reopened',
+          remarks: reason,
+        })
+      )
       toast.success('Complaint reopened')
       setReopenOpen(false)
       setFeedback('')
@@ -256,29 +342,38 @@ export function ComplaintDetailsPage() {
                 <div className="relative ml-2">
                   <div className="absolute left-[7px] top-1 bottom-1 w-0.5 bg-gray-200 dark:bg-gray-800" />
                   <div className="space-y-6">
-                    {steps.map((step, i) => (
+                    {timelineEvents.map((evt, i) => (
                       <motion.div
-                        key={step}
+                        key={evt.id || i}
                         initial={{ opacity: 0, x: -8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ duration: 0.3, delay: i * 0.08 }}
                         className="relative flex gap-4"
                       >
-                        <div
-                          className={`relative z-10 mt-1 flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full border-2 ${
-                            i < completedCount
-                              ? 'border-primary-600 bg-primary-600 dark:border-primary-400 dark:bg-primary-400'
-                              : 'border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-900'
-                          }`}
-                        >
-                          {i < completedCount && (
-                            <div className="h-1.5 w-1.5 rounded-full bg-white" />
-                          )}
+                        <div className="relative z-10 mt-1 flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full border-2 border-primary-600 bg-primary-600 dark:border-primary-400 dark:bg-primary-400">
+                          <div className="h-1.5 w-1.5 rounded-full bg-white" />
                         </div>
                         <div className="flex-1 min-w-0 pb-1">
-                          <p className={`text-sm font-medium ${i < completedCount ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}`}>
-                            {step}
-                          </p>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <p className="text-sm font-medium text-gray-900 dark:text-white capitalize">
+                              {evt.action}
+                            </p>
+                            {evt.formattedDate && (
+                              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">
+                                {evt.formattedDate}
+                              </span>
+                            )}
+                          </div>
+                          {evt.previousStatus && evt.newStatus && evt.previousStatus !== evt.newStatus && (
+                            <p className="text-xs font-medium text-primary-600 dark:text-primary-400 mt-0.5">
+                              {evt.previousStatus} &rarr; {evt.newStatus}
+                            </p>
+                          )}
+                          {evt.remarks && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+                              {evt.remarks}
+                            </p>
+                          )}
                         </div>
                       </motion.div>
                     ))}
