@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, MapPin, Building2, FileText, Loader2, Save, HardHat, Phone, Star } from 'lucide-react'
-import { doc, collection, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
+import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
 import { auth, db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { logComplaintEvent } from '@/firebase/complaintEvents'
