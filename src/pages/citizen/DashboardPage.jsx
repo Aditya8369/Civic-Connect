@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { AlertTriangle, CheckCircle, Clock, Flag, Plus, FileWarning, Pencil } from 'lucide-react'
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { isUnconfirmedEmpty } from '@/firebase/snapshot'
 import { useAuth } from '@/hooks/useAuth'
@@ -23,8 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import toast from 'react-hot-toast'
-import { getComplaintEditError } from '@/utils/complaintEdit'
+import { useComplaintEditSave } from '@/hooks/useComplaintEditSave'
 
 const statusVariant = {
   Resolved: 'success',
@@ -70,8 +69,8 @@ export function DashboardPage() {
   const [editTitle, setEditTitle] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editAddress, setEditAddress] = useState('')
-  const [savingEdit, setSavingEdit] = useState(false)
   const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'community'
+  const { savingEdit, saveEdit } = useComplaintEditSave()
 
   useEffect(() => {
     if (!user) {
@@ -121,30 +120,9 @@ export function DashboardPage() {
     setEditAddress(complaint.address)
   }
 
-  const handleEditSave = async () => {
-    if (!editTarget || savingEdit) return
-    const error = getComplaintEditError({
-      title: editTitle, description: editDescription, address: editAddress,
-    })
-    if (error) {
-      toast.error(error)
-      return
-    }
-    setSavingEdit(true)
-    try {
-      await updateDoc(doc(db, 'issues', editTarget.id), {
-        title: editTitle.trim(),
-        description: editDescription.trim(),
-        address: editAddress.trim(),
-        updatedAt: serverTimestamp(),
-      })
-      toast.success('Complaint updated successfully')
-      setEditTarget(null)
-    } catch {
-      toast.error('Failed to update complaint')
-    }
-    setSavingEdit(false)
-  }
+  const handleEditSave = () => saveEdit(editTarget, {
+    title: editTitle, description: editDescription, address: editAddress,
+  }, user?.uid, () => setEditTarget(null))
 
   const total = complaints.length
   const pending = complaints.filter((c) => c.status === 'Pending' || c.status === 'Reopened').length
@@ -202,88 +180,89 @@ export function DashboardPage() {
         <CommunityFeed />
       ) : (
         <>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-        {stats.map((stat, index) => (
-          <motion.div
-            key={stat.label}
-            initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.3, delay: index * 0.05 }}
-          >
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
-                    {loading ? (
-                      <Skeleton className="h-8 w-12 mt-1" />
-                    ) : (
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{loadError ? '-' : stat.value}</p>
-                    )}
-                  </div>
-                  <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${stat.color}`}>
-                    <stat.icon className="h-6 w-6" />
-                  </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+            {stats.map((stat, index) => (
+              <motion.div
+                key={stat.label}
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.3, delay: index * 0.05 }}
+              >
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
+                        {loading ? (
+                          <Skeleton className="h-8 w-12 mt-1" />
+                        ) : (
+                          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{loadError ? '-' : stat.value}</p>
+                        )}
+                      </div>
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${stat.color}`}>
+                        <stat.icon className="h-6 w-6" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Reports</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadError ? (
+                <ConnectionErrorBanner onRetry={() => setReloadKey((k) => k + 1)} />
+              ) : loading ? (
+                <div className="divide-y divide-gray-100 dark:divide-gray-800" aria-busy="true">
+                  {Array.from({ length: 3 }, (_, i) => (
+                    <div key={i} aria-hidden="true" className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-48" />
+                        <Skeleton className="h-3 w-20" />
+                      </div>
+                      <Skeleton className="h-5 w-16 rounded-full" />
+                    </div>
+                  ))}
                 </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Reports</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loadError ? (
-            <ConnectionErrorBanner onRetry={() => setReloadKey((k) => k + 1)} />
-          ) : loading ? (
-            <div className="divide-y divide-gray-100 dark:divide-gray-800" aria-busy="true">
-              {Array.from({ length: 3 }, (_, i) => (
-                <div key={i} aria-hidden="true" className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-48" />
-                    <Skeleton className="h-3 w-20" />
-                  </div>
-                  <Skeleton className="h-5 w-16 rounded-full" />
+              ) : recent.length === 0 && !loading ? (
+                <div className="flex flex-col items-center justify-center py-8">
+                  <FileWarning className="h-10 w-10 text-gray-300 dark:text-gray-600 mb-3" />
+                  <p className="text-sm text-gray-500 dark:text-gray-400">No reports yet</p>
                 </div>
-              ))}
-            </div>
-          ) : recent.length === 0 && !loading ? (
-            <div className="flex flex-col items-center justify-center py-8">
-              <FileWarning className="h-10 w-10 text-gray-300 dark:text-gray-600 mb-3" />
-              <p className="text-sm text-gray-500 dark:text-gray-400">No reports yet</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {recent.map((report) => (
-                <div key={report.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{report.title}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {report.createdAt?.toDate?.().toLocaleDateString() || ''}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={statusVariant[report.status] || 'default'} className="capitalize">
-                      {report.status}
-                    </Badge>
-                    {report.status === 'Pending' && (
-                      <Button variant="ghost" size="sm" className="gap-1.5 text-xs h-8" onClick={() => openEdit(report)}>
-                        <Pencil className="h-3.5 w-3.5" /> Edit
-                      </Button>
-                    )}
-                  </div>
+              ) : (
+                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {recent.map((report) => (
+                    <div key={report.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">{report.title}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {report.createdAt?.toDate?.().toLocaleDateString() || ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={statusVariant[report.status] || 'default'} className="capitalize">
+                          {report.status}
+                        </Badge>
+                        {report.status === 'Pending' && (
+                          <Button variant="ghost" size="sm" className="gap-1.5 text-xs h-8" onClick={() => openEdit(report)}>
+                            <Pencil className="h-3.5 w-3.5" /> Edit
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      </>
+              )}
+            </CardContent>
+          </Card>
+        </>
       )}
-      <Dialog open={!!editTarget} onOpenChange={(open) => { if (!open) setEditTarget(null) }}>
+
+      <Dialog open={!!editTarget} onOpenChange={(open) => { if (!open && !savingEdit) setEditTarget(null) }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Complaint</DialogTitle>
@@ -292,12 +271,13 @@ export function DashboardPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="edit-title">Title</Label>
-              <Input id="edit-title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+              <Input id="edit-title" disabled={savingEdit} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-desc">Description</Label>
               <textarea
                 id="edit-desc"
+                disabled={savingEdit}
                 rows={3}
                 className="flex w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 resize-none"
                 value={editDescription}
@@ -306,11 +286,11 @@ export function DashboardPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-addr">Address</Label>
-              <Input id="edit-addr" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
+              <Input id="edit-addr" disabled={savingEdit} value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button variant="outline" disabled={savingEdit} onClick={() => setEditTarget(null)}>Cancel</Button>
             <Button onClick={handleEditSave} disabled={savingEdit}>
               {savingEdit ? 'Saving...' : 'Save Changes'}
             </Button>
