@@ -1,9 +1,9 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
-  onAuthStateChanged,
+  onIdTokenChanged,
   updateProfile,
   sendPasswordResetEmail,
 } from 'firebase/auth'
@@ -21,71 +21,156 @@ function formatFirebaseUser(firebaseUser, role) {
   }
 }
 
+function sessionChanged() {
+  return Object.assign(new Error('The authentication session changed'), { code: 'auth/session-changed' })
+}
+
+async function readRole(firebaseUser, registration) {
+  // The observer can run before registration receives its credential. Wait for
+  // that account's profile write instead of hydrating from a missing document.
+  if (registration && (registration.firebaseUser
+    ? registration.firebaseUser === firebaseUser
+    : registration.email === firebaseUser.email?.toLowerCase())) {
+    const result = await registration.result.catch(() => null)
+    if (result?.firebaseUser === firebaseUser) return result.role
+    if (auth.currentUser !== firebaseUser) return undefined
+  }
+  const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid))
+  return userDoc.exists() ? userDoc.data().role : 'citizen'
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [authInitialized, setAuthInitialized] = useState(false)
+  const lifetime = useRef(null)
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid))
-          const role = userDoc.exists() ? userDoc.data().role : 'citizen'
-          setUser(formatFirebaseUser(firebaseUser, role))
-        } catch {
-          setUser(formatFirebaseUser(firebaseUser, 'citizen'))
-        }
-      } else {
-        setUser(null)
+  const isCurrent = useCallback((active, session) => {
+    return !!session && lifetime.current === active && active.session === session
+      && auth.currentUser === session.firebaseUser
+  }, [])
+
+  const startSession = useCallback((active, firebaseUser) => {
+    if (!active || lifetime.current !== active || active.signOut || auth.currentUser !== firebaseUser) return null
+    if (active.session?.firebaseUser === firebaseUser) return active.session
+
+    // User object identity distinguishes sign-ins with the same UID. The
+    // session object also invalidates pending work immediately on local logout.
+    const session = { firebaseUser, profile: null }
+    active.session = session
+    setUser(null)
+    setLoading(!!firebaseUser)
+    if (!firebaseUser) {
+      setAuthInitialized(true)
+      return session
+    }
+
+    session.profile = (async () => {
+      let role, failure
+      try {
+        role = await readRole(firebaseUser, active.registration)
+      } catch (error) {
+        failure = { error }
       }
+      if (!isCurrent(active, session)) return null
+      const hydrated = formatFirebaseUser(firebaseUser, role)
+      setUser(hydrated)
       setLoading(false)
       setAuthInitialized(true)
-    })
-    return unsubscribe
-  }, [])
+      return { user: hydrated, failure }
+    })()
+    return session
+  }, [isCurrent])
+
+  useEffect(() => {
+    const active = { session: null, signOut: null, registration: null }
+    lifetime.current = active
+    // Unlike onAuthStateChanged, this also notifies for a new sign-in with the
+    // same UID. startSession reuses hydration on ordinary token refreshes.
+    const unsubscribe = onIdTokenChanged(auth, firebaseUser => startSession(active, firebaseUser)?.profile)
+    return () => {
+      lifetime.current = null
+      unsubscribe()
+    }
+  }, [startSession])
+
+  const currentProfile = useCallback(async (active, firebaseUser) => {
+    const session = startSession(active, firebaseUser)
+    const result = await session?.profile
+    if (!result || !isCurrent(active, session)) throw sessionChanged()
+    if (result.failure) throw result.failure.error
+    return result.user
+  }, [isCurrent, startSession])
 
   const login = useCallback(async (email, password) => {
+    const active = lifetime.current
     const cred = await signInWithEmailAndPassword(auth, email, password)
-    const userDoc = await getDoc(doc(db, 'users', cred.user.uid))
-    const role = userDoc.exists() ? userDoc.data().role : 'citizen'
-    const formatted = formatFirebaseUser(cred.user, role)
-    setUser(formatted)
-    return formatted
-  }, [])
+    return currentProfile(active, cred.user)
+  }, [currentProfile])
 
   const register = useCallback(async ({ name, email, password, role = 'citizen' }) => {
-    const cred = await createUserWithEmailAndPassword(auth, email, password)
-    await updateProfile(cred.user, { displayName: name })
-    await setDoc(doc(db, 'users', cred.user.uid), {
-      name,
-      email,
-      role,
-      createdAt: serverTimestamp(),
+    const active = lifetime.current
+    if (!active) throw sessionChanged()
+    const registration = { email: email.trim().toLowerCase(), firebaseUser: null }
+    active.registration = registration
+    registration.result = Promise.resolve().then(async () => {
+      const { user: firebaseUser } = await createUserWithEmailAndPassword(auth, email, password)
+      registration.firebaseUser = firebaseUser
+      const session = startSession(active, firebaseUser)
+      if (!isCurrent(active, session)) throw sessionChanged()
+      try {
+        await updateProfile(firebaseUser, { displayName: name })
+        if (!isCurrent(active, session)) throw sessionChanged()
+        await setDoc(doc(db, 'users', firebaseUser.uid), { name, email, role, createdAt: serverTimestamp() })
+      } catch (error) {
+        if (!isCurrent(active, session)) throw sessionChanged()
+        throw error
+      }
+      if (!isCurrent(active, session)) throw sessionChanged()
+      return { firebaseUser, role }
     })
-    const formatted = formatFirebaseUser(cred.user, role)
-    setUser(formatted)
-    return formatted
-  }, [])
+    try {
+      const { firebaseUser } = await registration.result
+      return await currentProfile(active, firebaseUser)
+    } finally {
+      if (active.registration === registration) active.registration = null
+    }
+  }, [currentProfile, isCurrent, startSession])
 
   const logout = useCallback(async () => {
-    await signOut(auth)
+    const active = lifetime.current
+    if (!active) throw sessionChanged()
+    if (active.signOut) return active.signOut
+    active.session = null
     setUser(null)
-  }, [])
-  
-    const updateUserProfile = useCallback(async ({ name, phone, address }) => {
+    setLoading(true)
+    active.signOut = Promise.resolve().then(() => signOut(auth))
+    try {
+      await active.signOut
+    } finally {
+      active.signOut = null
+      startSession(active, auth.currentUser)
+    }
+  }, [startSession])
+
+  const updateUserProfile = useCallback(async ({ name, phone, address }) => {
+    const active = lifetime.current
+    const session = active?.session
     const current = auth.currentUser
     if (!current) throw new Error('Not signed in')
+    if (!isCurrent(active, session)) throw sessionChanged()
     // Only these fields are written, never role
     await setDoc(
       doc(db, 'users', current.uid),
       { name, phone, address, updatedAt: serverTimestamp() },
       { merge: true }
     )
+    if (!isCurrent(active, session)) return
     await updateProfile(current, { displayName: name })
-    setUser((prev) => (prev ? { ...prev, name } : prev))
-  }, [])
-    const resetPassword = useCallback(async (email) => {
+    if (isCurrent(active, session)) setUser(prev => prev ? { ...prev, name } : prev)
+  }, [isCurrent])
+
+  const resetPassword = useCallback(async (email) => {
     await sendPasswordResetEmail(auth, email)
   }, [])
 

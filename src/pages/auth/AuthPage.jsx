@@ -87,6 +87,7 @@ export function AuthPage() {
         navigate(role === 'admin' ? '/admin/dashboard' : '/dashboard')
       }
     } catch (err) {
+      if (err.code === 'auth/session-changed') return
       const msg = err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential'
         ? 'Invalid email or password'
         : err.code === 'auth/email-already-in-use'
