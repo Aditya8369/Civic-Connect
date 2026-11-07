@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { logComplaintEvent } from '@/firebase/complaintEvents'
 import { getDisplayId, ensureComplaintId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
+import { createNotification } from '@/firebase/notifications'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -271,6 +272,17 @@ export function AdminComplaintDetailsPage() {
         newStatus: complaint.status,
         remarks: `Department assigned: ${val}`,
       })
+      if (complaint?.reportedBy) {
+        await createNotification({
+          recipientUid: complaint.reportedBy,
+          recipientRole: 'citizen',
+          senderUid: actorUid || '',
+          issueId: complaint.complaintId || id,
+          type: 'department_assigned',
+          title: 'Department Assigned',
+          message: `Your complaint has been assigned to the ${val} department.`,
+        }).catch((notifErr) => console.error('Department notification error:', notifErr))
+      }
       toast.success(`Department assigned: ${val}`)
     } catch (err) {
       toast.error('Failed to assign department')
