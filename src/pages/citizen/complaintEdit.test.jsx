@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MyReportsPage } from './MyReportsPage'
 import { DashboardPage } from './DashboardPage'
 import { Dialog } from '@/components/ui/dialog'
+import { auth } from '@/firebase/services'
 import { createTransactionStore } from '@/firebase/testSupport/transactionStore'
 import toast from 'react-hot-toast'
 
@@ -93,6 +94,7 @@ function pauseSave() {
 }
 beforeEach(() => {
   vi.clearAllMocks()
+  auth.currentUser = { uid: 'citizen-1' }
   runtime.store = createTransactionStore({ [path]: fixture })
   runtime.listeners = new Set()
   runtime.gate = null
@@ -203,6 +205,7 @@ describe.each(pages)('%s editing', (_name, Page) => {
 
 it('does not write from a stale no-op dialog', async () => {
   const ui = mount(MyReportsPage)
+  ui.change('edit-addr', `  ${fixture.address}  `)
   runtime.store.write(path, { ...fixture, address: 'Newer address' })
   await ui.save()
   expect(runtime.store.read(path).address).toBe('Newer address')
@@ -218,6 +221,38 @@ it('accepts identical edits without writing twice', async () => {
   await second.save()
   expect(runtime.store.history).toHaveLength(1)
   expect(second.isOpen()).toBe(false)
+})
+
+it.each([
+  ['normalization of the original title', 'Broken lamp', 'Repair lamp', 2],
+  ['a whitespace-only change to the original title', ' Broken lamp\t', 'Repair lamp', 2],
+  ['an equivalent version of the intended title', ' Repair lamp ', ' Repair lamp ', 1],
+])('handles %s without a false conflict', async (_case, current, expected, writeCount) => {
+  runtime.store = createTransactionStore({ [path]: { ...fixture, title: '  Broken lamp  ' } })
+  const ui = mount(MyReportsPage)
+  ui.change('edit-title', ' Repair lamp ')
+  runtime.store.write(path, { ...fixture, title: current, updatedAt: 'other-save' })
+  emitSnapshot()
+  await ui.save()
+  expect(runtime.store.read(path)).toEqual({
+    ...fixture, title: expected, updatedAt: writeCount === 2 ? 'server-time' : 'other-save',
+  })
+  expect(runtime.store.history).toHaveLength(writeCount)
+  expect(ui.isOpen()).toBe(false)
+  expect(toast.error).not.toHaveBeenCalled()
+})
+
+it('rejects a different title even when it contains surrounding whitespace', async () => {
+  runtime.store = createTransactionStore({ [path]: { ...fixture, title: '  Broken lamp  ' } })
+  const ui = mount(DashboardPage)
+  ui.change('edit-title', 'Repair lamp')
+  runtime.store.write(path, { ...fixture, title: ' Another title ' })
+  await ui.save()
+  expect(runtime.store.read(path).title).toBe(' Another title ')
+  expect(runtime.store.history).toHaveLength(1)
+  expect(ui.isOpen()).toBe(true)
+  expect(ui.draft()[0]).toBe('Repair lamp')
+  expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/changed elsewhere/))
 })
 
 it('preserves independent writes during simultaneous transactions and retries', async () => {
@@ -240,6 +275,46 @@ it('re-evaluates a field conflict on transaction retry', async () => {
   expect(runtime.store.read(path).title).toBe('Newer title')
   expect(runtime.store.history).toHaveLength(1)
   expect(ui.isOpen()).toBe(true)
+  expect(toast.success).not.toHaveBeenCalled()
+})
+
+it('rejects a pending save after logout before the first transaction attempt', async () => {
+  const ui = mount(MyReportsPage), release = pauseSave()
+  ui.change('edit-title', 'My title')
+  const pending = ui.save()
+  auth.currentUser = null
+  release()
+  await pending
+  expect(runtime.store.read(path)).toEqual(fixture)
+  expect(runtime.store.history).toHaveLength(0)
+  expect(ui.isOpen()).toBe(true)
+  expect(ui.draft()[0]).toBe('My title')
+  expect(toast.error).toHaveBeenCalledOnce()
+  expect(toast.success).not.toHaveBeenCalled()
+})
+
+it.each([
+  ['logout', null],
+  ['account switch', { uid: 'citizen-2' }],
+  ['sign-out followed by a new sign-in with the same UID', { uid: 'citizen-1' }],
+])('rejects a transaction retry after %s', async (_case, nextUser) => {
+  const ui = mount(DashboardPage)
+  ui.change('edit-title', 'My title')
+  const remoteUpdate = { ...fixture, address: 'New address' }
+  runtime.store.beforeCommit = () => {
+    runtime.store.write(path, remoteUpdate)
+    auth.currentUser = null
+    auth.currentUser = nextUser
+  }
+  await ui.save()
+  expect(runtime.store.attempts).toBe(2)
+  expect(runtime.store.conflicts).toBe(1)
+  expect(runtime.store.read(path)).toEqual(remoteUpdate)
+  expect(runtime.store.history).toHaveLength(1)
+  expect(ui.isOpen()).toBe(true)
+  expect(ui.draft()[0]).toBe('My title')
+  expect(ui.button('Save Changes').props.disabled).toBe(false)
+  expect(toast.error).toHaveBeenCalledOnce()
   expect(toast.success).not.toHaveBeenCalled()
 })
 
