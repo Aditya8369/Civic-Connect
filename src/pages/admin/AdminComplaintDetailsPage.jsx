@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, Building2, FileText, Loader2, Save, HardHat, Phone } from 'lucide-react'
-import { doc, collection, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
+import { ArrowLeft, MapPin, Building2, FileText, Loader2, Save, HardHat, Phone, Star } from 'lucide-react'
+import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
 import { auth, db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { logComplaintEvent } from '@/firebase/complaintEvents'
 import { getDisplayId, ensureComplaintId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -41,6 +41,14 @@ const nextStatus = {
 }
 
 const departments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
+
+const ratingLabels = {
+  1: 'Poor',
+  2: 'Fair',
+  3: 'Good',
+  4: 'Very Good',
+  5: 'Excellent',
+}
 
 // Accepts a 10-digit phone number with an optional +91, 91 or 0 prefix,
 // ignoring spaces, dashes, dots and brackets.
@@ -516,6 +524,75 @@ export function AdminComplaintDetailsPage() {
               </Button>
             </CardContent>
           </Card>
+
+          {complaint.feedback ? (
+            <Card className="border-amber-200 dark:border-amber-900/50">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
+                    Citizen Feedback
+                  </CardTitle>
+                  <Badge variant="success">Rated</Badge>
+                </div>
+                <CardDescription>
+                  Satisfaction rating and feedback submitted by the citizen.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star
+                        key={s}
+                        className={`h-5 w-5 ${
+                          s <= complaint.feedback.rating
+                            ? 'text-amber-400 fill-amber-400'
+                            : 'text-gray-300 dark:text-gray-700'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                    {complaint.feedback.rating} / 5
+                  </span>
+                  {ratingLabels[complaint.feedback.rating] && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      ({ratingLabels[complaint.feedback.rating]})
+                    </span>
+                  )}
+                </div>
+
+                {complaint.feedback.comment ? (
+                  <p className="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800">
+                    "{complaint.feedback.comment}"
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 italic">No additional comment provided.</p>
+                )}
+
+                {complaint.feedback.submittedAt && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                    Submitted on {complaint.feedback.submittedAt.toDate?.().toLocaleDateString() || '-'}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          ) : complaint.status === 'Resolved' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Star className="h-5 w-5 text-gray-400" />
+                  Citizen Feedback
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-gray-400 dark:text-gray-500">
+                  Awaiting citizen rating and feedback.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
 
         <div className="space-y-6">
