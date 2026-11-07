@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import CommunityFeed from '@/components/citizen/CommunityFeed'
 import {
   Dialog,
   DialogContent,
@@ -68,6 +69,7 @@ export function DashboardPage() {
   const [editTitle, setEditTitle] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editAddress, setEditAddress] = useState('')
+  const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'community'
   const { savingEdit, saveEdit } = useComplaintEditSave()
 
   useEffect(() => {
@@ -150,86 +152,115 @@ export function DashboardPage() {
           <Plus className="h-5 w-5" /> New Complaint
         </Button>
       </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-        {stats.map((stat, index) => (
-          <motion.div
-            key={stat.label}
-            initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.3, delay: index * 0.05 }}
-          >
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
-                    {loading ? (
-                      <Skeleton className="h-8 w-12 mt-1" />
-                    ) : (
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{loadError ? '-' : stat.value}</p>
-                    )}
-                  </div>
-                  <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${stat.color}`}>
-                    <stat.icon className="h-6 w-6" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
+      {/* Dashboard Tabs */}
+      <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6 gap-2">
+        <button
+          onClick={() => setActiveTab('overview')}
+          className={`py-2 px-4 text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === 'overview'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+          }`}
+        >
+          My Overview
+        </button>
+        <button
+          onClick={() => setActiveTab('community')}
+          className={`py-2 px-4 text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === 'community'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+          }`}
+        >
+          Community Feed
+        </button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Reports</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loadError ? (
-            <ConnectionErrorBanner onRetry={() => setReloadKey((k) => k + 1)} />
-          ) : loading ? (
-            <div className="divide-y divide-gray-100 dark:divide-gray-800" aria-busy="true">
-              {Array.from({ length: 3 }, (_, i) => (
-                <div key={i} aria-hidden="true" className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-48" />
-                    <Skeleton className="h-3 w-20" />
-                  </div>
-                  <Skeleton className="h-5 w-16 rounded-full" />
+      {activeTab === 'community' ? (
+        <CommunityFeed />
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+            {stats.map((stat, index) => (
+              <motion.div
+                key={stat.label}
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.3, delay: index * 0.05 }}
+              >
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
+                        {loading ? (
+                          <Skeleton className="h-8 w-12 mt-1" />
+                        ) : (
+                          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{loadError ? '-' : stat.value}</p>
+                        )}
+                      </div>
+                      <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${stat.color}`}>
+                        <stat.icon className="h-6 w-6" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Reports</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadError ? (
+                <ConnectionErrorBanner onRetry={() => setReloadKey((k) => k + 1)} />
+              ) : loading ? (
+                <div className="divide-y divide-gray-100 dark:divide-gray-800" aria-busy="true">
+                  {Array.from({ length: 3 }, (_, i) => (
+                    <div key={i} aria-hidden="true" className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-48" />
+                        <Skeleton className="h-3 w-20" />
+                      </div>
+                      <Skeleton className="h-5 w-16 rounded-full" />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : recent.length === 0 && !loading ? (
-            <div className="flex flex-col items-center justify-center py-8">
-              <FileWarning className="h-10 w-10 text-gray-300 dark:text-gray-600 mb-3" />
-              <p className="text-sm text-gray-500 dark:text-gray-400">No reports yet</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {recent.map((report) => (
-                <div key={report.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{report.title}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {report.createdAt?.toDate?.().toLocaleDateString() || ''}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={statusVariant[report.status] || 'default'} className="capitalize">
-                      {report.status}
-                    </Badge>
-                    {report.status === 'Pending' && (
-                      <Button variant="ghost" size="sm" className="gap-1.5 text-xs h-8" onClick={() => openEdit(report)}>
-                        <Pencil className="h-3.5 w-3.5" /> Edit
-                      </Button>
-                    )}
-                  </div>
+              ) : recent.length === 0 && !loading ? (
+                <div className="flex flex-col items-center justify-center py-8">
+                  <FileWarning className="h-10 w-10 text-gray-300 dark:text-gray-600 mb-3" />
+                  <p className="text-sm text-gray-500 dark:text-gray-400">No reports yet</p>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              ) : (
+                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {recent.map((report) => (
+                    <div key={report.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">{report.title}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {report.createdAt?.toDate?.().toLocaleDateString() || ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={statusVariant[report.status] || 'default'} className="capitalize">
+                          {report.status}
+                        </Badge>
+                        {report.status === 'Pending' && (
+                          <Button variant="ghost" size="sm" className="gap-1.5 text-xs h-8" onClick={() => openEdit(report)}>
+                            <Pencil className="h-3.5 w-3.5" /> Edit
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
 
       <Dialog open={!!editTarget} onOpenChange={(open) => { if (!open && !savingEdit) setEditTarget(null) }}>
         <DialogContent>
