@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { AlertTriangle, CheckCircle, Clock, Flag, Plus, FileWarning, Pencil } from 'lucide-react'
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { isUnconfirmedEmpty } from '@/firebase/snapshot'
 import { useAuth } from '@/hooks/useAuth'
@@ -22,8 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import toast from 'react-hot-toast'
-import { getComplaintEditError } from '@/utils/complaintEdit'
+import { useComplaintEditSave } from '@/hooks/useComplaintEditSave'
 
 const statusVariant = {
   Resolved: 'success',
@@ -69,7 +68,7 @@ export function DashboardPage() {
   const [editTitle, setEditTitle] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editAddress, setEditAddress] = useState('')
-  const [savingEdit, setSavingEdit] = useState(false)
+  const { savingEdit, saveEdit } = useComplaintEditSave()
 
   useEffect(() => {
     if (!user) {
@@ -119,30 +118,9 @@ export function DashboardPage() {
     setEditAddress(complaint.address)
   }
 
-  const handleEditSave = async () => {
-    if (!editTarget || savingEdit) return
-    const error = getComplaintEditError({
-      title: editTitle, description: editDescription, address: editAddress,
-    })
-    if (error) {
-      toast.error(error)
-      return
-    }
-    setSavingEdit(true)
-    try {
-      await updateDoc(doc(db, 'issues', editTarget.id), {
-        title: editTitle.trim(),
-        description: editDescription.trim(),
-        address: editAddress.trim(),
-        updatedAt: serverTimestamp(),
-      })
-      toast.success('Complaint updated successfully')
-      setEditTarget(null)
-    } catch {
-      toast.error('Failed to update complaint')
-    }
-    setSavingEdit(false)
-  }
+  const handleEditSave = () => saveEdit(editTarget, {
+    title: editTitle, description: editDescription, address: editAddress,
+  }, user?.uid, () => setEditTarget(null))
 
   const total = complaints.length
   const pending = complaints.filter((c) => c.status === 'Pending' || c.status === 'Reopened').length
@@ -253,7 +231,7 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!editTarget} onOpenChange={(open) => { if (!open) setEditTarget(null) }}>
+      <Dialog open={!!editTarget} onOpenChange={(open) => { if (!open && !savingEdit) setEditTarget(null) }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Complaint</DialogTitle>
@@ -262,12 +240,13 @@ export function DashboardPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="edit-title">Title</Label>
-              <Input id="edit-title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+              <Input id="edit-title" disabled={savingEdit} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-desc">Description</Label>
               <textarea
                 id="edit-desc"
+                disabled={savingEdit}
                 rows={3}
                 className="flex w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 resize-none"
                 value={editDescription}
@@ -276,11 +255,11 @@ export function DashboardPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-addr">Address</Label>
-              <Input id="edit-addr" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
+              <Input id="edit-addr" disabled={savingEdit} value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button variant="outline" disabled={savingEdit} onClick={() => setEditTarget(null)}>Cancel</Button>
             <Button onClick={handleEditSave} disabled={savingEdit}>
               {savingEdit ? 'Saving...' : 'Save Changes'}
             </Button>
