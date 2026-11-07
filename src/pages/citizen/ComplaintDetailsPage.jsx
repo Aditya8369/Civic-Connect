@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, ClipboardCheck, AlertTriangle, Star } from 'lucide-react'
-import { doc, collection, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { doc, collection, onSnapshot, serverTimestamp, updateDoc, query, where, getDocs, limit } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
@@ -116,10 +116,27 @@ export function ComplaintDetailsPage() {
       (snap) => {
         if (snap.exists()) {
           setComplaint({ id: snap.id, ...snap.data() })
+          setLoading(false)
         } else {
-          setNotFound(true)
+          const q = query(
+            collection(db, 'issues'),
+            where('complaintId', '==', id),
+            limit(1)
+          )
+          getDocs(q)
+            .then((querySnap) => {
+              if (!querySnap.empty) {
+                navigate(`/complaints/${querySnap.docs[0].id}`, { replace: true })
+              } else {
+                setNotFound(true)
+                setLoading(false)
+              }
+            })
+            .catch(() => {
+              setNotFound(true)
+              setLoading(false)
+            })
         }
-        setLoading(false)
       },
       (error) => {
         console.error('ComplaintDetails Firestore error:', error)
@@ -132,7 +149,7 @@ export function ComplaintDetailsPage() {
       unsubEvents?.()
       unsubComplaint?.()
     }
-  }, [id])
+  }, [id, navigate])
 
   if (loading) {
     return (

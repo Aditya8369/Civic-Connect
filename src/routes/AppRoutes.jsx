@@ -35,6 +35,7 @@ export function AppRoutes() {
         <Route path="/report" element={<ReportPage />} />
         <Route path="/my-reports" element={<MyReportsPage />} />
         <Route path="/report/:id" element={<ComplaintDetailsPage />} />
+        <Route path="/complaints/:id" element={<ComplaintDetailsPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/help" element={<HelpPage />} />

@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react'
-import { Camera, Save, Loader2 } from 'lucide-react'
+import { Camera, Save, Loader2, BellRing } from 'lucide-react'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/hooks/useAuth'
+import { getPushPermissionStatus, requestPushPermission } from '@/firebase/notifications'
 import toast from 'react-hot-toast'
 
 export function ProfilePage() {
@@ -20,6 +22,25 @@ export function ProfilePage() {
   const [address, setAddress] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [permissionStatus, setPermissionStatus] = useState(() => getPushPermissionStatus())
+  const [requestingPush, setRequestingPush] = useState(false)
+
+  const handleEnablePush = async () => {
+    setRequestingPush(true)
+    try {
+      const res = await requestPushPermission(user?.uid)
+      setPermissionStatus(res.status)
+      if (res.status === 'granted') {
+        toast.success('Real-time push notifications enabled!')
+      } else if (res.status === 'denied') {
+        toast('Push notifications were not enabled. You will still receive in-app alerts.', { icon: 'ℹ️' })
+      }
+    } catch (err) {
+      console.error('Error enabling push notifications:', err)
+    } finally {
+      setRequestingPush(false)
+    }
+  }
 
   useEffect(() => {
     if (!user?.uid) {
@@ -151,6 +172,55 @@ export function ProfilePage() {
                 </Button>
               </div>
             </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BellRing className="h-5 w-5 text-primary-600 dark:text-primary-400" />
+              Notification Preferences
+            </CardTitle>
+            <CardDescription>
+              Manage real-time browser push notifications for your complaint status updates
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50">
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">
+                  Browser Web Push Notifications
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Receive alerts when an administrator updates the status, assigns a department, or resolves your report.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                {permissionStatus === 'granted' ? (
+                  <Badge variant="success" className="text-xs py-1 px-2.5">
+                    Active
+                  </Badge>
+                ) : permissionStatus === 'denied' ? (
+                  <Badge variant="destructive" className="text-xs py-1 px-2.5">
+                    Blocked in browser
+                  </Badge>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={handleEnablePush}
+                    disabled={requestingPush}
+                    className="text-xs"
+                  >
+                    {requestingPush ? 'Enabling...' : 'Enable Push Notifications'}
+                  </Button>
+                )}
+              </div>
+            </div>
+            {permissionStatus === 'denied' && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Notifications are blocked. To re-enable push alerts, update permissions in your browser&apos;s site settings.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
