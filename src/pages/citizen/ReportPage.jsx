@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { MapPin, Crosshair, Send, AlertTriangle, ExternalLink, ThumbsUp, Check, Loader2 } from 'lucide-react'
+import { MapPin, Crosshair, Send, AlertTriangle, ExternalLink, ThumbsUp, Check, Loader2, Clock } from 'lucide-react'
 import {
   collection,
   doc,
@@ -46,6 +46,44 @@ const statusVariant = {
   Pending: 'destructive',
 }
 
+const COOLDOWN_SECONDS = 60
+const COOLDOWN_STORAGE_KEY = 'civic_report_last_submitted_at'
+
+let inMemoryLastSubmittedAt = 0
+
+function getRemainingCooldown(uid) {
+  let timestamp = inMemoryLastSubmittedAt
+  try {
+    const key = uid ? `${COOLDOWN_STORAGE_KEY}_${uid}` : COOLDOWN_STORAGE_KEY
+    const stored = localStorage.getItem(key) || localStorage.getItem(COOLDOWN_STORAGE_KEY)
+    if (stored) {
+      const parsed = parseInt(stored, 10)
+      if (!isNaN(parsed) && parsed > timestamp) {
+        timestamp = parsed
+      }
+    }
+  } catch {
+    // localStorage might be unavailable or restricted
+  }
+
+  if (!timestamp) return 0
+  const elapsed = Math.floor((Date.now() - timestamp) / 1000)
+  const remaining = COOLDOWN_SECONDS - elapsed
+  return remaining > 0 ? remaining : 0
+}
+
+function recordSubmissionTimestamp(uid, time = Date.now()) {
+  inMemoryLastSubmittedAt = time
+  try {
+    localStorage.setItem(COOLDOWN_STORAGE_KEY, String(time))
+    if (uid) {
+      localStorage.setItem(`${COOLDOWN_STORAGE_KEY}_${uid}`, String(time))
+    }
+  } catch {
+    // LocalStorage fallback handled by inMemoryLastSubmittedAt
+  }
+}
+
 export function ReportPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -57,6 +95,42 @@ export function ReportPage() {
   const [longitude, setLongitude] = useState('')
   const [locating, setLocating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const isSubmittingRef = useRef(false)
+  const [cooldownRemaining, setCooldownRemaining] = useState(() => getRemainingCooldown(user?.uid))
+
+  // Synchronize and tick cooldown timer
+  useEffect(() => {
+    if (cooldownRemaining <= 0) return
+
+    const timer = setInterval(() => {
+      const remaining = getRemainingCooldown(user?.uid)
+      setCooldownRemaining(remaining)
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [cooldownRemaining, user?.uid])
+
+  // Cross-tab and window focus synchronization for cooldown
+  useEffect(() => {
+    const handleStorageOrFocus = (e) => {
+      if (
+        !e ||
+        !e.key ||
+        e.key === COOLDOWN_STORAGE_KEY ||
+        (user?.uid && e.key === `${COOLDOWN_STORAGE_KEY}_${user.uid}`)
+      ) {
+        setCooldownRemaining(getRemainingCooldown(user?.uid))
+      }
+    }
+
+    window.addEventListener('storage', handleStorageOrFocus)
+    window.addEventListener('focus', handleStorageOrFocus)
+
+    return () => {
+      window.removeEventListener('storage', handleStorageOrFocus)
+      window.removeEventListener('focus', handleStorageOrFocus)
+    }
+  }, [user?.uid])
 
   // Duplicate detection state
   const [checkingDuplicates, setCheckingDuplicates] = useState(false)
@@ -197,6 +271,21 @@ export function ReportPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+
+    // Immediate guard to prevent duplicate submissions from rapid clicks
+    if (isSubmittingRef.current || submitting) {
+      return
+    }
+
+    // Rate-limiting cooldown verification
+    const remaining = getRemainingCooldown(user?.uid)
+    if (remaining > 0 || cooldownRemaining > 0) {
+      const activeRemaining = remaining > 0 ? remaining : cooldownRemaining
+      setCooldownRemaining(activeRemaining)
+      toast.error(`Please wait ${activeRemaining}s before submitting another report.`)
+      return
+    }
+
     if (!category || !title || !description || !address) {
       toast.error('Please fill in all required fields')
       return
@@ -208,12 +297,16 @@ export function ReportPage() {
       return
     }
 
+    // Immediately lock submission to prevent double-clicks
+    isSubmittingRef.current = true
     setSubmitting(true)
+
     try {
       // Re-run a fast final duplicate check if coordinates and category exist
       if (latitude && longitude && !hasAcknowledgedDuplicate) {
         const matches = await checkDuplicates(category, latitude, longitude)
         if (matches && matches.length > 0) {
+          isSubmittingRef.current = false
           setSubmitting(false)
           toast.error('A similar issue has already been reported nearby. Please review or confirm.')
           return
@@ -257,11 +350,19 @@ export function ReportPage() {
         message: 'A citizen has submitted a new complaint.',
       })
       await batch.commit()
+
+      // Record successful submission timestamp for rate-limiting cooldown
+      recordSubmissionTimestamp(user?.uid, Date.now())
+      setCooldownRemaining(COOLDOWN_SECONDS)
+      isSubmittingRef.current = false
+      setSubmitting(false)
+
       toast.success('Complaint submitted successfully!')
       navigate('/my-reports')
     } catch (err) {
       console.error('Complaint submission failed:', err)
       toast.error('Failed to submit complaint. Please try again.')
+      isSubmittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -521,18 +622,58 @@ export function ReportPage() {
                 )}
               </AnimatePresence>
 
+              {/* Cooldown countdown banner */}
+              <AnimatePresence>
+                {cooldownRemaining > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0, y: -10 }}
+                    animate={{ opacity: 1, height: 'auto', y: 0 }}
+                    exit={{ opacity: 0, height: 0, y: -10 }}
+                    transition={{ duration: 0.3 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="rounded-xl border border-amber-300 bg-amber-50/90 p-4 dark:border-amber-900/50 dark:bg-amber-950/30 shadow-sm flex items-start gap-3">
+                      <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0 animate-pulse" />
+                      <div className="flex-1">
+                        <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                          Submission Cooldown Active
+                        </h4>
+                        <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-1">
+                          To protect against spam and duplicate tickets, there is a 60-second limit between complaint submissions. You can submit another complaint in{' '}
+                          <span className="font-semibold text-amber-950 dark:text-amber-100">
+                            {cooldownRemaining} second{cooldownRemaining === 1 ? '' : 's'}
+                          </span>.
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <motion.div whileTap={{ scale: 0.98 }}>
                 <Button
                   type="submit"
                   className="w-full gap-2 h-11"
-                  disabled={submitting}
+                  disabled={submitting || cooldownRemaining > 0}
                 >
-                  <Send className="h-4 w-4" />
-                  {submitting
-                    ? 'Submitting...'
-                    : nearbyDuplicates.length > 0 && !hasAcknowledgedDuplicate
-                    ? 'Review Nearby Issues or Confirm Submission'
-                    : 'Submit Complaint'}
+                  {submitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : cooldownRemaining > 0 ? (
+                    <>
+                      <Clock className="h-4 w-4" />
+                      Please wait {cooldownRemaining}s
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      {nearbyDuplicates.length > 0 && !hasAcknowledgedDuplicate
+                        ? 'Review Nearby Issues or Confirm Submission'
+                        : 'Submit Complaint'}
+                    </>
+                  )}
                 </Button>
               </motion.div>
             </CardContent>
