@@ -10,11 +10,9 @@ import {
   query,
   where,
   getDocs,
-  updateDoc,
-  arrayUnion,
-  increment,
 } from 'firebase/firestore'
 import { db } from '@/firebase/services'
+import { endorseComplaint } from '@/firebase/endorseComplaint'
 import { generateComplaintId, getDisplayId } from '@/firebase/complaintId'
 import { addNotificationToBatch } from '@/firebase/notifications'
 import { addComplaintEventToBatch } from '@/firebase/complaintEvents'
@@ -137,6 +135,7 @@ export function ReportPage() {
   const [nearbyDuplicates, setNearbyDuplicates] = useState([])
   const [hasAcknowledgedDuplicate, setHasAcknowledgedDuplicate] = useState(false)
   const [endorsingMap, setEndorsingMap] = useState({})
+  const pendingEndorsements = useRef(new Set())
 
   // Track latest check request to avoid race conditions
   const lastCheckRequestId = useRef(0)
@@ -235,36 +234,31 @@ export function ReportPage() {
       return
     }
 
+    if (pendingEndorsements.current.has(complaint.id)) return
+    pendingEndorsements.current.add(complaint.id)
     setEndorsingMap((prev) => ({ ...prev, [complaint.id]: true }))
     try {
-      const issueRef = doc(db, 'issues', complaint.id)
-      await updateDoc(issueRef, {
-        endorsedBy: arrayUnion(user.uid),
-        endorsementCount: increment(1),
-        updatedAt: serverTimestamp(),
-      })
-
-      // Optimistically update local state
+      const result = await endorseComplaint(complaint.id, user.uid)
       setNearbyDuplicates((prev) =>
         prev.map((c) => {
           if (c.id === complaint.id) {
-            const currentEndorsed = c.endorsedBy || []
-            const currentCount = c.endorsementCount || currentEndorsed.length || 0
             return {
               ...c,
-              endorsedBy: [...currentEndorsed, user.uid],
-              endorsementCount: currentCount + 1,
+              endorsedBy: result.endorsedBy,
+              endorsementCount: result.endorsementCount,
             }
           }
           return c
         })
       )
 
-      toast.success('Thank you! Your endorsement has been recorded.')
+      if (result.added) toast.success('Thank you! Your endorsement has been recorded.')
+      else toast.info('You have already endorsed this complaint')
     } catch (err) {
       console.error('Failed to endorse complaint:', err)
       toast.error('Failed to endorse complaint. Please try again.')
     } finally {
+      pendingEndorsements.current.delete(complaint.id)
       setEndorsingMap((prev) => ({ ...prev, [complaint.id]: false }))
     }
   }
