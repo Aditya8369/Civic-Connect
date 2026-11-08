@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Role verification: Prioritize cryptographically signed Custom Auth Claims
+    // with graceful fallback for local emulators and legacy un-migrated accounts.
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' ||
+        (request.auth.token.role == null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Self-registration is strictly role: 'citizen'. Client cannot elevate to admin.
+      allow create: if isAuthenticated() && request.auth.uid == userId &&
+                    request.resource.data.role == 'citizen';
+      // Prevent role modification during user profile updates.
+      allow update: if isAuthenticated() && request.auth.uid == userId &&
+                    request.resource.data.role == resource.data.role;
+      allow delete: if false;
+    }
+
+    match /issues/{issueId} {
+      allow read: if isAuthenticated() &&
+                  (resource.data.reportedBy == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() &&
+                    request.resource.data.reportedBy == request.auth.uid &&
+                    request.resource.data.status == 'Pending';
+      allow update: if (isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
+                        resource.data.status == 'Pending' &&
+                        request.resource.data.status == 'Pending') || isAdmin();
+      allow delete: if isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
+                    resource.data.status == 'Pending';
+
+      // Immutable event audit trail sub-collection
+      match /events/{eventId} {
+        allow read: if isAuthenticated() &&
+                    (get(/databases/$(database)/documents/issues/$(issueId)).data.reportedBy == request.auth.uid || isAdmin());
+        allow create: if isAuthenticated();
+        allow update, delete: if false;
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() &&
+                  (resource.data.recipientUid == request.auth.uid ||
+                   (resource.data.recipientRole == 'admin' && isAdmin()));
+      allow update: if isAuthenticated() &&
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow create: if isAuthenticated();
+      allow delete: if false;
+    }
+
+    match /counters/{counterId} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}
+

@@ -72,6 +72,32 @@ flowchart LR
 > **Fundamental Security Principle:**
 > React route guards (`<ProtectedRoute requiredRole="admin">`) govern only what the browser displays. **They provide zero database authorization.** In the absence of server-side `firestore.rules`, malicious users can directly call Firestore APIs to modify any document.
 
+### Role Authorization & Custom Claims Hierarchy
+
+To prevent client privilege escalation and eliminate redundant database lookups, Civic-Connect employs **Firebase Custom Auth Claims**:
+
+```mermaid
+flowchart TD
+    subgraph Provisioning ["1. Out-of-Band Claim Provisioning"]
+        Script["scripts/set-admin-claim.js"] -->|Firebase Admin SDK| AuthServer["Firebase Auth Core"]
+    end
+
+    subgraph Authentication ["2. Cryptographic JWT Issuance"]
+        AuthServer -->|Signs ID Token with role claim| IDToken["JWT with { role: 'admin' }"]
+    end
+
+    subgraph Enforcement ["3. Zero-Trust Enforcement"]
+        IDToken -->|request.auth.token.role == 'admin'| FirestoreRules["Firestore Rules (0 DB Reads)"]
+        IDToken -->|user.getIdTokenResult().claims.role| ClientApp["AuthContext.jsx Route Guards"]
+    end
+```
+
+1. **Cryptographic Proof of Authority:** Roles are signed directly into the user's ID token (`claims.role`) by Google. The client browser cannot tamper with claims without invalidating the cryptographic signature.
+2. **Server-Side Enforcement (`firestore.rules`):** Sensitive operations check `request.auth.token.role == 'admin'` directly on the request token, avoiding costly external `get()` lookups.
+3. **Client-Side Verification (`AuthContext.jsx`):** On authentication state changes, `readRole` checks `user.getIdTokenResult().claims.role`. Client-side modifications to Firestore `users/{uid}` documents are ignored if token claims specify a different role.
+4. **Development & Emulator Fallback:** If custom claims are absent (e.g. unmigrated accounts or local test emulators), authorization gracefully falls back to checking `users/{uid}`.
+5. **Administrative Provisioning:** Admin privileges cannot be requested via public registration. They are assigned out-of-band by project administrators using `scripts/set-admin-claim.js`.
+
 ---
 
 ## 3. Complaint Submission Pipeline & Failure Paths
