@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { MapPin, Crosshair, Send, AlertTriangle, ExternalLink, ThumbsUp, Check, Loader2 } from 'lucide-react'
+import { MapPin, Crosshair, Send, AlertTriangle, ExternalLink, ThumbsUp, Check, Loader2, Camera, Trash2 } from 'lucide-react'
 import {
   collection,
   doc,
@@ -18,6 +18,7 @@ import { db } from '@/firebase/services'
 import { generateComplaintId, getDisplayId } from '@/firebase/complaintId'
 import { addNotificationToBatch } from '@/firebase/notifications'
 import { addComplaintEventToBatch } from '@/firebase/complaintEvents'
+import { validateComplaintPhoto, uploadComplaintPhoto } from '@/firebase/storage'
 import { useAuth } from '@/hooks/useAuth'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -58,6 +59,11 @@ export function ReportPage() {
   const [locating, setLocating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
+  // Photo evidence state
+  const [photoFile, setPhotoFile] = useState(null)
+  const [photoPreview, setPhotoPreview] = useState(null)
+  const fileInputRef = useRef(null)
+
   // Duplicate detection state
   const [checkingDuplicates, setCheckingDuplicates] = useState(false)
   const [nearbyDuplicates, setNearbyDuplicates] = useState([])
@@ -66,6 +72,47 @@ export function ReportPage() {
 
   // Track latest check request to avoid race conditions
   const lastCheckRequestId = useRef(0)
+
+  // Cleanup photo preview URL on unmount or file replacement
+  useEffect(() => {
+    return () => {
+      if (photoPreview) {
+        URL.revokeObjectURL(photoPreview)
+      }
+    }
+  }, [photoPreview])
+
+  const handlePhotoChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const validation = validateComplaintPhoto(file)
+    if (!validation.valid) {
+      toast.error(validation.error)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      return
+    }
+
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview)
+    }
+
+    setPhotoFile(file)
+    setPhotoPreview(URL.createObjectURL(file))
+  }
+
+  const handleRemovePhoto = () => {
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview)
+    }
+    setPhotoFile(null)
+    setPhotoPreview(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
 
   const checkDuplicates = useCallback(async (cat, lat, lng) => {
     const coords = parseCoordinates({ latitude: lat, longitude: lng })
@@ -221,6 +268,30 @@ export function ReportPage() {
       }
 
       const complaintId = await generateComplaintId()
+
+      let imageUrl = null
+      let photos = []
+      if (photoFile) {
+        try {
+          const uploadRes = await uploadComplaintPhoto(photoFile, complaintId)
+          imageUrl = uploadRes.downloadUrl
+          photos = [uploadRes.downloadUrl]
+        } catch (uploadErr) {
+          console.error('Photo upload failed:', uploadErr)
+          const isRetryLimit =
+            uploadErr?.code === 'storage/retry-limit-exceeded' ||
+            uploadErr?.message?.includes('retry-limit-exceeded')
+          const msg = isRetryLimit
+            ? import.meta.env.DEV
+              ? 'Firebase Storage is unreachable. Configure emulators (VITE_USE_EMULATORS=true) or dev mock (VITE_MOCK_STORAGE=true) in .env.'
+              : 'Firebase Storage is unreachable or bucket not enabled. Please check Firebase settings.'
+            : uploadErr.message || 'Failed to upload photo. Please try again.'
+          toast.error(msg)
+          setSubmitting(false)
+          return
+        }
+      }
+
       // Complaint and admin notification commit together, so a failed notification
       // can't leave behind a saved complaint that the citizen then re-submits.
       const batch = writeBatch(db)
@@ -236,6 +307,8 @@ export function ReportPage() {
         status: 'Pending',
         department: '',
         reportedBy: user.uid,
+        imageUrl: imageUrl || null,
+        photos: photos || [],
         endorsedBy: [],
         endorsementCount: 0,
         createdAt: serverTimestamp(),
@@ -317,6 +390,68 @@ export function ReportPage() {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="complaint-photo">Photo Evidence (Optional)</Label>
+                <input
+                  ref={fileInputRef}
+                  id="complaint-photo"
+                  type="file"
+                  accept="image/jpeg,image/png,image/jpg"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handlePhotoChange}
+                  disabled={submitting}
+                />
+
+                {!photoPreview ? (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={submitting}
+                    className="w-full flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg cursor-pointer hover:border-primary-500 hover:bg-gray-50/50 dark:hover:bg-gray-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left"
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-50 dark:bg-primary-950/40 text-primary-600 dark:text-primary-400 mb-2">
+                      <Camera className="h-5 w-5" />
+                    </div>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Take photo or upload image
+                    </span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                      JPG or PNG up to 5MB (Mobile camera supported)
+                    </span>
+                  </button>
+                ) : (
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3 bg-gray-50 dark:bg-gray-900/60 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <img
+                        src={photoPreview}
+                        alt="Selected evidence"
+                        className="h-14 w-14 rounded-md object-cover border border-gray-200 dark:border-gray-700 shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                          {photoFile?.name}
+                        </p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                          {photoFile ? `${(photoFile.size / (1024 * 1024)).toFixed(2)} MB` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/50 h-8 px-2 shrink-0"
+                      onClick={handleRemovePhoto}
+                      disabled={submitting}
+                    >
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Remove
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -527,12 +662,19 @@ export function ReportPage() {
                   className="w-full gap-2 h-11"
                   disabled={submitting}
                 >
-                  <Send className="h-4 w-4" />
-                  {submitting
-                    ? 'Submitting...'
-                    : nearbyDuplicates.length > 0 && !hasAcknowledgedDuplicate
-                    ? 'Review Nearby Issues or Confirm Submission'
-                    : 'Submit Complaint'}
+                  {submitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {photoFile ? 'Uploading photo & submitting...' : 'Submitting...'}
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      {nearbyDuplicates.length > 0 && !hasAcknowledgedDuplicate
+                        ? 'Review Nearby Issues or Confirm Submission'
+                        : 'Submit Complaint'}
+                    </>
+                  )}
                 </Button>
               </motion.div>
             </CardContent>

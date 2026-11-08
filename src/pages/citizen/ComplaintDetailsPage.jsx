@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, ClipboardCheck, AlertTriangle, Star } from 'lucide-react'
+import { ArrowLeft, MapPin, CalendarDays, Building2, FileText, ClipboardCheck, AlertTriangle, Star, Camera, ZoomIn, ZoomOut, ExternalLink } from 'lucide-react'
 import { doc, collection, onSnapshot, serverTimestamp, updateDoc, query, where, getDocs, limit } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
@@ -95,6 +95,8 @@ export function ComplaintDetailsPage() {
   const [feedbackComment, setFeedbackComment] = useState('')
   const [submittingFeedback, setSubmittingFeedback] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [zoomOpen, setZoomOpen] = useState(false)
+  const [zoomScale, setZoomScale] = useState(1)
   const transitionPending = useRef(false)
 
   useEffect(() => {
@@ -352,6 +354,32 @@ export function ComplaintDetailsPage() {
                   <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">{complaint.description}</p>
                 </div>
+
+                {(complaint.imageUrl || (complaint.photos && complaint.photos.length > 0)) && (
+                  <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-1.5">
+                      <Camera className="h-4 w-4 text-primary-600 dark:text-primary-400" />
+                      Photo Evidence
+                    </h3>
+                    <div className="relative group inline-block overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+                      <img
+                        src={complaint.imageUrl || complaint.photos?.[0]}
+                        alt="Complaint evidence"
+                        className="h-48 w-full sm:w-80 object-cover cursor-pointer transition-transform duration-200 group-hover:scale-105"
+                        onClick={() => setZoomOpen(true)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setZoomOpen(true)}
+                        className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-medium cursor-pointer"
+                        aria-label="Zoom in on photo evidence"
+                      >
+                        <ZoomIn className="h-4 w-4" />
+                        Click to zoom
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {complaint.status === 'Rejected' && complaint.rejectionReason && (
                   <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm dark:bg-red-900/20">
@@ -648,6 +676,82 @@ export function ComplaintDetailsPage() {
               {saving ? 'Submitting...' : 'Reopen'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Photo Evidence Zoom Modal */}
+      <Dialog
+        open={zoomOpen}
+        onOpenChange={(open) => {
+          setZoomOpen(open)
+          if (!open) setZoomScale(1)
+        }}
+      >
+        <DialogContent className="max-w-3xl p-4 sm:p-6">
+          <DialogHeader className="mb-2">
+            <div className="flex items-center justify-between pr-8">
+              <DialogTitle>Photo Evidence</DialogTitle>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700 px-1 py-0.5 text-xs">
+                  <button
+                    type="button"
+                    disabled={zoomScale <= 0.75}
+                    onClick={() => setZoomScale((s) => Math.max(0.5, s - 0.25))}
+                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-40"
+                    title="Zoom out"
+                    aria-label="Zoom out"
+                  >
+                    <ZoomOut className="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoomScale(1)}
+                    className="px-1.5 py-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded font-mono text-[11px] text-gray-700 dark:text-gray-300"
+                    title="Reset zoom"
+                    aria-label="Reset zoom"
+                  >
+                    {Math.round(zoomScale * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    disabled={zoomScale >= 3}
+                    onClick={() => setZoomScale((s) => Math.min(3, s + 0.25))}
+                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-40"
+                    title="Zoom in"
+                    aria-label="Zoom in"
+                  >
+                    <ZoomIn className="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
+                  </button>
+                </div>
+
+                {(complaint.imageUrl || complaint.photos?.[0]) && (
+                  <a
+                    href={complaint.imageUrl || complaint.photos?.[0]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-normal text-primary-600 dark:text-primary-400 hover:underline ml-1"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Open original
+                  </a>
+                )}
+              </div>
+            </div>
+            <DialogDescription>
+              Visual proof attached to {getDisplayId(complaint)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-center max-h-[70vh] overflow-auto rounded-lg bg-black/5 dark:bg-black/40 p-2">
+            <img
+              src={complaint.imageUrl || complaint.photos?.[0]}
+              alt="Enlarged complaint evidence"
+              style={{ transform: `scale(${zoomScale})`, transformOrigin: 'center center' }}
+              className={`max-h-[65vh] w-auto max-w-full object-contain rounded-md transition-transform duration-150 ${
+                zoomScale === 1 ? 'cursor-zoom-in' : 'cursor-zoom-out'
+              }`}
+              onClick={() => setZoomScale((s) => (s === 1 ? 1.75 : 1))}
+            />
+          </div>
         </DialogContent>
       </Dialog>
     </div>

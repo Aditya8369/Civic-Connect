@@ -9,6 +9,10 @@ const auth = getAuth(app)
 const db = getFirestore(app)
 const storage = getStorage(app)
 
+// Fail fast on network/configuration errors (10s instead of default 2min retry loop)
+storage.maxUploadRetryTime = 10000
+storage.maxOperationRetryTime = 10000
+
 if (import.meta.env.VITE_USE_EMULATORS === 'true') {
   connectAuthEmulator(auth, 'http://localhost:9099')
   connectFirestoreEmulator(db, 'localhost', 8080)
@@ -16,4 +20,5 @@ if (import.meta.env.VITE_USE_EMULATORS === 'true') {
 }
 
 export { auth, db, storage }
+export { validateComplaintPhoto, uploadComplaintPhoto } from './storage'
 export default app
