@@ -38,13 +38,48 @@ function button() {
   return nodes(ReportPage()).find(node => node.props.onClick && text(node).includes('I also face this'))
 }
 
+function findReportPage(node) {
+  if (!node) return null
+  if (node.props?.children) {
+    if (Array.isArray(node.props.children)) {
+      for (const child of node.props.children) {
+        const found = findReportPage(child)
+        if (found) return found
+      }
+    } else {
+      const found = findReportPage(node.props.children)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+function getNearbyDuplicatesState() {
+  return runtime.values.find(v => Array.isArray(v) && v.length > 0 && v[0]?.id === 'report-1')
+}
+
+function setNearbyDuplicatesState(updater) {
+  for (let i = 0; i < runtime.values.length; i++) {
+    if (Array.isArray(runtime.values[i]) && runtime.values[i].length > 0 && runtime.values[i][0]?.id === 'report-1') {
+      runtime.values[i] = typeof updater === 'function' ? updater(runtime.values[i]) : updater
+      break
+    }
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   runtime.values = []
-  runtime.values[9] = [{ id: 'report-1', title: 'Lamp', endorsedBy: [], endorsementCount: 0 }]
 })
 
 it('prevents overlapping clicks and renders the committed count', async () => {
+  // Prime state dynamically so cooldown/rate-limiting additions don't shift index
+  runtime.cursor = 0
+  ReportPage() // populate default initial values
+  // Find index of nearbyDuplicates (defaults to [])
+  const dupIndex = runtime.values.findIndex(v => Array.isArray(v) && v.length === 0)
+  runtime.values[dupIndex] = [{ id: 'report-1', title: 'Lamp', endorsedBy: [], endorsementCount: 0 }]
+
   let finish
   endorseComplaint.mockReturnValue(new Promise(resolve => { finish = resolve }))
   const click = button().props.onClick
@@ -53,23 +88,33 @@ it('prevents overlapping clicks and renders the committed count', async () => {
   expect(endorseComplaint).toHaveBeenCalledOnce()
   finish({ added: true, endorsedBy: ['citizen-2', 'citizen-1'], endorsementCount: 2 })
   await first
-  expect(runtime.values[9][0]).toMatchObject({ endorsedBy: ['citizen-2', 'citizen-1'], endorsementCount: 2 })
+  expect(runtime.values[dupIndex][0]).toMatchObject({ endorsedBy: ['citizen-2', 'citizen-1'], endorsementCount: 2 })
   expect(toast.success).toHaveBeenCalledOnce()
 })
 
 it('shows already endorsed when the server has a newer endorsement', async () => {
+  runtime.cursor = 0
+  ReportPage()
+  const dupIndex = runtime.values.findIndex(v => Array.isArray(v) && v.length === 0)
+  runtime.values[dupIndex] = [{ id: 'report-1', title: 'Lamp', endorsedBy: [], endorsementCount: 0 }]
+
   endorseComplaint.mockResolvedValue({ added: false, endorsedBy: ['citizen-1'], endorsementCount: 1 })
   await button().props.onClick()
-  expect(runtime.values[9][0]).toMatchObject({ endorsedBy: ['citizen-1'], endorsementCount: 1 })
+  expect(runtime.values[dupIndex][0]).toMatchObject({ endorsedBy: ['citizen-1'], endorsementCount: 1 })
   expect(toast.info).toHaveBeenCalledWith('You have already endorsed this complaint')
   expect(toast.success).not.toHaveBeenCalled()
 })
 
 it('keeps the local result unchanged and permits retry after a failed save', async () => {
+  runtime.cursor = 0
+  ReportPage()
+  const dupIndex = runtime.values.findIndex(v => Array.isArray(v) && v.length === 0)
+  runtime.values[dupIndex] = [{ id: 'report-1', title: 'Lamp', endorsedBy: [], endorsementCount: 0 }]
+
   vi.spyOn(console, 'error').mockImplementation(() => {})
   endorseComplaint.mockRejectedValueOnce(new Error('missing'))
   await button().props.onClick()
-  expect(runtime.values[9][0]).toMatchObject({ endorsedBy: [], endorsementCount: 0 })
+  expect(runtime.values[dupIndex][0]).toMatchObject({ endorsedBy: [], endorsementCount: 0 })
   expect(toast.error).toHaveBeenCalledOnce()
   expect(toast.success).not.toHaveBeenCalled()
   expect(button().props.disabled).toBe(false)
