@@ -1,6 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { validateComplaintPhoto, sanitizeFilename } from '@/firebase/storage'
 
+vi.mock('@/firebase/config', () => ({
+  default: {
+    apiKey: 'mock-api-key',
+    authDomain: 'civicconnect-dev.firebaseapp.com',
+    projectId: 'civicconnect-dev',
+    storageBucket: 'civicconnect-dev.firebasestorage.app',
+    messagingSenderId: '12345',
+    appId: '1:12345:web:mock',
+  },
+}))
+vi.mock('firebase/app', () => ({
+  initializeApp: vi.fn(() => ({ name: '[DEFAULT]' })),
+}))
+vi.mock('firebase/auth', () => ({
+  getAuth: vi.fn(() => ({ currentUser: null })),
+  connectAuthEmulator: vi.fn(),
+}))
+vi.mock('firebase/firestore', () => ({
+  getFirestore: vi.fn(() => ({})),
+  connectFirestoreEmulator: vi.fn(),
+}))
 vi.mock('firebase/storage', () => ({
   getStorage: vi.fn(() => ({})),
   connectStorageEmulator: vi.fn(),

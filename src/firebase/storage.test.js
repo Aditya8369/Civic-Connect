@@ -6,12 +6,38 @@ import {
   MAX_PHOTO_SIZE_BYTES,
 } from './storage'
 
+vi.mock('./config', () => ({
+  default: {
+    apiKey: 'mock-api-key',
+    authDomain: 'civicconnect-dev.firebaseapp.com',
+    projectId: 'civicconnect-dev',
+    storageBucket: 'civicconnect-dev.firebasestorage.app',
+    messagingSenderId: '12345',
+    appId: '1:12345:web:mock',
+  },
+}))
+vi.mock('firebase/app', () => ({
+  initializeApp: vi.fn(() => ({ name: '[DEFAULT]' })),
+}))
+vi.mock('firebase/auth', () => ({
+  getAuth: vi.fn(() => ({ currentUser: null })),
+  connectAuthEmulator: vi.fn(),
+}))
+vi.mock('firebase/firestore', () => ({
+  getFirestore: vi.fn(() => ({})),
+  connectFirestoreEmulator: vi.fn(),
+}))
 vi.mock('firebase/storage', () => ({
   getStorage: vi.fn(() => ({})),
   connectStorageEmulator: vi.fn(),
   ref: vi.fn((_storage, path) => ({ _path: path })),
   uploadBytes: vi.fn(() => Promise.resolve({})),
   getDownloadURL: vi.fn(() => Promise.resolve('https://storage.googleapis.com/test-bucket/photo.jpg')),
+}))
+vi.mock('./services', () => ({
+  auth: { currentUser: null },
+  db: {},
+  storage: {},
 }))
 
 describe('Firebase Storage Helper', () => {
