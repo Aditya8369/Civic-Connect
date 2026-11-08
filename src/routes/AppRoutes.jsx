@@ -1,61 +1,68 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { ProtectedRoute } from '@/components/common/ProtectedRoute'
 import { CitizenLayout } from '@/layouts/CitizenLayout'
 import { AdminLayout } from '@/layouts/AdminLayout'
-import { HomePage } from '@/pages/HomePage'
-import { AuthPage } from '@/pages/auth/AuthPage'
-import { DashboardPage } from '@/pages/citizen/DashboardPage'
-import { ReportPage } from '@/pages/citizen/ReportPage'
-import { MyReportsPage } from '@/pages/citizen/MyReportsPage'
-import { NotificationsPage } from '@/pages/citizen/NotificationsPage'
-import { ProfilePage } from '@/pages/citizen/ProfilePage'
-import { ComplaintDetailsPage } from '@/pages/citizen/ComplaintDetailsPage'
-import { AdminDashboardPage } from '@/pages/admin/AdminDashboardPage'
-import { AdminReportsPage } from '@/pages/admin/AdminReportsPage'
-import { AdminComplaintDetailsPage } from '@/pages/admin/AdminComplaintDetailsPage'
-import { AdminNotificationsPage } from '@/pages/admin/AdminNotificationsPage'
-import { AdminSettingsPage } from '@/pages/admin/AdminSettingsPage'
-import { NotFoundPage } from '@/pages/NotFoundPage'
-import { HelpPage } from '@/pages/citizen/HelpPage'
+import { PageSkeleton } from '@/components/common/PageSkeleton'
+
+const HomePage = lazy(() => import('@/pages/HomePage').then((m) => ({ default: m.HomePage })))
+const AuthPage = lazy(() => import('@/pages/auth/AuthPage').then((m) => ({ default: m.AuthPage })))
+const DashboardPage = lazy(() => import('@/pages/citizen/DashboardPage').then((m) => ({ default: m.DashboardPage })))
+const ReportPage = lazy(() => import('@/pages/citizen/ReportPage').then((m) => ({ default: m.ReportPage })))
+const MyReportsPage = lazy(() => import('@/pages/citizen/MyReportsPage').then((m) => ({ default: m.MyReportsPage })))
+const NotificationsPage = lazy(() => import('@/pages/citizen/NotificationsPage').then((m) => ({ default: m.NotificationsPage })))
+const ProfilePage = lazy(() => import('@/pages/citizen/ProfilePage').then((m) => ({ default: m.ProfilePage })))
+const ComplaintDetailsPage = lazy(() => import('@/pages/citizen/ComplaintDetailsPage').then((m) => ({ default: m.ComplaintDetailsPage })))
+const HelpPage = lazy(() => import('@/pages/citizen/HelpPage').then((m) => ({ default: m.HelpPage })))
+
+const AdminDashboardPage = lazy(() => import('@/pages/admin/AdminDashboardPage').then((m) => ({ default: m.AdminDashboardPage })))
+const AdminReportsPage = lazy(() => import('@/pages/admin/AdminReportsPage').then((m) => ({ default: m.AdminReportsPage })))
+const AdminComplaintDetailsPage = lazy(() => import('@/pages/admin/AdminComplaintDetailsPage').then((m) => ({ default: m.AdminComplaintDetailsPage })))
+const AdminNotificationsPage = lazy(() => import('@/pages/admin/AdminNotificationsPage').then((m) => ({ default: m.AdminNotificationsPage })))
+const AdminSettingsPage = lazy(() => import('@/pages/admin/AdminSettingsPage').then((m) => ({ default: m.AdminSettingsPage })))
+
+const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })))
 
 export function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/auth" element={<AuthPage />} />
+    <Suspense fallback={<PageSkeleton />}>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/auth" element={<AuthPage />} />
 
-      <Route
-        element={
-          <ProtectedRoute requiredRole="citizen">
-            <CitizenLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/report" element={<ReportPage />} />
-        <Route path="/my-reports" element={<MyReportsPage />} />
-        <Route path="/report/:id" element={<ComplaintDetailsPage />} />
-        <Route path="/complaints/:id" element={<ComplaintDetailsPage />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/help" element={<HelpPage />} />
-      </Route>
+        <Route
+          element={
+            <ProtectedRoute requiredRole="citizen">
+              <CitizenLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/report" element={<ReportPage />} />
+          <Route path="/my-reports" element={<MyReportsPage />} />
+          <Route path="/report/:id" element={<ComplaintDetailsPage />} />
+          <Route path="/complaints/:id" element={<ComplaintDetailsPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/help" element={<HelpPage />} />
+        </Route>
 
-      <Route
-        element={
-          <ProtectedRoute requiredRole="admin">
-            <AdminLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
-        <Route path="/admin/reports" element={<AdminReportsPage />} />
-        <Route path="/admin/reports/:id" element={<AdminComplaintDetailsPage />} />
-        <Route path="/admin/notifications" element={<AdminNotificationsPage />} />
-        <Route path="/admin/settings" element={<AdminSettingsPage />} />
-      </Route>
+        <Route
+          element={
+            <ProtectedRoute requiredRole="admin">
+              <AdminLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
+          <Route path="/admin/reports" element={<AdminReportsPage />} />
+          <Route path="/admin/reports/:id" element={<AdminComplaintDetailsPage />} />
+          <Route path="/admin/notifications" element={<AdminNotificationsPage />} />
+          <Route path="/admin/settings" element={<AdminSettingsPage />} />
+        </Route>
 
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </Suspense>
   )
 }
