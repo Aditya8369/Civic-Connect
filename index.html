@@ -8,6 +8,18 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <title>CivicConnect</title>
+    <script>
+      // Apply the saved theme before the first paint so dark mode users do not
+      // see a white flash on reload. Keep the key in sync with THEME_STORAGE_KEY
+      // in src/utils/theme.js.
+      (function () {
+        try {
+          var saved = localStorage.getItem('civic-theme');
+          var dark = saved === 'dark' || (saved !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) { }
+      })();
+    </script>
   </head>
   <body class="antialiased">
     <div id="root"></div>
