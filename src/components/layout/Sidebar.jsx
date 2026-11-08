@@ -56,14 +56,17 @@ export function Sidebar({ className }) {
         <span className="text-lg font-semibold text-white">CivicConnect</span>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav
+        aria-label="Primary navigation"
+        className="flex-1 space-y-1 px-3 py-4"
+      >
         {links.map((link) => (
           <NavLink
             key={link.to}
             to={link.to}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
+                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950',
                 isActive
                   ? 'bg-sidebar-active text-sidebar-text-active shadow-sm'
                   : 'text-sidebar-text hover:bg-sidebar-hover hover:text-white'
@@ -75,10 +78,10 @@ export function Sidebar({ className }) {
           </NavLink>
         ))}
       </nav>
-
       <motion.button
+        type="button"
         onClick={handleLogout}
-        className="mx-3 mb-4 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-text transition-all duration-200 hover:bg-red-600/10 hover:text-red-400"
+        className="mx-3 mb-4 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-text transition-all duration-200 hover:bg-red-600/10 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
         whileTap={{ scale: 0.97 }}
       >
         <LogOut className="h-5 w-5 shrink-0" />
