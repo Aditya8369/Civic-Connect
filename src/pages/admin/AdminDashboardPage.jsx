@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Flag, Shield, BarChart3, Users, Clock, ArrowRight, Star } from 'lucide-react'
+import { Flag, Shield, BarChart3, Users, Clock, ArrowRight, Star, AlertTriangle } from 'lucide-react'
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
+import { isSlaBreached } from '@/utils/sla'
+import { SlaBadge } from '@/components/common/SlaBadge'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +22,7 @@ const statusVariant = {
 export function AdminDashboardPage() {
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
+  const [slaFilter, setSlaFilter] = useState('all')
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -41,13 +44,14 @@ export function AdminDashboardPage() {
 
   const stats = useMemo(() => {
     const total = complaints.length
-    let pending = 0, inProgress = 0, resolved = 0
+    let pending = 0, inProgress = 0, resolved = 0, breached = 0
     let totalRating = 0, ratedCount = 0
     const uniqueUsers = new Set()
     for (const c of complaints) {
       if (c.status === 'Pending' || c.status === 'Reopened') pending++
       else if (c.status === 'In Progress') inProgress++
       else if (c.status === 'Resolved') resolved++
+      if (isSlaBreached(c)) breached++
       if (c.reportedBy) uniqueUsers.add(c.reportedBy)
       if (c.feedback?.rating && typeof c.feedback.rating === 'number') {
         totalRating += c.feedback.rating
@@ -60,13 +64,21 @@ export function AdminDashboardPage() {
       pending,
       inProgress,
       resolved,
+      breached,
       activeCitizens: uniqueUsers.size,
       avgRating,
       ratedCount,
     }
   }, [complaints])
 
-  const recentReports = complaints.slice(0, 5)
+  const filteredReports = useMemo(() => {
+    if (slaFilter === 'breached') {
+      return complaints.filter((c) => isSlaBreached(c))
+    }
+    return complaints
+  }, [complaints, slaFilter])
+
+  const recentReports = filteredReports.slice(0, 5)
 
   const statCards = [
     { label: 'Total Complaints', value: stats.total, icon: Flag, color: 'text-primary-600 bg-primary-50 dark:bg-primary-900/30' },
@@ -104,8 +116,31 @@ export function AdminDashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4">
             <CardTitle>Recent Reports</CardTitle>
+            <div className="flex items-center gap-1.5" role="group" aria-label="Filter reports by SLA status">
+              <Button
+                variant={slaFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 text-xs px-2.5"
+                onClick={() => setSlaFilter('all')}
+              >
+                All
+              </Button>
+              <Button
+                variant={slaFilter === 'breached' ? 'destructive' : 'outline'}
+                size="sm"
+                className="h-7 text-xs px-2.5 gap-1"
+                onClick={() => setSlaFilter('breached')}
+              >
+                Breached SLA
+                {stats.breached > 0 && (
+                  <span className="ml-1 rounded-full bg-red-600/20 dark:bg-red-400/20 px-1.5 py-0.2 text-[10px] font-semibold">
+                    {stats.breached}
+                  </span>
+                )}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -115,7 +150,9 @@ export function AdminDashboardPage() {
             ) : recentReports.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <Flag className="h-10 w-10 text-gray-300 dark:text-gray-600 mb-3" />
-                <p className="text-sm text-gray-500 dark:text-gray-400">No reports submitted yet.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {slaFilter === 'breached' ? 'No reports have breached SLA deadlines.' : 'No reports submitted yet.'}
+                </p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -132,7 +169,10 @@ export function AdminDashboardPage() {
                         {r.category} &middot; {r.createdAt?.toDate?.().toLocaleDateString() || '-'}
                       </p>
                     </div>
-                    <Badge variant={statusVariant[r.status] || 'default'} className="shrink-0 ml-3 capitalize">{r.status}</Badge>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0 ml-3 justify-end">
+                      <SlaBadge complaint={r} />
+                      <Badge variant={statusVariant[r.status] || 'default'} className="capitalize">{r.status}</Badge>
+                    </div>
                   </div>
                 ))}
                 <Button variant="ghost" size="sm" className="w-full gap-2 text-primary-600" onClick={() => navigate('/admin/reports')}>
@@ -157,11 +197,24 @@ export function AdminDashboardPage() {
                 {[
                   { icon: Users, label: 'Active Citizens', desc: 'Unique complainants', value: stats.activeCitizens, bg: 'bg-gray-50 dark:bg-gray-800/50', iconColor: 'text-primary-600 dark:text-primary-400' },
                   { icon: Star, label: 'Citizen Satisfaction', desc: stats.ratedCount ? `${stats.ratedCount} review${stats.ratedCount === 1 ? '' : 's'}` : 'No ratings yet', value: stats.avgRating ? `${stats.avgRating} ★` : '-', bg: 'bg-amber-50 dark:bg-amber-900/20', iconColor: 'text-amber-500 fill-amber-500' },
+                  {
+                    icon: AlertTriangle,
+                    label: 'Breached SLA',
+                    desc: 'Exceeded resolution target (click to filter)',
+                    value: stats.breached,
+                    bg: stats.breached > 0 ? 'bg-red-50 dark:bg-red-900/20' : 'bg-gray-50 dark:bg-gray-800/50',
+                    iconColor: stats.breached > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400',
+                    onClick: () => setSlaFilter((prev) => (prev === 'breached' ? 'all' : 'breached')),
+                  },
                   { icon: Clock, label: 'Pending', desc: 'Awaiting action', value: stats.pending, bg: 'bg-red-50 dark:bg-red-900/20', iconColor: 'text-red-600 dark:text-red-400' },
                   { icon: BarChart3, label: 'In Progress', desc: 'Being addressed', value: stats.inProgress, bg: 'bg-amber-50 dark:bg-amber-900/20', iconColor: 'text-amber-600 dark:text-amber-400' },
                   { icon: Shield, label: 'Resolved', desc: 'Completed', value: stats.resolved, bg: 'bg-emerald-50 dark:bg-emerald-900/20', iconColor: 'text-emerald-600 dark:text-emerald-400' },
                 ].map((s) => (
-                  <div key={s.label} className={`flex items-center justify-between p-4 rounded-lg ${s.bg}`}>
+                  <div
+                    key={s.label}
+                    className={`flex items-center justify-between p-4 rounded-lg ${s.bg} ${s.onClick ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
+                    onClick={s.onClick}
+                  >
                     <div className="flex items-center gap-3">
                       <s.icon className={`h-5 w-5 ${s.iconColor}`} />
                       <div>

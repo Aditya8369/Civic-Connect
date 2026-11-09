@@ -11,6 +11,8 @@ import { assignComplaintDepartment } from '@/firebase/complaintDepartment'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { SlaBadge, SlaCountdown } from '@/components/common/SlaBadge'
+import { getSlaTargetDate } from '@/utils/sla'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -359,6 +361,7 @@ export function AdminComplaintDetailsPage() {
   }
 
   const canReject = canRejectComplaint(complaint)
+  const slaTarget = getSlaTargetDate(complaint.createdAt, complaint.category, complaint.department)
 
   return (
     <div>
@@ -377,11 +380,12 @@ export function AdminComplaintDetailsPage() {
             <CardContent className="p-6">
               <div className="flex items-start justify-between gap-4 mb-4">
                 <div>
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
                     <span className="text-xs font-mono text-primary-600 dark:text-primary-400 font-semibold">{getDisplayId(complaint)}</span>
                     <Badge variant={statusVariant[complaint.status] || 'default'} className="capitalize">
                       {complaint.status}
                     </Badge>
+                    <SlaBadge complaint={complaint} />
                   </div>
                   <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-1">{complaint.title}</h1>
                   {backfillError && (
@@ -421,7 +425,7 @@ export function AdminComplaintDetailsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 border-y border-gray-100 dark:border-gray-800">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 py-4 border-y border-gray-100 dark:border-gray-800">
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Category</p>
                   <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">{complaint.category || '-'}</p>
@@ -442,7 +446,22 @@ export function AdminComplaintDetailsPage() {
                     {complaint.updatedAt?.toDate?.().toLocaleDateString() || '-'}
                   </p>
                 </div>
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">SLA Target</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">
+                    {slaTarget
+                      ? slaTarget.toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })
+                      : '-'}
+                  </p>
+                </div>
               </div>
+
+              <SlaCountdown complaint={complaint} className="mt-4" />
 
               <div className="mt-4">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
