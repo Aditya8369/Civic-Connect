@@ -2,10 +2,11 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import { AdminComplaintDetailsPage } from '@/pages/admin/AdminComplaintDetailsPage'
 import { ComplaintDetailsPage } from '@/pages/citizen/ComplaintDetailsPage'
 import { Dialog } from '@/components/ui/dialog'
+import { Select } from '@/components/ui/select'
 import toast from 'react-hot-toast'
 import { createTransactionStore } from '@/firebase/testSupport/transactionStore'
 
-const runtime = vi.hoisted(() => ({ current: null, store: null, listeners: [], notificationId: 0 }))
+const runtime = vi.hoisted(() => ({ current: null, store: null, listeners: [], notificationId: 0, auth: { currentUser: null } }))
 vi.mock('react', async original => ({
   ...await original(),
   useState(initial) {
@@ -23,7 +24,7 @@ vi.mock('react', async original => ({
 }))
 vi.mock('react-router-dom', () => ({ useParams: () => ({ id: 'legacy' }), useNavigate: () => vi.fn() }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { uid: 'citizen-1' } }) }))
-vi.mock('@/firebase/services', () => ({ db: {} }))
+vi.mock('@/firebase/services', () => ({ db: {}, auth: runtime.auth }))
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('firebase/firestore', () => ({
   doc: (ref, ...parts) => parts.length ? parts.join('/') : ref + '/' + ++runtime.notificationId,
@@ -80,6 +81,8 @@ const actions = [
 const buttons = (tree, label) => nodes(tree).filter(node => node.props.onClick && text(node).trim() === label)
 const dialog = (tree, action) => nodes(tree).find(node => node.type === Dialog && node.props.open && text(node).includes(action.open))
 const notices = () => runtime.store.history.filter(entry => entry.key.startsWith('notifications/')).map(entry => entry.data)
+const events = () => runtime.store.history.filter(entry => entry.key.startsWith(`${path}/events/`)).map(entry => entry.data)
+const departmentSelect = ui => nodes(ui.instance.render()).find(node => node.type === Select && node.props.onValueChange)
 
 function setup(action) {
   const original = { title: 'Lamp', status: action.from, reportedBy: 'citizen-1', complaintId: 'CMP-2026-0001', department: 'Roads', resolvedAt: Date.now() - 1000 }
@@ -101,8 +104,110 @@ function setup(action) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  runtime.auth.currentUser = { uid: 'citizen-1' }
   runtime.listeners = []
   runtime.notificationId = 0
+})
+
+it('keeps the department, event and notice unchanged on a rejected assignment and allows retry', async () => {
+  const ui = setup(actions[0])
+  runtime.store.failCommit = new Error('permission-denied')
+  await departmentSelect(ui).props.onValueChange('Electricity')
+  expect(runtime.store.read(path)).toEqual(ui.original)
+  expect(runtime.store.history).toEqual([])
+  expect(departmentSelect(ui).props).toMatchObject({ value: 'Roads', disabled: false })
+  expect(toast.success).not.toHaveBeenCalled()
+  expect(toast.error).toHaveBeenCalledWith('Failed to assign department')
+
+  runtime.store.failCommit = null
+  await departmentSelect(ui).props.onValueChange('Electricity')
+  expect(runtime.store.read(path)).toEqual({ ...ui.original, department: 'Electricity', updatedAt: 'server-time' })
+  expect(events()).toEqual([{
+    action: 'Department assigned', actorUid: 'citizen-1', previousStatus: 'In Progress', newStatus: 'In Progress',
+    remarks: 'Department assigned: Electricity', timestamp: 'server-time',
+  }])
+  expect(notices()).toEqual([{
+    recipientUid: 'citizen-1', recipientRole: 'citizen', senderUid: 'citizen-1', issueId: ui.original.complaintId,
+    type: 'department_assigned', title: 'Department Assigned', message: 'Your complaint has been assigned to the Electricity department.',
+    read: false, createdAt: 'server-time',
+  }])
+  runtime.listeners.at(-1)(snapshot(runtime.store.read(path)))
+  expect(departmentSelect(ui).props.value).toBe('Electricity')
+  expect(toast.success).toHaveBeenCalledOnce()
+})
+
+it('uses the current complaint after an assignment transaction retries', async () => {
+  const ui = setup(actions[0])
+  runtime.store.beforeCommit = () => runtime.store.write(path, {
+    ...ui.original, status: 'Resolved', reportedBy: 'citizen-2', complaintId: 'CMP-2026-0002',
+  })
+  await departmentSelect(ui).props.onValueChange('Water')
+  expect(runtime.store.conflicts).toBe(1)
+  expect(runtime.store.read(path)).toMatchObject({ status: 'Resolved', department: 'Water' })
+  expect(events()).toEqual([expect.objectContaining({ previousStatus: 'Resolved', newStatus: 'Resolved' })])
+  expect(notices()).toEqual([expect.objectContaining({ recipientUid: 'citizen-2', issueId: 'CMP-2026-0002' })])
+})
+
+it('blocks duplicate clicks and leaves a committed assignment unchanged on replay', async () => {
+  const ui = setup(actions[0])
+  const assign = departmentSelect(ui).props.onValueChange
+  await Promise.all([assign('Water'), assign('Water')])
+  expect(runtime.store.attempts).toBe(1)
+  await assign('Water')
+  expect(runtime.store.attempts).toBe(2)
+  expect(runtime.store.history).toHaveLength(3)
+  expect(events()).toHaveLength(1)
+  expect(notices()).toHaveLength(1)
+  expect(toast.success).toHaveBeenCalledOnce()
+})
+
+it('creates one event and notice when two tabs select the same department concurrently', async () => {
+  const first = setup(actions[0])
+  const second = { instance: mount(AdminComplaintDetailsPage) }
+  runtime.listeners.at(-1)(snapshot(first.original))
+  await Promise.all([
+    departmentSelect(first).props.onValueChange('Water'),
+    departmentSelect(second).props.onValueChange('Water'),
+  ])
+  expect(runtime.store.conflicts).toBe(1)
+  expect(runtime.store.read(path).department).toBe('Water')
+  expect(events()).toHaveLength(1)
+  expect(notices()).toHaveLength(1)
+  expect(toast.success).toHaveBeenCalledOnce()
+})
+
+it('assigns a legacy complaint without a recipient and writes only its audit event', async () => {
+  const ui = setup(actions[0])
+  runtime.store.write(path, { ...ui.original, reportedBy: null })
+  await departmentSelect(ui).props.onValueChange('Water')
+  expect(runtime.store.read(path).department).toBe('Water')
+  expect(events()).toHaveLength(1)
+  expect(notices()).toEqual([])
+})
+
+it('rejects an assignment if the complaint was deleted after the first read', async () => {
+  const ui = setup(actions[0])
+  runtime.store.beforeCommit = () => runtime.store.remove(path)
+  await departmentSelect(ui).props.onValueChange('Water')
+  expect(runtime.store.conflicts).toBe(1)
+  expect(runtime.store.read(path)).toBeUndefined()
+  expect(runtime.store.history).toEqual([])
+  expect(toast.success).not.toHaveBeenCalled()
+  expect(toast.error).toHaveBeenCalledOnce()
+})
+
+it('rejects an assignment retry after a new sign-in with the same UID', async () => {
+  const ui = setup(actions[0])
+  runtime.store.beforeCommit = () => {
+    runtime.store.write(path, { ...ui.original, title: 'Updated lamp' })
+    runtime.auth.currentUser = { uid: 'citizen-1' }
+  }
+  await departmentSelect(ui).props.onValueChange('Water')
+  expect(runtime.store.conflicts).toBe(1)
+  expect(runtime.store.read(path)).toEqual({ ...ui.original, title: 'Updated lamp' })
+  expect(runtime.store.history).toHaveLength(1)
+  expect(toast.success).not.toHaveBeenCalled()
+  expect(toast.error).toHaveBeenCalledOnce()
 })
 
 for (const action of actions) {

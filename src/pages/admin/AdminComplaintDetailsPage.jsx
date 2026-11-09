@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { logComplaintEvent } from '@/firebase/complaintEvents'
 import { getDisplayId, ensureComplaintId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
-import { createNotification } from '@/firebase/notifications'
+import { assignComplaintDepartment } from '@/firebase/complaintDepartment'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -73,7 +73,6 @@ export function AdminComplaintDetailsPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [citizen, setCitizen] = useState(null)
-  const [department, setDepartment] = useState('')
   const [resolutionNotes, setResolutionNotes] = useState('')
   const isDirty = useRef(false)
   const [saving, setSaving] = useState(false)
@@ -125,7 +124,6 @@ export function AdminComplaintDetailsPage() {
               })
           }
           setComplaint(data)
-          setDepartment(data.department || '')
           if (!isDirty.current) {
             setResolutionNotes(data.resolutionNotes || '')
           }
@@ -258,36 +256,17 @@ export function AdminComplaintDetailsPage() {
   }
 
   const handleDepartmentChange = async (val) => {
-    setDepartment(val)
+    if (saving || transitionPending.current) return
+    transitionPending.current = true
     setSaving(true)
     try {
-      await updateDoc(doc(db, 'issues', id), {
-        department: val,
-        updatedAt: serverTimestamp(),
-      })
-      await logComplaintEvent(id, {
-        actorUid,
-        action: 'Department assigned',
-        previousStatus: complaint.status,
-        newStatus: complaint.status,
-        remarks: `Department assigned: ${val}`,
-      })
-      if (complaint?.reportedBy) {
-        await createNotification({
-          recipientUid: complaint.reportedBy,
-          recipientRole: 'citizen',
-          senderUid: actorUid || '',
-          issueId: complaint.complaintId || id,
-          type: 'department_assigned',
-          title: 'Department Assigned',
-          message: `Your complaint has been assigned to the ${val} department.`,
-        }).catch((notifErr) => console.error('Department notification error:', notifErr))
-      }
-      toast.success(`Department assigned: ${val}`)
+      const changed = await assignComplaintDepartment(id, val, actorUid)
+      if (changed) toast.success(`Department assigned: ${val}`)
     } catch (err) {
       toast.error('Failed to assign department')
       console.error(err)
     } finally {
+      transitionPending.current = false
       setSaving(false)
     }
   }
@@ -498,7 +477,7 @@ export function AdminComplaintDetailsPage() {
             </CardHeader>
             <CardContent>
               <div className="max-w-xs">
-                <Select value={department} onValueChange={handleDepartmentChange} disabled={saving}>
+                <Select value={complaint.department || ''} onValueChange={handleDepartmentChange} disabled={saving}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
