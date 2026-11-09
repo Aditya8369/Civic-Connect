@@ -27,14 +27,31 @@ service cloud.firestore {
     }
 
     match /issues/{issueId} {
+      function isCitizenAppeal() {
+        let resolvedAt = resource.data.get('resolvedAt', null);
+        let reason = request.resource.data.get('reopenReason', null);
+        return resource.data.status == 'Resolved' &&
+               request.resource.data.status == 'Reopened' &&
+               resolvedAt is timestamp &&
+               resolvedAt <= request.time &&
+               request.time <= resolvedAt + duration.value(7, 'd') &&
+               request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'reopenReason', 'reopenedAt', 'updatedAt']) &&
+               reason is string &&
+               // Match the whitespace-only inputs rejected by the client's trim().
+               !reason.matches('[\\s\\p{Z}\\x0B\\x{FEFF}]*') &&
+               request.resource.data.get('reopenedAt', null) == request.time &&
+               request.resource.data.get('updatedAt', null) == request.time;
+      }
+
       allow read: if isAuthenticated() &&
                   (resource.data.reportedBy == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() &&
                     request.resource.data.reportedBy == request.auth.uid &&
                     request.resource.data.status == 'Pending';
       allow update: if (isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
-                        resource.data.status == 'Pending' &&
-                        request.resource.data.status == 'Pending') || isAdmin();
+                        ((resource.data.status == 'Pending' &&
+                          request.resource.data.status == 'Pending') || isCitizenAppeal())) || isAdmin();
       allow delete: if isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                     resource.data.status == 'Pending';
 
