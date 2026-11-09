@@ -26,3 +26,8 @@ dist-ssr
 .env
 .env.*
 .env.local
+# Lighthouse CI reports
+.lighthouseci/
+
+# Lighthouse CI reports
+.lighthouseci/
