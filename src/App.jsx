@@ -5,13 +5,20 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import { AppRoutes } from '@/routes/AppRoutes'
 import { Toaster } from 'react-hot-toast'
 
+import OfflineBanner from '@/components/common/OfflineBanner'
+import OfflineSyncManager from '@/components/common/OfflineSyncManager'
+
 function App() {
   return (
     <MotionConfig reducedMotion="user">
       <BrowserRouter>
         <ThemeProvider>
           <AuthProvider>
+            <OfflineBanner />
+            <OfflineSyncManager />
+
             <AppRoutes />
+
             <Toaster
               position="top-right"
               toastOptions={{
