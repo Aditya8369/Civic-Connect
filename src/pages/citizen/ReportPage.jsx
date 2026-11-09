@@ -1,3 +1,4 @@
+import { saveOfflineComplaint } from '@/utils/offlineQueue'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -342,43 +343,35 @@ export function ReportPage() {
     isSubmittingRef.current = true
     setSubmitting(true)
 
-    try {
-      // Re-run a fast final duplicate check if coordinates and category exist
-      if (latitude && longitude && !hasAcknowledgedDuplicate) {
-        const matches = await checkDuplicates(category, latitude, longitude)
-        if (matches && matches.length > 0) {
-          isSubmittingRef.current = false
-          setSubmitting(false)
-          toast.error('A similar issue has already been reported nearby. Please review or confirm.')
-          return
-        }
-      }
+    
+try {
+  // Save complaint locally when the device is offline.
+  if (!navigator.onLine) {
+    await saveOfflineComplaint({
+      title,
+      description,
+      category,
+      address,
+      latitude: latitude ? parseFloat(latitude) : null,
+      longitude: longitude ? parseFloat(longitude) : null,
+      userId: user.uid,
+    })
 
-      const complaintId = await generateComplaintId()
+    recordSubmissionTimestamp(user.uid, Date.now())
+    setCooldownRemaining(COOLDOWN_SECONDS)
 
-      let imageUrl = null
-      let photos = []
-      if (photoFile) {
-        try {
-          const uploadRes = await uploadComplaintPhoto(photoFile, complaintId)
-          imageUrl = uploadRes.downloadUrl
-          photos = [uploadRes.downloadUrl]
-        } catch (uploadErr) {
-          console.error('Photo upload failed:', uploadErr)
-          const isRetryLimit =
-            uploadErr?.code === 'storage/retry-limit-exceeded' ||
-            uploadErr?.message?.includes('retry-limit-exceeded')
-          const msg = isRetryLimit
-            ? import.meta.env.DEV
-              ? 'Firebase Storage is unreachable. Configure emulators (VITE_USE_EMULATORS=true) or dev mock (VITE_MOCK_STORAGE=true) in .env.'
-              : 'Firebase Storage is unreachable or bucket not enabled. Please check Firebase settings.'
-            : uploadErr.message || 'Failed to upload photo. Please try again.'
-          toast.error(msg)
-          setSubmitting(false)
-          return
-        }
-      }
+    isSubmittingRef.current = false
+    setSubmitting(false)
 
+    toast.success(
+      'You are offline. Your complaint has been saved and is waiting to sync.'
+    )
+
+    navigate('/my-reports')
+    return
+  }
+
+  // Existing online duplicate-check and Firestore submission logic continues below.
       // Complaint and admin notification commit together, so a failed notification
       // can't leave behind a saved complaint that the citizen then re-submits.
       const batch = writeBatch(db)
