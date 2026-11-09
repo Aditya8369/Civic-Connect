@@ -15,6 +15,8 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SlaBadge } from '@/components/common/SlaBadge'
+import { isSlaBreached } from '@/utils/sla'
 
 const statusVariant = {
   Pending: 'destructive',
@@ -75,6 +77,7 @@ export function AdminReportsPage() {
   const [reloadKey, setReloadKey] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [slaFilter, setSlaFilter] = useState('all')
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [userCache, setUserCache] = useState({})
@@ -140,6 +143,7 @@ export function AdminReportsPage() {
       const val = statusFilter === 'in-progress' ? 'in progress' : statusFilter
       if (c.status?.toLowerCase() !== val) return false
     }
+    if (slaFilter === 'breached' && !isSlaBreached(c)) return false
     if (departmentFilter !== 'all' && c.department !== departmentFilter) return false
     if (categoryFilter !== 'all' && c.category !== categoryFilter) return false
     if (searchQuery) {
@@ -222,6 +226,15 @@ export function AdminReportsPage() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={slaFilter} onValueChange={setSlaFilter}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="All SLA" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All SLA</SelectItem>
+            <SelectItem value="breached">Breached SLA</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {loadError ? (
@@ -235,7 +248,7 @@ export function AdminReportsPage() {
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Flag className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
             <p className="text-sm font-medium text-gray-900 dark:text-white">
-              {searchQuery || statusFilter !== 'all' || departmentFilter !== 'all' || categoryFilter !== 'all'
+              {searchQuery || statusFilter !== 'all' || departmentFilter !== 'all' || categoryFilter !== 'all' || slaFilter !== 'all'
                 ? 'No matching reports found'
                 : 'No reports found'}
             </p>
@@ -264,9 +277,12 @@ export function AdminReportsPage() {
                         {complaint.title}
                       </h3>
                     </div>
-                    <Badge variant={statusVariant[complaint.status] || 'default'} className="shrink-0 capitalize">
-                      {complaint.status}
-                    </Badge>
+                    <div className="flex flex-wrap items-center gap-1.5 shrink-0 justify-end">
+                      <SlaBadge complaint={complaint} />
+                      <Badge variant={statusVariant[complaint.status] || 'default'} className="capitalize">
+                        {complaint.status}
+                      </Badge>
+                    </div>
                   </div>
                   <div className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
                     <p><span className="font-medium text-gray-700 dark:text-gray-300">Reported By:</span> {user?.name || 'Unknown User'}</p>
