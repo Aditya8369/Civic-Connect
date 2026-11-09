@@ -54,8 +54,12 @@ vi.mock('firebase/firestore', () => ({
   getDoc: vi.fn(), setDoc: vi.fn(), serverTimestamp: () => 'server-time',
 }))
 
-function account(uid, name = uid) {
-  return { uid, email: `${uid}@example.test`, displayName: name }
+function account(uid, name = uid, claims = undefined) {
+  const user = { uid, email: `${uid}@example.test`, displayName: name }
+  if (claims !== undefined) {
+    user.getIdTokenResult = vi.fn().mockResolvedValue({ claims })
+  }
+  return user
 }
 
 function profile(role) {
@@ -379,4 +383,59 @@ it('isolates an effect replay from the previous effect for the same Firebase use
   await oldEffect
   expect(runtime.unsubscribe).toHaveBeenCalledOnce()
   expect(context().user).toMatchObject({ uid: 'a', role: 'citizen' })
+})
+
+it('hydrates role: admin directly from custom auth claims without relying on Firestore', async () => {
+  const user = account('a', 'Admin User', { role: 'admin' })
+  // Firestore user document says 'citizen' or is empty
+  getDoc.mockResolvedValueOnce(profile('citizen'))
+  await emit(user)
+  expect(user.getIdTokenResult).toHaveBeenCalled()
+  expect(context().user).toMatchObject({ uid: 'a', role: 'admin' })
+  expect(route('admin')).toBe('protected content')
+})
+
+it('rejects administrative route when claims specify role: citizen even if Firestore doc was tampered with role: admin', async () => {
+  const user = account('a', 'Malicious User', { role: 'citizen' })
+  // Attacker tampered with Firestore document to say role: 'admin'
+  getDoc.mockResolvedValueOnce(profile('admin'))
+  await emit(user)
+  expect(user.getIdTokenResult).toHaveBeenCalled()
+  expect(context().user).toMatchObject({ uid: 'a', role: 'citizen' })
+  expect(route('admin')).toBe('/dashboard')
+})
+
+it('falls back to Firestore user document when custom claims do not specify a role', async () => {
+  const user = account('a', 'Legacy User', {})
+  getDoc.mockResolvedValueOnce(profile('admin'))
+  await emit(user)
+  expect(user.getIdTokenResult).toHaveBeenCalled()
+  expect(context().user).toMatchObject({ uid: 'a', role: 'admin' })
+  expect(route('admin')).toBe('protected content')
+})
+
+it('forces role: citizen on new account registration to prevent client privilege escalation', async () => {
+  const user = account('newbie', 'New Citizen')
+  createUserWithEmailAndPassword.mockImplementationOnce(async () => {
+    emit(user)
+    return { user }
+  })
+  setDoc.mockResolvedValueOnce()
+  await context().register({ name: 'New Citizen', email: user.email, password: 'password123' })
+  expect(setDoc).toHaveBeenCalledWith(
+    'users/newbie',
+    expect.objectContaining({ role: 'citizen' })
+  )
+})
+
+it('supports refreshing claims using refreshClaims', async () => {
+  const user = account('a', 'User A', { role: 'citizen' })
+  await emit(user)
+  expect(context().user.role).toBe('citizen')
+
+  // Claim is updated to admin on the server
+  user.getIdTokenResult.mockResolvedValue({ claims: { role: 'admin' } })
+  await context().refreshClaims()
+  expect(user.getIdTokenResult).toHaveBeenCalledWith(true)
+  expect(context().user.role).toBe('admin')
 })

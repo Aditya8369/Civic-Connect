@@ -26,6 +26,17 @@ function sessionChanged() {
 }
 
 async function readRole(firebaseUser, registration) {
+  // 1. Inspect cryptographically signed custom claims on the ID token first
+  if (typeof firebaseUser.getIdTokenResult === 'function') {
+    try {
+      const tokenResult = await firebaseUser.getIdTokenResult()
+      const claimRole = tokenResult?.claims?.role
+      if (claimRole) return claimRole
+    } catch {
+      // Ignore token read error and proceed to fallback
+    }
+  }
+
   // The observer can run before registration receives its credential. Wait for
   // that account's profile write instead of hydrating from a missing document.
   if (registration && (registration.firebaseUser
@@ -35,6 +46,8 @@ async function readRole(firebaseUser, registration) {
     if (result?.firebaseUser === firebaseUser) return result.role
     if (auth.currentUser !== firebaseUser) return undefined
   }
+
+  // Backward-compatible fallback for local emulator / transitional accounts
   const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid))
   return userDoc.exists() ? userDoc.data().role : 'citizen'
 }
@@ -108,7 +121,7 @@ export function AuthProvider({ children }) {
     return currentProfile(active, cred.user)
   }, [currentProfile])
 
-  const register = useCallback(async ({ name, email, password, role = 'citizen' }) => {
+  const register = useCallback(async ({ name, email, password }) => {
     const active = lifetime.current
     if (!active) throw sessionChanged()
     const registration = { email: email.trim().toLowerCase(), firebaseUser: null }
@@ -118,16 +131,23 @@ export function AuthProvider({ children }) {
       registration.firebaseUser = firebaseUser
       const session = startSession(active, firebaseUser)
       if (!isCurrent(active, session)) throw sessionChanged()
+      // Public registrations are strictly citizens; administrative roles require Custom Auth Claims
+      const assignedRole = 'citizen'
       try {
         await updateProfile(firebaseUser, { displayName: name })
         if (!isCurrent(active, session)) throw sessionChanged()
-        await setDoc(doc(db, 'users', firebaseUser.uid), { name, email, role, createdAt: serverTimestamp() })
+        await setDoc(doc(db, 'users', firebaseUser.uid), {
+          name,
+          email,
+          role: assignedRole,
+          createdAt: serverTimestamp(),
+        })
       } catch (error) {
         if (!isCurrent(active, session)) throw sessionChanged()
         throw error
       }
       if (!isCurrent(active, session)) throw sessionChanged()
-      return { firebaseUser, role }
+      return { firebaseUser, role: assignedRole }
     })
     try {
       const { firebaseUser } = await registration.result
@@ -174,6 +194,17 @@ export function AuthProvider({ children }) {
     await sendPasswordResetEmail(auth, email)
   }, [])
 
+  const refreshClaims = useCallback(async () => {
+    const active = lifetime.current
+    const current = auth.currentUser
+    if (!current) return null
+    if (typeof current.getIdTokenResult === 'function') {
+      await current.getIdTokenResult(true)
+    }
+    if (active) active.session = null
+    return currentProfile(active, current)
+  }, [currentProfile])
+
   const value = {
     user,
     loading,
@@ -184,6 +215,7 @@ export function AuthProvider({ children }) {
     isAuthenticated: !!user,
     authInitialized,
     updateUserProfile,
+    refreshClaims,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
