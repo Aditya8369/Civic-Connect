@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Flag, Shield, BarChart3, Users, Clock, ArrowRight, Star, AlertTriangle } from 'lucide-react'
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
@@ -10,6 +10,10 @@ import { PageHeader } from '@/components/common/PageHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+
+const ComplaintsMap = lazy(() =>
+  import('@/components/common/ComplaintsMap').then((m) => ({ default: m.ComplaintsMap }))
+)
 
 const statusVariant = {
   Pending: 'destructive',
@@ -23,6 +27,7 @@ export function AdminDashboardPage() {
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
   const [slaFilter, setSlaFilter] = useState('all')
+  const [activeTab, setActiveTab] = useState('overview')
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -94,25 +99,61 @@ export function AdminDashboardPage() {
         description="Overview of all civic reports"
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-        {statCards.map((stat) => (
-          <Card key={stat.label}>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-                    {loading ? '-' : stat.value}
-                  </p>
-                </div>
-                <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${stat.color}`}>
-                  <stat.icon className="h-6 w-6" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      {/* Admin Dashboard Tabs */}
+      <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6 gap-2">
+        <button
+          onClick={() => setActiveTab('overview')}
+          className={`py-2 px-4 text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === 'overview'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+          }`}
+        >
+          Overview
+        </button>
+        <button
+          onClick={() => setActiveTab('map')}
+          className={`py-2 px-4 text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === 'map'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+          }`}
+        >
+          GIS Map
+        </button>
       </div>
+
+      {activeTab === 'map' ? (
+        <Suspense
+          fallback={
+            <div className="h-96 rounded-xl border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-500">
+              Loading map...
+            </div>
+          }
+        >
+          <ComplaintsMap complaints={complaints} isAdmin={true} />
+        </Suspense>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+            {statCards.map((stat) => (
+              <Card key={stat.label}>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                        {loading ? '-' : stat.value}
+                      </p>
+                    </div>
+                    <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${stat.color}`}>
+                      <stat.icon className="h-6 w-6" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -230,6 +271,8 @@ export function AdminDashboardPage() {
           </CardContent>
         </Card>
       </div>
+    </>
+  )}
     </div>
   )
 }
