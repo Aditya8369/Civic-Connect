@@ -1,4 +1,6 @@
 
+// @vitest-environment jsdom
+
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
@@ -10,6 +12,22 @@ import {
   vi,
 } from 'vitest'
 import VoiceRecorder from './VoiceRecorder'
+
+if (typeof HTMLMediaElement === 'undefined') {
+  globalThis.HTMLMediaElement = class HTMLMediaElement {
+    pause() {}
+    play() {
+      return Promise.resolve()
+    }
+  }
+} else {
+  if (!HTMLMediaElement.prototype.pause) {
+    HTMLMediaElement.prototype.pause = () => {}
+  }
+  if (!HTMLMediaElement.prototype.play) {
+    HTMLMediaElement.prototype.play = () => Promise.resolve()
+  }
+}
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -98,8 +116,16 @@ beforeEach(() => {
   globalThis.URL.createObjectURL = vi.fn(() => 'blob:test-audio')
   globalThis.URL.revokeObjectURL = vi.fn()
 
-  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
-  vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+  if (typeof HTMLMediaElement !== 'undefined' && HTMLMediaElement.prototype) {
+    if (!HTMLMediaElement.prototype.pause) {
+      HTMLMediaElement.prototype.pause = () => {}
+    }
+    if (!HTMLMediaElement.prototype.play) {
+      HTMLMediaElement.prototype.play = () => Promise.resolve()
+    }
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+  }
 })
 
 afterEach(async () => {
