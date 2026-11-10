@@ -21,10 +21,14 @@ export default defineConfig({
             if (id.includes('leaflet')) {
               return 'vendor-leaflet'
             }
+            if (id.includes('framer-motion')) {
+              return 'vendor-motion'
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons'
+            }
             if (
               id.includes('@radix-ui') ||
-              id.includes('lucide-react') ||
-              id.includes('framer-motion') ||
               id.includes('class-variance-authority') ||
               id.includes('clsx') ||
               id.includes('tailwind-merge')
@@ -45,10 +49,14 @@ export default defineConfig({
             if (id.includes('leaflet')) {
               return 'vendor-leaflet'
             }
+            if (id.includes('framer-motion')) {
+              return 'vendor-motion'
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons'
+            }
             if (
               id.includes('@radix-ui') ||
-              id.includes('lucide-react') ||
-              id.includes('framer-motion') ||
               id.includes('class-variance-authority') ||
               id.includes('clsx') ||
               id.includes('tailwind-merge')
