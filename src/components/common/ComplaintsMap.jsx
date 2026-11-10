@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import L from 'leaflet'
+import 'leaflet.heat'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { Filter, Layers, MapPin, Tag, AlertCircle, RefreshCw, Eye } from 'lucide-react'
@@ -12,6 +13,7 @@ import {
   MARKER_COLORS,
   filterComplaints,
   clusterComplaints,
+  buildHeatmapPoints,
 } from '@/utils/mapClustering'
 
 // Ensure Leaflet default icons resolve correctly if used as fallback
@@ -139,6 +141,39 @@ function MapController({ points, onZoomChange }) {
 }
 
 /**
+ * Adds/removes the Leaflet heat layer as the toggle and filtered points change.
+ * Each complaint contributes one unit of weight; overlapping points build density.
+ */
+function ComplaintHeatmapLayer({ points, enabled }) {
+  const map = useMap()
+
+  useEffect(() => {
+    if (!enabled || !Array.isArray(points) || points.length === 0) return undefined
+
+    const heatLayer = L.heatLayer(points, {
+      radius: 28,
+      blur: 22,
+      maxZoom: 17,
+      max: 3,
+      gradient: {
+        0.2: '#2563eb',
+        0.4: '#06b6d4',
+        0.6: '#84cc16',
+        0.8: '#f59e0b',
+        1.0: '#dc2626',
+      },
+    })
+
+    heatLayer.addTo(map)
+    return () => {
+      map.removeLayer(heatLayer)
+    }
+  }, [map, points, enabled])
+
+  return null
+}
+
+/**
  * ComplaintsMap Component
  *
  * Interactive Leaflet GIS Map with marker clustering, color-coded priority pins,
@@ -156,6 +191,7 @@ export function ComplaintsMap({
   const [selectedStatus, setSelectedStatus] = useState(initialStatus)
   const [searchTerm, setSearchTerm] = useState('')
   const [currentZoom, setCurrentZoom] = useState(12)
+  const [heatmapEnabled, setHeatmapEnabled] = useState(false)
 
   // Extract all categories dynamically from complaints, merged with defaults
   const availableCategories = useMemo(() => {
@@ -204,6 +240,11 @@ export function ComplaintsMap({
     }
     return list
   }, [filteredComplaints])
+
+  // Convert filtered complaints into Leaflet heat points [latitude, longitude, weight].
+  const heatmapPoints = useMemo(() => {
+    return buildHeatmapPoints(validFilteredPoints)
+  }, [validFilteredPoints])
 
   // Compute marker clusters based on current zoom level
   const clusters = useMemo(() => {
@@ -298,7 +339,7 @@ export function ComplaintsMap({
               aria-label="Filter complaints by category"
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="text-xs rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 py-1.5 px-2.5 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+              className="text-xs rounded-lg border border-gray-300 dark:border-gray-700bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 py-1.5 px-2.5 focus:ring-2 focus:ring-primary-500 focus:outline-none"
             >
               {availableCategories.map((cat) => (
                 <option key={cat} value={cat}>
@@ -314,7 +355,7 @@ export function ComplaintsMap({
               aria-label="Filter complaints by status"
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="text-xs rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 py-1.5 px-2.5 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+              className="text-xs rounded-lg border border-gray-300 dark:border-gray-700bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 py-1.5 px-2.5 focus:ring-2 focus:ring-primary-500 focus:outline-none"
             >
               <option value="All">All Statuses</option>
               {DEFAULT_STATUSES.map((st) => (
@@ -348,6 +389,19 @@ export function ComplaintsMap({
             </Button>
           )}
 
+          <Button
+            type="button"
+            variant={heatmapEnabled ? 'default' : 'outline'}
+            size="sm"
+            aria-label="Toggle complaint heatmap"
+            aria-pressed={heatmapEnabled}
+            onClick={() => setHeatmapEnabled((enabled) => !enabled)}
+            className="h-8 text-xs gap-1"
+          >
+            <Layers className="w-3 h-3" />
+            {heatmapEnabled ? 'Hide heatmap' : 'Show heatmap'}
+          </Button>
+
           {totalMissingCoords > 0 && (
             <div className="ml-auto flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 rounded-md border border-amber-200 dark:border-amber-900/50">
               <AlertCircle className="w-3 h-3 shrink-0" />
@@ -361,7 +415,7 @@ export function ComplaintsMap({
       <div className="relative w-full overflow-hidden" style={{ height }}>
         {validFilteredPoints.length === 0 ? (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 bg-gray-50/90 dark:bg-gray-900/90 text-center backdrop-blur-xs">
-            <div className="p-3 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-400 mb-3">
+            <div className="p-3 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-400mb-3">
               <MapPin className="w-8 h-8" />
             </div>
             <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-base mb-1">
@@ -394,6 +448,7 @@ export function ComplaintsMap({
           />
 
           <MapController points={validFilteredPoints} onZoomChange={setCurrentZoom} />
+          <ComplaintHeatmapLayer points={heatmapPoints} enabled={heatmapEnabled} />
 
           {clusters.map((item) => {
             if (item.isCluster) {
