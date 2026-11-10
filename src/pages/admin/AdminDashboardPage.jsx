@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Flag, Shield, BarChart3, Users, Clock, ArrowRight, Star, AlertTriangle } from 'lucide-react'
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
 import { db } from '@/firebase/services'
+import { useAuth } from '@/hooks/useAuth'
 import { getDisplayId } from '@/firebase/complaintId'
 import { isSlaBreached } from '@/utils/sla'
 import { SlaBadge } from '@/components/common/SlaBadge'
@@ -10,6 +11,7 @@ import { PageHeader } from '@/components/common/PageHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { BulkActionsToolbar } from '@/components/admin/BulkActionsToolbar'
 
 const ComplaintsMap = lazy(() =>
   import('@/components/common/ComplaintsMap').then((m) => ({ default: m.ComplaintsMap }))
@@ -28,6 +30,9 @@ export function AdminDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [slaFilter, setSlaFilter] = useState('all')
   const [activeTab, setActiveTab] = useState('overview')
+  const [selectedIds, setSelectedIds] = useState([])
+  const selectAllRef = useRef(null)
+  const { user } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -84,6 +89,40 @@ export function AdminDashboardPage() {
   }, [complaints, slaFilter])
 
   const recentReports = filteredReports.slice(0, 5)
+  const displayedComplaints = recentReports
+
+  const isAllSelected = useMemo(() => {
+    if (displayedComplaints.length === 0) return false
+    return displayedComplaints.every((r) => selectedIds.includes(r.id))
+  }, [displayedComplaints, selectedIds])
+
+  const isIndeterminate = useMemo(() => {
+    const count = displayedComplaints.filter((r) => selectedIds.includes(r.id)).length
+    return count > 0 && count < displayedComplaints.length
+  }, [displayedComplaints, selectedIds])
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = isIndeterminate
+    }
+  }, [isIndeterminate])
+
+  const handleToggleSelectAll = () => {
+    if (isAllSelected) {
+      const displayedIdSet = new Set(displayedComplaints.map((r) => r.id))
+      setSelectedIds((prev) => prev.filter((id) => !displayedIdSet.has(id)))
+    } else {
+      const ids = displayedComplaints.map((r) => r.id)
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...ids])))
+    }
+  }
+
+  const handleToggleSelect = (id, e) => {
+    e.stopPropagation()
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    )
+  }
 
   const statCards = [
     { label: 'Total Complaints', value: stats.total, icon: Flag, color: 'text-primary-600 bg-primary-50 dark:bg-primary-900/30' },
@@ -197,18 +236,50 @@ export function AdminDashboardPage() {
               </div>
             ) : (
               <div className="space-y-3">
+                <div className="flex items-center justify-between pb-2 mb-1 border-b border-gray-100 dark:border-gray-800 text-xs text-gray-500">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all complaints"
+                      className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                      checked={isAllSelected}
+                      ref={selectAllRef}
+                      onChange={handleToggleSelectAll}
+                    />
+                    <span>Select All ({displayedComplaints.length})</span>
+                  </label>
+                  {selectedIds.length > 0 && (
+                    <span className="font-medium text-primary-600 dark:text-primary-400">
+                      {selectedIds.length} selected
+                    </span>
+                  )}
+                </div>
                 {recentReports.map((r) => (
                   <div
                     key={r.id}
-                    className="flex items-center justify-between p-3 rounded-lg border border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors"
+                    className={`flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer ${
+                      selectedIds.includes(r.id)
+                        ? 'border-primary-500 bg-primary-50/40 dark:bg-primary-950/30'
+                        : 'border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                    }`}
                     onClick={() => navigate(`/admin/reports/${r.id}`)}
                   >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-mono text-gray-400 dark:text-gray-500">{getDisplayId(r)}</p>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate mt-0.5">{r.title}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        {r.category} &middot; {r.createdAt?.toDate?.().toLocaleDateString() || '-'}
-                      </p>
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select complaint ${getDisplayId(r)}`}
+                        className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer shrink-0"
+                        checked={selectedIds.includes(r.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => handleToggleSelect(r.id, e)}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-mono text-gray-400 dark:text-gray-500">{getDisplayId(r)}</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate mt-0.5">{r.title}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {r.category} &middot; {r.department || 'Unassigned'} &middot; {r.createdAt?.toDate?.().toLocaleDateString() || '-'}
+                        </p>
+                      </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 shrink-0 ml-3 justify-end">
                       <SlaBadge complaint={r} />
@@ -273,6 +344,13 @@ export function AdminDashboardPage() {
       </div>
     </>
   )}
+      <BulkActionsToolbar
+        selectedIds={selectedIds}
+        complaints={complaints}
+        onClearSelection={() => setSelectedIds([])}
+        onSuccess={() => setSelectedIds([])}
+        actorUid={user?.uid}
+      />
     </div>
   )
 }
