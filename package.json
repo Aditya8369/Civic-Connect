@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
+    "report:bundle-size": "node scripts/report-bundle-size.mjs",
     "postinstall": "node -e \"const fs = require('fs'); if (fs.existsSync('.env.example') && !fs.existsSync('.env')) fs.copyFileSync('.env.example', '.env');\""
   },
   "dependencies": {
