@@ -17,6 +17,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SlaBadge } from '@/components/common/SlaBadge'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { isSlaBreached } from '@/utils/sla'
 import { BulkActionsToolbar } from '@/components/admin/BulkActionsToolbar'
 
@@ -245,7 +246,12 @@ export function AdminReportsPage() {
           <SelectContent>
             <SelectItem value="all">All Departments</SelectItem>
             {allDepartments.map((d) => (
-              <SelectItem key={d} value={d}>{d}</SelectItem>
+              <SelectItem key={d} value={d}>
+                <div className="flex items-center gap-1.5">
+                  <DepartmentCrest department={d} variant="avatar" size="xs" />
+                  <span>{d}</span>
+                </div>
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -356,10 +362,12 @@ export function AdminReportsPage() {
                       </Badge>
                     </div>
                   </div>
-                  <div className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="space-y-2 text-xs text-gray-500 dark:text-gray-400">
                     <p><span className="font-medium text-gray-700 dark:text-gray-300">Reported By:</span> {user?.name || 'Unknown User'}</p>
-                    <p><span className="font-medium text-gray-700 dark:text-gray-300">Department:</span> {complaint.department || 'Not assigned'}</p>
-                    <p><span className="font-medium text-gray-700 dark:text-gray-300">Category:</span> {complaint.category || '-'}</p>
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                      <DepartmentCrest department={complaint.department} category={complaint.category} size="xs" />
+                      {complaint.category && <CategoryAvatar category={complaint.category} size="xs" />}
+                    </div>
                     <p className="truncate"><span className="font-medium text-gray-700 dark:text-gray-300">Address:</span> {complaint.address}</p>
                     <p><span className="font-medium text-gray-700 dark:text-gray-300">Date:</span> {formatDate(complaint.createdAt) || '-'}</p>
                   </div>

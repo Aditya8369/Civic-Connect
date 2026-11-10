@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Search, MapPin, CalendarDays, Eye, Pencil, Trash2, FileWarning, Plus } from 'lucide-react'
@@ -14,6 +14,7 @@ import { ConnectionErrorBanner } from '@/components/common/ConnectionErrorBanner
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
@@ -190,7 +191,17 @@ export function MyReportsPage() {
                     <h3 className="font-medium text-gray-900 dark:text-white leading-snug">
                       {report.title}
                     </h3>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{report.category}</p>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      <DepartmentCrest
+                        department={report.department}
+                        category={report.category}
+                        size="xs"
+                        variant="chip"
+                      />
+                      {report.category && (
+                        <CategoryAvatar category={report.category} size="xs" />
+                      )}
+                    </div>
                   </div>
 
                   <div className="mt-auto space-y-2">
