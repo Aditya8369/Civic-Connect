@@ -6,6 +6,7 @@ import {
   filterComplaints,
   clusterComplaints,
   calculateMapBounds,
+  buildHeatmapPoints,
 } from './mapClustering'
 
 describe('mapClustering utils', () => {
@@ -175,3 +176,19 @@ describe('mapClustering utils', () => {
   })
 })
 
+describe('buildHeatmapPoints', () => {
+  it('creates weighted Leaflet tuples for valid complaint coordinates', () => {
+    expect(buildHeatmapPoints([
+      { id: '1', latitude: 28.6139, longitude: 77.209 },
+      { id: '2', coordinates: { lat: 12.9716, lng: 77.5946 } },
+    ])).toEqual([
+      [28.6139, 77.209, 1],
+      [12.9716, 77.5946, 1],
+    ])
+  })
+
+  it('ignores invalid entries and handles non-array input', () => {
+    expect(buildHeatmapPoints([null, {}, { latitude: 100, longitude: 20 }])).toEqual([])
+    expect(buildHeatmapPoints(undefined)).toEqual([])
+  })
+})

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 // Mock Firebase services to prevent auth/invalid-api-key during node tests
 vi.mock('@/firebase/services', () => ({ auth: {}, db: {} }))
+vi.mock('leaflet.heat', () => ({}))
 
 // Polyfill window for rendering in node test environment
 if (typeof window === 'undefined') {
@@ -17,6 +18,7 @@ import { ComplaintsMap, createPinIcon, createClusterIcon } from './ComplaintsMap
 import { parseCoordinates } from '@/utils/geo'
 import {
   getComplaintMarkerColor,
+  buildHeatmapPoints,
   filterComplaints,
   clusterComplaints,
 } from '@/utils/mapClustering'
@@ -31,6 +33,12 @@ vi.mock('leaflet', () => {
       },
     },
     divIcon: vi.fn((opts) => ({ ...opts, _isDivIcon: true })),
+    heatLayer: vi.fn((points, options) => ({
+      addTo: vi.fn(),
+      setLatLngs: vi.fn(),
+      points,
+      options,
+    })),
     latLngBounds: vi.fn((pts) => ({
       isValid: () => Array.isArray(pts) && pts.length > 0,
     })),
@@ -290,7 +298,30 @@ describe('ComplaintsMap Component and GIS Utilities', () => {
     })
   })
 
-  describe('7. Error Handling & Edge Cases', () => {
+  describe('7. Complaint Heatmap Toggle', () => {
+    it('renders the heatmap toggle disabled by default', () => {
+      const html = renderToStaticMarkup(<ComplaintsMap complaints={sampleComplaints} />)
+      expect(html).toContain('Toggle complaint heatmap')
+      expect(html).toContain('aria-pressed="false"')
+      expect(html).toContain('Show heatmap')
+    })
+
+    it('prepares heatmap points only for complaints with valid coordinates', () => {
+      expect(buildHeatmapPoints(sampleComplaints)).toEqual([
+        [28.6139, 77.209, 1],
+        [28.6145, 77.2095, 1],
+        [28.62, 77.22, 1],
+      ])
+    })
+
+    it('returns no heatmap points for empty, invalid, or missing inputs', () => {
+      expect(buildHeatmapPoints([])).toEqual([])
+      expect(buildHeatmapPoints(null)).toEqual([])
+      expect(buildHeatmapPoints([{ latitude: null, longitude: null }, null])).toEqual([])
+    })
+  })
+
+  describe('8. Error Handling & Edge Cases', () => {
     it('handles undefined or null complaints prop without throwing', () => {
       expect(() => renderToStaticMarkup(<ComplaintsMap complaints={null} />)).not.toThrow()
       expect(() => renderToStaticMarkup(<ComplaintsMap complaints={undefined} />)).not.toThrow()
