@@ -17,11 +17,9 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
@@ -32,9 +30,20 @@ jobs:
       - name: Run lint
         run: npm run lint
 
-      - name: Run build
+      - name: Run tests
+        run: npm test
+
+      - name: Build application
         run: npm run build
-      - name: Verify PWA assets
+        env:
+          VITE_FIREBASE_API_KEY: ci-placeholder
+          VITE_FIREBASE_AUTH_DOMAIN: localhost
+          VITE_FIREBASE_PROJECT_ID: civicconnect-ci
+          VITE_FIREBASE_STORAGE_BUCKET: civicconnect-ci.appspot.com
+          VITE_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
+          VITE_FIREBASE_APP_ID: "1:000000000000:web:0000000000000000000000"
+
+      - name: Verify PWA
         run: node scripts/verify-pwa.mjs
 
       - name: Run Lighthouse CI

@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import L from 'leaflet'
-import 'leaflet.heat'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { Filter, Layers, MapPin, Tag, AlertCircle, RefreshCw, Eye } from 'lucide-react'
@@ -15,6 +14,11 @@ import {
   clusterComplaints,
   buildHeatmapPoints,
 } from '@/utils/mapClustering'
+
+// leaflet.heat expects Leaflet to be available on the browser global.
+if (typeof window !== 'undefined') {
+  window.L = L
+}
 
 // Ensure Leaflet default icons resolve correctly if used as fallback
 delete L.Icon.Default.prototype._getIconUrl
@@ -146,9 +150,41 @@ function MapController({ points, onZoomChange }) {
  */
 function ComplaintHeatmapLayer({ points, enabled }) {
   const map = useMap()
+  const [pluginReady, setPluginReady] = useState(false)
 
+  // Load the plugin only after exposing the Leaflet instance globally.
   useEffect(() => {
-    if (!enabled || !Array.isArray(points) || points.length === 0) return undefined
+    let cancelled = false
+
+    if (typeof window !== 'undefined') {
+      window.L = L
+    }
+
+    import('leaflet.heat')
+      .then(() => {
+        if (!cancelled) {
+          setPluginReady(true)
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to load Leaflet heat plugin:', error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Add the heat layer only when the plugin is ready and the toggle is enabled.
+  useEffect(() => {
+    if (
+      !pluginReady ||
+      !enabled ||
+      !Array.isArray(points) ||
+      points.length === 0
+    ) {
+      return undefined
+    }
 
     const heatLayer = L.heatLayer(points, {
       radius: 28,
@@ -165,10 +201,13 @@ function ComplaintHeatmapLayer({ points, enabled }) {
     })
 
     heatLayer.addTo(map)
+
     return () => {
-      map.removeLayer(heatLayer)
+      if (map.hasLayer(heatLayer)) {
+        map.removeLayer(heatLayer)
+      }
     }
-  }, [map, points, enabled])
+  }, [map, points, enabled, pluginReady])
 
   return null
 }

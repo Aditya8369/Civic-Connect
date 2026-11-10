@@ -7,8 +7,8 @@
       ],
       "numberOfRuns": 3,
       "startServerCommand": "node ./node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4174 --strictPort",
-      "startServerReadyPattern": "Local:",
-      "startServerReadyTimeout": 60000
+      "startServerReadyPattern": "http://127\\.0\\.0\\.1",
+      "startServerReadyTimeout": 120000
     },
     "assert": {
       "assertions": {
