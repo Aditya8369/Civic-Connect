@@ -374,7 +374,7 @@ export function AdminReportsPage() {
         selectedIds={selectedIds}
         complaints={complaints}
         onClearSelection={() => setSelectedIds([])}
-        onSuccess={() => setSelectedIds([])}
+        onSelectionChange={setSelectedIds}
         actorUid={user?.uid}
       />
     </div>
