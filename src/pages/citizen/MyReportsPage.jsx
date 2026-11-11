@@ -1,7 +1,7 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Search, MapPin, CalendarDays, Eye, Pencil, Trash2, FileWarning, Plus } from 'lucide-react'
+import { Search, MapPin, CalendarDays, Eye, Pencil, Trash2 } from 'lucide-react'
 import { collection, query, where, onSnapshot, doc, deleteDoc } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
@@ -11,6 +11,7 @@ import { sortByCreatedAtDesc } from '@/utils/sortByCreatedAtDesc'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ComplaintCardSkeleton } from '@/components/common/ComplaintCardSkeleton'
 import { ConnectionErrorBanner } from '@/components/common/ConnectionErrorBanner'
+import { EmptyState } from '@/components/common/EmptyState'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -153,22 +154,26 @@ export function MyReportsPage() {
           </div>
         ) : loading ? (
           Array.from({ length: 6 }, (_, i) => <ComplaintCardSkeleton key={i} />)
+        ) : complaints.length === 0 ? (
+          <div className="sm:col-span-2 xl:col-span-3">
+            <EmptyState
+              variant="reports"
+              heading="No Reports Yet"
+              description="You haven't submitted any civic reports yet. Help improve your community by reporting an issue."
+              actionLabel="Report an Issue"
+              onAction={() => navigate('/report')}
+            />
+          </div>
         ) : filtered.length === 0 ? (
           <div className="sm:col-span-2 xl:col-span-3">
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-16">
-                <FileWarning className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
-                <p className="text-sm font-medium text-gray-900 dark:text-white">No complaints found</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {searchQuery ? 'Try a different search term.' : "You haven't reported any civic issues yet."}
-                </p>
-                {!searchQuery && (
-                  <Button onClick={() => navigate('/report')} variant="outline" size="sm" className="mt-4 gap-2">
-                    <Plus className="h-4 w-4" /> New Complaint
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
+            <EmptyState
+              variant="reports"
+              heading="No Complaints Found"
+              description="Try a different search term or clear your search query."
+              actionLabel="Clear Search"
+              actionVariant="outline"
+              onAction={() => setSearchQuery('')}
+            />
           </div>
         ) : (
           filtered.map((report, index) => (

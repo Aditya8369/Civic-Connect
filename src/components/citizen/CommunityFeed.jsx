@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   collection,
   query,
-  where,
   onSnapshot,
   doc,
   runTransaction,
@@ -24,9 +24,11 @@ import {
   ChevronUp,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { EmptyState } from '@/components/common/EmptyState'
 
 export default function CommunityFeed() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
   const [sortBy, setSortBy] = useState('recent') // 'recent' | 'upvoted'
@@ -223,10 +225,23 @@ export default function CommunityFeed() {
           <Loader2 className="w-8 h-8 animate-spin mb-2" />
           <p className="text-sm">Loading community feed...</p>
         </div>
+      ) : complaints.length === 0 ? (
+        <EmptyState
+          variant="community"
+          heading="No Community Posts Yet"
+          description="There are no posts to display right now. Be part of your community by sharing an update."
+          actionLabel="Create a Post"
+          onAction={() => navigate('/report')}
+        />
       ) : filteredComplaints.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-xl border border-gray-200 dark:bg-gray-900 dark:border-gray-800">
-          <p className="text-gray-500 text-sm dark:text-gray-400">No community issues found.</p>
-        </div>
+        <EmptyState
+          variant="community"
+          heading="No Community Posts Found"
+          description="There are no community posts in this category. Try selecting a different category."
+          actionLabel="Show All Categories"
+          actionVariant="outline"
+          onAction={() => setCategoryFilter('all')}
+        />
       ) : (
         <div className="space-y-4">
           {filteredComplaints.map((issue) => {

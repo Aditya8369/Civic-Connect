@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import CommunityFeed from '@/components/citizen/CommunityFeed'
+import { CitizenOnboarding } from '@/components/citizen/CitizenOnboarding'
 
 const ComplaintsMap = lazy(() =>
   import('@/components/common/ComplaintsMap').then((m) => ({ default: m.ComplaintsMap }))
@@ -156,6 +157,9 @@ export function DashboardPage() {
           <Plus className="h-5 w-5" /> New Complaint
         </Button>
       </div>
+
+      <CitizenOnboarding />
+
       {/* Dashboard Tabs */}
       <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6 gap-2">
         <button
