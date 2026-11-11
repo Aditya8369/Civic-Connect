@@ -1,6 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, Building2, FileText, Loader2, Save, HardHat, Phone, Star, Camera, ZoomIn, ZoomOut, ExternalLink } from 'lucide-react'
+import {
+  ArrowLeft,
+  MapPin,
+  Building2,
+  FileText,
+  Loader2,
+  Save,
+  HardHat,
+  Phone,
+  Star,
+  Camera,
+  ZoomIn,
+  ZoomOut,
+  ExternalLink,
+} from 'lucide-react'
 import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
 import { auth, db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
@@ -12,7 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { SlaBadge, SlaCountdown } from '@/components/common/SlaBadge'
-import { getSlaTargetDate } from '@/utils/sla'
+import getSlaTargetDate from '@/utils/sla'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -54,10 +68,6 @@ const ratingLabels = {
   5: 'Excellent',
 }
 
-// Accepts a 10-digit phone number with an optional +91, 91 or 0 prefix,
-// ignoring spaces, dashes, dots and brackets.
-// Returns it as "+91 XXXXXXXXXX", or null if invalid.
-
 function canRejectComplaint(complaint) {
   return ['Pending', 'In Progress', 'Reopened'].includes(complaint?.status)
 }
@@ -65,12 +75,14 @@ function canRejectComplaint(complaint) {
 export function AdminComplaintDetailsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+
   let authUser = null
   try {
     authUser = useAuth()?.user
   } catch {
     authUser = auth?.currentUser ? { uid: auth.currentUser.uid } : null
   }
+
   const actorUid = authUser?.uid || auth?.currentUser?.uid || null
   const [complaint, setComplaint] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -80,15 +92,18 @@ export function AdminComplaintDetailsPage() {
   const isDirty = useRef(false)
   const [saving, setSaving] = useState(false)
   const transitionPending = useRef(false)
+
   const [workerDialogOpen, setWorkerDialogOpen] = useState(false)
   const [workerName, setWorkerName] = useState('')
   const [workerPhone, setWorkerPhone] = useState('')
   const [workerError, setWorkerError] = useState('')
   const [savingWorker, setSavingWorker] = useState(false)
+
   const [backfillError, setBackfillError] = useState(false)
   const [backfillRetry, setBackfillRetry] = useState(0)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+
   const [zoomOpen, setZoomOpen] = useState(false)
   const [zoomScale, setZoomScale] = useState(1)
 
@@ -104,6 +119,7 @@ export function AdminComplaintDetailsPage() {
         if (!active) return
         if (snap.exists()) {
           const data = { id: snap.id, ...snap.data() }
+
           if (data.complaintId) {
             committedId = data.complaintId
             setBackfillError(false)
@@ -128,16 +144,22 @@ export function AdminComplaintDetailsPage() {
                 setBackfillError(true)
               })
           }
+
           setComplaint(data)
           if (!isDirty.current) {
             setResolutionNotes(data.resolutionNotes || '')
           }
           setLoading(false)
+
           if (data.reportedBy) {
             getDoc(doc(db, 'users', data.reportedBy))
               .then((userSnap) => {
                 if (!active) return
-                setCitizen(userSnap.exists() ? userSnap.data() : { name: 'Unknown User', email: null })
+                setCitizen(
+                  userSnap.exists()
+                    ? userSnap.data()
+                    : { name: 'Unknown User', email: null }
+                )
               })
               .catch(() => {
                 if (!active) return
@@ -177,20 +199,23 @@ export function AdminComplaintDetailsPage() {
           ...(next === 'Resolved' && { resolvedAt: serverTimestamp() }),
           updatedAt: serverTimestamp(),
         },
-        current => current.reportedBy ? {
-          recipientUid: current.reportedBy,
-          recipientRole: 'citizen',
-          senderUid: '',
-          issueId: current.complaintId || id,
-          type: 'status_update',
-          title: 'Complaint Status Updated',
-          message:
-            next === 'Resolved'
-              ? 'Your complaint has been Resolved.'
-              : 'Your complaint is now In Progress.',
-        } : null,
+        (current) =>
+          current.reportedBy
+            ? {
+                recipientUid: current.reportedBy,
+                recipientRole: 'citizen',
+                senderUid: '',
+                issueId: current.complaintId || id,
+                type: 'status_update',
+                title: 'Complaint Status Updated',
+                message:
+                  next === 'Resolved'
+                    ? 'Your complaint has been Resolved.'
+                    : 'Your complaint is now In Progress.',
+              }
+            : null,
         () => true,
-        current => ({
+        (current) => ({
           actorUid,
           action: 'Status changed',
           previousStatus: current.status,
@@ -214,11 +239,13 @@ export function AdminComplaintDetailsPage() {
       toast.error('This complaint can no longer be rejected')
       return
     }
+
     const reason = rejectReason.trim()
     if (!reason) {
       toast.error('Please enter a rejection reason')
       return
     }
+
     transitionPending.current = true
     setSaving(true)
     try {
@@ -230,20 +257,23 @@ export function AdminComplaintDetailsPage() {
           rejectionReason: reason,
           updatedAt: serverTimestamp(),
         },
-        current => current.reportedBy ? {
-          recipientUid: current.reportedBy,
-          recipientRole: 'citizen',
-          senderUid: '',
-          issueId: current.complaintId || id,
-          type: 'status_update',
-          title: 'Complaint Rejected',
-          message: `Your complaint was rejected: ${reason}`,
-        } : null,
+        (current) =>
+          current.reportedBy
+            ? {
+                recipientUid: current.reportedBy,
+                recipientRole: 'citizen',
+                senderUid: '',
+                issueId: current.complaintId || id,
+                type: 'status_update',
+                title: 'Complaint Rejected',
+                message: `Your complaint was rejected: ${reason}`,
+              }
+            : null,
         canRejectComplaint,
-        current => ({
+        () => ({
           actorUid,
           action: 'Status changed',
-          previousStatus: current.status,
+          previousStatus: complaint.status,
           newStatus: 'Rejected',
           remarks: reason,
         })
@@ -310,6 +340,7 @@ export function AdminComplaintDetailsPage() {
   const handleSaveWorker = async () => {
     const name = workerName.trim()
     const phone = normalizePhone(workerPhone)
+
     if (!name) {
       setWorkerError('Please enter the worker name')
       return
@@ -318,6 +349,7 @@ export function AdminComplaintDetailsPage() {
       setWorkerError('Please enter a 10-digit phone number (optionally with +91)')
       return
     }
+
     setSavingWorker(true)
     try {
       await updateDoc(doc(db, 'issues', id), {
@@ -353,7 +385,9 @@ export function AdminComplaintDetailsPage() {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <p className="text-lg font-semibold text-gray-900 dark:text-white">Complaint not found</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">This complaint does not exist or has been removed.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          This complaint does not exist or has been removed.
+        </p>
         <Button variant="outline" size="sm" className="mt-4" onClick={() => navigate('/admin/reports')}>
           Back to Reports
         </Button>
@@ -382,25 +416,35 @@ export function AdminComplaintDetailsPage() {
               <div className="flex items-start justify-between gap-4 mb-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2 mb-1">
-                    <span className="text-xs font-mono text-primary-600 dark:text-primary-400 font-semibold">{getDisplayId(complaint)}</span>
+                    <span className="text-xs font-mono text-primary-600 dark:text-primary-400 font-semibold">
+                      {getDisplayId(complaint)}
+                    </span>
                     <Badge variant={statusVariant[complaint.status] || 'default'} className="capitalize">
                       {complaint.status}
                     </Badge>
                     <SlaBadge complaint={complaint} />
                   </div>
-                  <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-1">{complaint.title}</h1>
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-1">
+                    {complaint.title}
+                  </h1>
+
                   {backfillError && (
                     <div role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
                       Could not assign a ticket ID.{' '}
-                      <Button variant="outline" size="sm" onClick={() => {
-                        setBackfillError(false)
-                        setBackfillRetry(value => value + 1)
-                      }}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setBackfillError(false)
+                          setBackfillRetry((value) => value + 1)
+                        }}
+                      >
                         Retry ticket ID
                       </Button>
                     </div>
                   )}
                 </div>
+
                 <div className="flex gap-2 shrink-0">
                   {canReject && (
                     <Button
@@ -419,7 +463,7 @@ export function AdminComplaintDetailsPage() {
                       size="sm"
                       className="gap-2"
                     >
-                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                       Mark {nextStatus[complaint.status]}
                     </Button>
                   )}
@@ -429,11 +473,15 @@ export function AdminComplaintDetailsPage() {
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 py-4 border-y border-gray-100 dark:border-gray-800">
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Category</p>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">{complaint.category || '-'}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">
+                    {complaint.category || '-'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Department</p>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">{complaint.department || 'Not assigned'}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">
+                    {complaint.department || 'Not assigned'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Created</p>
@@ -466,7 +514,9 @@ export function AdminComplaintDetailsPage() {
 
               <div className="mt-4">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">{complaint.description}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+                  {complaint.description}
+                </p>
               </div>
 
               {(complaint.imageUrl || (complaint.photos && complaint.photos.length > 0)) && (
@@ -488,8 +538,7 @@ export function AdminComplaintDetailsPage() {
                       className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-medium cursor-pointer"
                       aria-label="Zoom in on photo evidence"
                     >
-                      <ZoomIn className="h-4 w-4" />
-                      Click to zoom
+                      <ZoomIn className="h-4 w-4" /> Click to zoom
                     </button>
                   </div>
                 </div>
@@ -527,13 +576,19 @@ export function AdminComplaintDetailsPage() {
             </CardHeader>
             <CardContent>
               <div className="max-w-xs">
-                <Select value={complaint.department || ''} onValueChange={handleDepartmentChange} disabled={saving}>
+                <Select
+                  value={complaint.department || ''}
+                  onValueChange={handleDepartmentChange}
+                  disabled={saving}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
                   <SelectContent>
                     {departments.map((dept) => (
-                      <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                      <SelectItem key={dept} value={dept}>
+                        {dept}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -560,7 +615,11 @@ export function AdminComplaintDetailsPage() {
                 className="flex w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 mb-4"
               />
               <Button onClick={handleSaveNotes} disabled={saving} size="sm" className="gap-2">
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
                 Save Notes
               </Button>
             </CardContent>
@@ -603,18 +662,19 @@ export function AdminComplaintDetailsPage() {
                     </span>
                   )}
                 </div>
-
                 {complaint.feedback.comment ? (
                   <p className="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800">
                     "{complaint.feedback.comment}"
                   </p>
                 ) : (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 italic">No additional comment provided.</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 italic">
+                    No additional comment provided.
+                  </p>
                 )}
-
                 {complaint.feedback.submittedAt && (
                   <p className="text-xs text-gray-400 dark:text-gray-500">
-                    Submitted on {complaint.feedback.submittedAt.toDate?.().toLocaleDateString() || '-'}
+                    Submitted on{' '}
+                    {complaint.feedback.submittedAt.toDate?.().toLocaleDateString() || '-'}
                   </p>
                 )}
               </CardContent>
@@ -647,11 +707,15 @@ export function AdminComplaintDetailsPage() {
             <CardContent className="space-y-3 text-sm">
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Name</p>
-                <p className="font-medium text-gray-900 dark:text-white">{citizen?.name || 'Unknown User'}</p>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {citizen?.name || 'Unknown User'}
+                </p>
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Email</p>
-                <p className="font-medium text-gray-900 dark:text-white">{citizen?.email || '-'}</p>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {citizen?.email || '-'}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -668,7 +732,9 @@ export function AdminComplaintDetailsPage() {
                 <>
                   <div>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Name</p>
-                    <p className="font-medium text-gray-900 dark:text-white">{complaint.assignedWorker.name}</p>
+                    <p className="font-medium text-gray-900 dark:text-white">
+                      {complaint.assignedWorker.name}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Contact</p>
@@ -714,11 +780,14 @@ export function AdminComplaintDetailsPage() {
         </div>
       </div>
 
+      {/* Assign Field Worker Modal */}
       <Dialog open={workerDialogOpen} onOpenChange={setWorkerDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Assign Field Worker</DialogTitle>
-            <DialogDescription>Enter the details of the worker responsible for this complaint.</DialogDescription>
+            <DialogDescription>
+              Enter the details of the worker responsible for this complaint.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -740,10 +809,14 @@ export function AdminComplaintDetailsPage() {
                 onChange={(e) => setWorkerPhone(e.target.value)}
               />
             </div>
-            {workerError && <p className="text-sm text-red-600 dark:text-red-400">{workerError}</p>}
+            {workerError && (
+              <p className="text-sm text-red-600 dark:text-red-400">{workerError}</p>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setWorkerDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setWorkerDialogOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleSaveWorker} disabled={savingWorker}>
               {savingWorker ? 'Saving...' : 'Save Worker'}
             </Button>
@@ -751,11 +824,14 @@ export function AdminComplaintDetailsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Reject Complaint Modal */}
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reject Complaint</DialogTitle>
-            <DialogDescription>A reason is required and will be shown to the citizen.</DialogDescription>
+            <DialogDescription>
+              A reason is required and will be shown to the citizen.
+            </DialogDescription>
           </DialogHeader>
           <textarea
             rows={4}
@@ -765,7 +841,9 @@ export function AdminComplaintDetailsPage() {
             className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+              Cancel
+            </Button>
             <Button variant="destructive" onClick={handleReject} disabled={saving}>
               {saving ? 'Rejecting...' : 'Reject'}
             </Button>
@@ -817,7 +895,6 @@ export function AdminComplaintDetailsPage() {
                     <ZoomIn className="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
                   </button>
                 </div>
-
                 {(complaint.imageUrl || complaint.photos?.[0]) && (
                   <a
                     href={complaint.imageUrl || complaint.photos?.[0]}
@@ -839,7 +916,10 @@ export function AdminComplaintDetailsPage() {
             <img
               src={complaint.imageUrl || complaint.photos?.[0]}
               alt="Enlarged complaint evidence"
-              style={{ transform: `scale(${zoomScale})`, transformOrigin: 'center center' }}
+              style={{
+                transform: `scale(${zoomScale})`,
+                transformOrigin: 'center center',
+              }}
               className={`max-h-[65vh] w-auto max-w-full object-contain rounded-md transition-transform duration-150 ${
                 zoomScale === 1 ? 'cursor-zoom-in' : 'cursor-zoom-out'
               }`}
