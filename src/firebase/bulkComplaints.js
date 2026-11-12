@@ -1,4 +1,4 @@
-import { doc, writeBatch, serverTimestamp } from 'firebase/firestore'
+import { doc, runTransaction, writeBatch, serverTimestamp } from 'firebase/firestore'
 import { db } from './services'
 import { addComplaintEventToBatch } from './complaintEvents'
 import { addNotificationToBatch } from './notifications'
@@ -17,7 +17,8 @@ export function normalizeComplaintsMap(complaints) {
 }
 
 /**
- * Bulk updates the status of multiple complaints atomically with audit events
+ * Checks expected statuses and commits each chunk with its events and notices.
+ * Results are accumulated only after a transaction finishes, including retries.
  */
 export async function bulkUpdateComplaintsStatus({
   complaintIds = [],
@@ -35,65 +36,69 @@ export async function bulkUpdateComplaintsStatus({
   }
 
   const complaintMap = normalizeComplaintsMap(complaints)
+  const ids = [...new Set(complaintIds)]
+  const expectedStatuses = new Map(ids.map(id => [id, complaintMap[id]?.status]))
+  const result = { success: true, count: 0, conflictIds: [], failedIds: [], unchangedIds: [] }
 
-  // Chunk complaint IDs to stay well within Firestore's 500 operations per batch limit
-  const chunks = []
-  for (let i = 0; i < complaintIds.length; i += BATCH_CHUNK_SIZE) {
-    chunks.push(complaintIds.slice(i, i + BATCH_CHUNK_SIZE))
-  }
+  for (let i = 0; i < ids.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + BATCH_CHUNK_SIZE)
+    try {
+      const committed = await runTransaction(customDb, async transaction => {
+        const refs = chunk.map(id => doc(customDb, 'issues', id))
+        // Firestore requires every read to precede the first staged write.
+        const snapshots = await Promise.all(refs.map(ref => transaction.get(ref)))
+        const updatedIds = []
+        const conflictIds = []
+        const unchangedIds = []
 
-  for (const chunk of chunks) {
-    const batch = writeBatch(customDb)
+        for (const [index, id] of chunk.entries()) {
+          const complaint = snapshots[index].data()
+          const expectedStatus = expectedStatuses.get(id)
+          if (!complaint || !expectedStatus || complaint.status !== expectedStatus) {
+            conflictIds.push(id)
+            continue
+          }
+          if (complaint.status === newStatus) {
+            unchangedIds.push(id)
+            continue
+          }
 
-    for (const id of chunk) {
-      const complaint = complaintMap[id] || {}
-      const ref = doc(customDb, 'issues', id)
-
-      const updateData = {
-        status: newStatus,
-        updatedAt: serverTimestamp(),
-      }
-      if (newStatus === 'Resolved') {
-        updateData.resolvedAt = serverTimestamp()
-      }
-      batch.update(ref, updateData)
-
-      // Atomic audit event creation in sub-collection issues/{id}/events
-      addComplaintEventToBatch(
-        batch,
-        id,
-        {
-          actorUid,
-          action: 'Status changed',
-          previousStatus: complaint.status || null,
-          newStatus,
-          remarks: remarks || `Bulk status update to ${newStatus}`,
-        },
-        customDb
-      )
-
-      // Citizen in-app notification
-      if (complaint.reportedBy) {
-        addNotificationToBatch(
-          batch,
-          {
-            recipientUid: complaint.reportedBy,
-            recipientRole: 'citizen',
-            senderUid: actorUid,
-            issueId: complaint.complaintId || id,
-            type: 'status_update',
-            title: 'Complaint Status Updated',
-            message: `Your complaint status has been updated to "${newStatus}".`,
-          },
-          customDb
-        )
-      }
+          const updateData = { status: newStatus, updatedAt: serverTimestamp() }
+          if (newStatus === 'Resolved') updateData.resolvedAt = serverTimestamp()
+          transaction.update(refs[index], updateData)
+          addComplaintEventToBatch(transaction, id, {
+            actorUid,
+            action: 'Status changed',
+            previousStatus: complaint.status,
+            newStatus,
+            remarks: remarks || `Bulk status update to ${newStatus}`,
+          }, customDb)
+          if (complaint.reportedBy) {
+            addNotificationToBatch(transaction, {
+              recipientUid: complaint.reportedBy,
+              recipientRole: 'citizen',
+              senderUid: actorUid,
+              issueId: complaint.complaintId || id,
+              type: 'status_update',
+              title: 'Complaint Status Updated',
+              message: `Your complaint status has been updated to "${newStatus}".`,
+            }, customDb)
+          }
+          updatedIds.push(id)
+        }
+        return { updatedIds, conflictIds, unchangedIds }
+      })
+      result.count += committed.updatedIds.length
+      result.conflictIds.push(...committed.conflictIds)
+      result.unchangedIds.push(...committed.unchangedIds)
+    } catch (error) {
+      console.error('Bulk status transaction failed:', error)
+      result.failedIds.push(...chunk)
     }
-
-    await batch.commit()
   }
 
-  return { success: true, count: complaintIds.length }
+  result.success = result.conflictIds.length === 0 && result.failedIds.length === 0
+  return result
 }
 
 /**

@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, BellRing, CheckCircle2, AlertCircle } from 'lucide-react'
+import { BellRing, CheckCircle2, AlertCircle } from 'lucide-react'
 import { collection, query, where, onSnapshot, doc, writeBatch, getDocs, limit } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { getPushPermissionStatus, requestPushPermission } from '@/firebase/notifications'
+import { EmptyState } from '@/components/common/EmptyState'
 import toast from 'react-hot-toast'
 
 function formatTime(ts) {
@@ -190,15 +191,11 @@ export function NotificationCenter({ className = '' }) {
           </CardContent>
         </Card>
       ) : notifications.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16">
-            <Bell className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
-            <p className="text-sm font-medium text-gray-900 dark:text-white">No notifications yet</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              You will receive notifications when your complaints are updated.
-            </p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          variant="notifications"
+          heading="You're All Caught Up!"
+          description="You don't have any notifications right now. We'll let you know when there are updates."
+        />
       ) : (
         <div className="space-y-3">
           {notifications.map((n) => (

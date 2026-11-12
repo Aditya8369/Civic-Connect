@@ -7,11 +7,13 @@ import { useAuth } from '@/hooks/useAuth'
 import { getDisplayId } from '@/firebase/complaintId'
 import { isSlaBreached } from '@/utils/sla'
 import { SlaBadge } from '@/components/common/SlaBadge'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { BulkActionsToolbar } from '@/components/admin/BulkActionsToolbar'
+import { DepartmentWorkloadMonitor } from '@/components/admin/DepartmentWorkloadMonitor'
 
 const ComplaintsMap = lazy(() =>
   import('@/components/common/ComplaintsMap').then((m) => ({ default: m.ComplaintsMap }))
@@ -194,6 +196,8 @@ export function AdminDashboardPage() {
             ))}
           </div>
 
+          <DepartmentWorkloadMonitor complaints={complaints} loading={loading} />
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4">
@@ -276,9 +280,11 @@ export function AdminDashboardPage() {
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-mono text-gray-400 dark:text-gray-500">{getDisplayId(r)}</p>
                         <p className="text-sm font-medium text-gray-900 dark:text-white truncate mt-0.5">{r.title}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {r.category} &middot; {r.department || 'Unassigned'} &middot; {r.createdAt?.toDate?.().toLocaleDateString() || '-'}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <DepartmentCrest department={r.department} category={r.category} size="xs" variant="chip" />
+                          {r.category && <CategoryAvatar category={r.category} size="xs" />}
+                          <span>&middot; {r.createdAt?.toDate?.().toLocaleDateString() || '-'}</span>
+                        </div>
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 shrink-0 ml-3 justify-end">
@@ -348,7 +354,7 @@ export function AdminDashboardPage() {
         selectedIds={selectedIds}
         complaints={complaints}
         onClearSelection={() => setSelectedIds([])}
-        onSuccess={() => setSelectedIds([])}
+        onSelectionChange={setSelectedIds}
         actorUid={user?.uid}
       />
     </div>
