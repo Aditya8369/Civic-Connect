@@ -362,6 +362,16 @@ export function ReportPage() {
     try {
       // Save complaint locally when the device is offline.
       if (!navigator.onLine) {
+        if (photoFile) {
+          const photoValidation = validateComplaintPhoto(photoFile)
+          if (!photoValidation.valid) {
+            toast.error(photoValidation.error)
+            isSubmittingRef.current = false
+            setSubmitting(false)
+            return
+          }
+        }
+
         await saveOfflineComplaint({
           title,
           description,
@@ -370,6 +380,7 @@ export function ReportPage() {
           latitude: latitude ? parseFloat(latitude) : null,
           longitude: longitude ? parseFloat(longitude) : null,
           userId: user.uid,
+          photoFile: photoFile || null,
         })
 
         recordSubmissionTimestamp(user.uid, Date.now())
