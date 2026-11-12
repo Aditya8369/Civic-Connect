@@ -383,58 +383,6 @@ const suggestions = searchQuery.trim()
           </SelectContent>
         </Select>
       </div>
-      </div>
-    )}
-  </div>
-
-  <Select value={statusFilter} onValueChange={setStatusFilter}>
-    <SelectTrigger className="w-36">
-      <SelectValue placeholder="All Status" />
-    </SelectTrigger>
-    <SelectContent>
-      <SelectItem value="all">All Status</SelectItem>
-      <SelectItem value="pending">Pending</SelectItem>
-      <SelectItem value="in-progress">In Progress</SelectItem>
-      <SelectItem value="resolved">Resolved</SelectItem>
-      <SelectItem value="rejected">Rejected</SelectItem>
-      <SelectItem value="reopened">Reopened</SelectItem>
-    </SelectContent>
-  </Select>
-
-  <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-    <SelectTrigger className="w-40">
-      <SelectValue placeholder="All Departments" />
-    </SelectTrigger>
-    <SelectContent>
-      <SelectItem value="all">All Departments</SelectItem>
-      {allDepartments.map((d) => (
-        <SelectItem key={d} value={d}>{d}</SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
-
-  <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-    <SelectTrigger className="w-48">
-      <SelectValue placeholder="All Categories" />
-    </SelectTrigger>
-    <SelectContent>
-      <SelectItem value="all">All Categories</SelectItem>
-      {allCategories.map((c) => (
-        <SelectItem key={c} value={c}>{c}</SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
-
-  <Select value={slaFilter} onValueChange={setSlaFilter}>
-    <SelectTrigger className="w-36">
-      <SelectValue placeholder="All SLA" />
-    </SelectTrigger>
-    <SelectContent>
-      <SelectItem value="all">All SLA</SelectItem>
-      <SelectItem value="breached">Breached SLA</SelectItem>
-    </SelectContent>
-  </Select>
-</div>
 
       {!loadError && !loading && filtered.length > 0 && (
         <div className="flex items-center justify-between px-1 py-2 mb-3 text-xs text-gray-500 border-b border-gray-100 dark:border-gray-800">
