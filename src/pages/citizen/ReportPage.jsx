@@ -50,6 +50,7 @@ const statusVariant = {
   Resolved: 'success',
   'In Progress': 'warning',
   Pending: 'destructive',
+  'Merged - Duplicate': 'secondary',
 }
 
 const COOLDOWN_SECONDS = 60

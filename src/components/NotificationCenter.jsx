@@ -33,6 +33,7 @@ const icons = {
   new_complaint: '🔔',
   status_update: '✅',
   department_assigned: '🏢',
+  complaint_merged: '🔀',
 }
 
 export function NotificationCenter({ className = '' }) {

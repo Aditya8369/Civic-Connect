@@ -14,14 +14,17 @@ import {
   ZoomIn,
   ZoomOut,
   ExternalLink,
+  GitMerge,
+  Search,
 } from 'lucide-react'
-import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'
+import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc, collection, getDocs, query, orderBy, limit, where } from 'firebase/firestore'
 import { auth, db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { logComplaintEvent } from '@/firebase/complaintEvents'
 import { getDisplayId, ensureComplaintId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
 import { assignComplaintDepartment } from '@/firebase/complaintDepartment'
+import { mergeComplaints } from '@/firebase/complaintMerge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -49,6 +52,7 @@ const statusVariant = {
   Pending: 'destructive',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Merged - Duplicate': 'secondary',
 }
 
 const nextStatus = {
@@ -70,6 +74,10 @@ const ratingLabels = {
 }
 
 function canRejectComplaint(complaint) {
+  return ['Pending', 'In Progress', 'Reopened'].includes(complaint?.status)
+}
+
+function canMergeComplaint(complaint) {
   return ['Pending', 'In Progress', 'Reopened'].includes(complaint?.status)
 }
 
@@ -107,6 +115,12 @@ export function AdminComplaintDetailsPage() {
 
   const [zoomOpen, setZoomOpen] = useState(false)
   const [zoomScale, setZoomScale] = useState(1)
+  const [mergeOpen, setMergeOpen] = useState(false)
+  const [candidateComplaints, setCandidateComplaints] = useState([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedParentId, setSelectedParentId] = useState('')
+  const [loadingCandidates, setLoadingCandidates] = useState(false)
+  const [merging, setMerging] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -168,8 +182,26 @@ export function AdminComplaintDetailsPage() {
               })
           }
         } else {
-          setNotFound(true)
-          setLoading(false)
+          const q = query(
+            collection(db, 'issues'),
+            where('complaintId', '==', id),
+            limit(1)
+          )
+          getDocs(q)
+            .then((querySnap) => {
+              if (!active) return
+              if (querySnap && !querySnap.empty) {
+                navigate(`/admin/reports/${querySnap.docs[0].id}`, { replace: true })
+              } else {
+                setNotFound(true)
+                setLoading(false)
+              }
+            })
+            .catch(() => {
+              if (!active) return
+              setNotFound(true)
+              setLoading(false)
+            })
         }
       },
       (err) => {
@@ -184,7 +216,7 @@ export function AdminComplaintDetailsPage() {
       active = false
       unsub()
     }
-  }, [id, backfillRetry])
+  }, [id, backfillRetry, navigate])
 
   const handleStatusUpdate = async () => {
     const next = nextStatus[complaint.status]
@@ -331,6 +363,94 @@ export function AdminComplaintDetailsPage() {
     }
   }
 
+  const openMergeDialog = async () => {
+    setSelectedParentId('')
+    setSearchQuery('')
+    setMergeOpen(true)
+    setLoadingCandidates(true)
+    try {
+      const q = query(collection(db, 'issues'), orderBy('createdAt', 'desc'), limit(50))
+      const snap = await getDocs(q)
+      const list = (snap?.docs || [])
+        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+        .filter((c) => c.id !== id && c.status !== 'Merged - Duplicate' && c.status !== 'Rejected')
+      setCandidateComplaints(list)
+    } catch (err) {
+      console.error('Failed to load candidate complaints:', err)
+      toast.error('Failed to load eligible complaints')
+    } finally {
+      setLoadingCandidates(false)
+    }
+  }
+
+  const handleConfirmMerge = async () => {
+    if (!selectedParentId) {
+      toast.error('Please select a parent complaint to merge into')
+      return
+    }
+    setMerging(true)
+    try {
+      const result = await mergeComplaints({
+        childId: id,
+        parentId: selectedParentId,
+        actorUid,
+        expectedChildStatus: complaint.status,
+      })
+      toast.success(`Complaint merged into ${result.parentComplaintId}`)
+      setMergeOpen(false)
+    } catch (err) {
+      console.error('Merge error:', err)
+      toast.error(err.message || 'Failed to merge complaint')
+    } finally {
+      setMerging(false)
+    }
+  }
+
+  const filteredCandidates = candidateComplaints.filter((c) => {
+    if (!searchQuery.trim()) return true
+    const q = searchQuery.toLowerCase()
+    return (
+      (c.complaintId || '').toLowerCase().includes(q) ||
+      (c.id || '').toLowerCase().includes(q) ||
+      (c.title || '').toLowerCase().includes(q) ||
+      (c.category || '').toLowerCase().includes(q) ||
+      (c.address || '').toLowerCase().includes(q)
+    )
+  })
+
+  useEffect(() => {
+    const qTrim = searchQuery.trim()
+    if (!qTrim || !mergeOpen) return
+
+    const timer = setTimeout(async () => {
+      try {
+        const qUpper = qTrim.toUpperCase()
+        const qByCid = query(
+          collection(db, 'issues'),
+          where('complaintId', '==', qUpper),
+          limit(5)
+        )
+        const snap = await getDocs(qByCid)
+        if (snap?.docs?.length) {
+          const found = snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .filter((c) => c.id !== id && c.status !== 'Merged - Duplicate' && c.status !== 'Rejected')
+          if (found.length > 0) {
+            setCandidateComplaints((prev) => {
+              const existingIds = new Set(prev.map((p) => p.id))
+              const newItems = found.filter((f) => !existingIds.has(f.id))
+              return newItems.length > 0 ? [...prev, ...newItems] : prev
+            })
+          }
+        }
+      } catch {
+        // Ignore fallback search error
+      }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [searchQuery, mergeOpen, id])
+
   const openWorkerDialog = () => {
     setWorkerName(complaint.assignedWorker?.name || '')
     setWorkerPhone(complaint.assignedWorker?.phone || '')
@@ -428,7 +548,28 @@ export function AdminComplaintDetailsPage() {
                   <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-1">
                     {complaint.title}
                   </h1>
-
+                  {complaint.status === 'Merged - Duplicate' && (
+                    <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm dark:border-purple-900/50 dark:bg-purple-900/20">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <GitMerge className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                          <span className="font-medium text-purple-900 dark:text-purple-200">
+                            Merged into parent ticket: <span className="font-mono font-semibold">{complaint.mergedInto || 'CMP-XXXX-XXXX'}</span>
+                          </span>
+                        </div>
+                        {(complaint.mergedIntoId || complaint.mergedInto) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1 border-purple-300 dark:border-purple-800 text-purple-700 dark:text-purple-300"
+                            onClick={() => navigate(`/admin/reports/${complaint.mergedIntoId || complaint.mergedInto}`)}
+                          >
+                            <ExternalLink className="h-3 w-3" /> View Parent Ticket
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {backfillError && (
                     <div role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
                       Could not assign a ticket ID.{' '}
@@ -452,15 +593,27 @@ export function AdminComplaintDetailsPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => setRejectOpen(true)}
-                      disabled={saving}
+                      disabled={saving || merging}
                     >
                       Reject
+                    </Button>
+                  )}
+                  {canMergeComplaint(complaint) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={openMergeDialog}
+                      disabled={saving || merging}
+                      className="gap-1.5"
+                    >
+                      <GitMerge className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                      Merge into Parent Complaint
                     </Button>
                   )}
                   {nextStatus[complaint.status] && (
                     <Button
                       onClick={handleStatusUpdate}
-                      disabled={saving}
+                      disabled={saving || merging}
                       size="sm"
                       className="gap-2"
                     >
@@ -571,6 +724,50 @@ export function AdminComplaintDetailsPage() {
               </div>
             </CardContent>
           </Card>
+
+          {complaint.mergedChildIds && complaint.mergedChildIds.length > 0 && (
+            <Card className="border-purple-200 dark:border-purple-900/50">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-base text-purple-900 dark:text-purple-200">
+                    <GitMerge className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    Consolidated Duplicate Complaints ({complaint.mergedChildIds.length})
+                  </CardTitle>
+                  <Badge variant="secondary" className="bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">
+                    Primary Ticket
+                  </Badge>
+                </div>
+                <CardDescription>
+                  The following tickets were identified as duplicates and merged into this complaint. Endorsers and tracking have been consolidated.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {complaint.mergedChildIds.map((childId, idx) => {
+                    const cidDisplay = complaint.mergedChildComplaintIds?.[idx] || childId
+                    return (
+                      <div key={childId} className="py-2.5 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="font-mono text-xs text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-800">
+                            {cidDisplay}
+                          </Badge>
+                          <span className="text-xs text-gray-500 dark:text-gray-400">Merged duplicate</span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs gap-1 text-primary-600 dark:text-primary-400"
+                          onClick={() => navigate(`/admin/reports/${childId}`)}
+                        >
+                          View <ExternalLink className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
@@ -854,6 +1051,111 @@ export function AdminComplaintDetailsPage() {
             </Button>
             <Button variant="destructive" onClick={handleReject} disabled={saving}>
               {saving ? 'Rejecting...' : 'Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Merge Complaints Dialog */}
+      <Dialog open={mergeOpen} onOpenChange={setMergeOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitMerge className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              Merge into Parent Complaint
+            </DialogTitle>
+            <DialogDescription>
+              Consolidate this ticket ({getDisplayId(complaint)}) into an active primary ticket. Endorsers will be combined and the citizen will be notified.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="search-parent">Search Target Parent Complaint</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                <Input
+                  id="search-parent"
+                  placeholder="Search by ID (e.g. CMP-2026-0001), title, or location..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Select Primary Complaint</Label>
+              {loadingCandidates ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
+                </div>
+              ) : filteredCandidates.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-800 p-6 text-center text-sm text-gray-500">
+                  No eligible parent complaints found.
+                </div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto space-y-2 pr-1 border border-gray-200 dark:border-gray-800 rounded-lg p-2">
+                  {filteredCandidates.map((candidate) => {
+                    const candidateDisplayId = getDisplayId(candidate)
+                    const isSelected = selectedParentId === candidate.id
+                    return (
+                      <div
+                        key={candidate.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedParentId(candidate.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setSelectedParentId(candidate.id)
+                          }
+                        }}
+                        className={`p-3 rounded-lg border text-sm cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'border-purple-600 bg-purple-50 dark:border-purple-500 dark:bg-purple-900/30'
+                            : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-xs font-semibold text-primary-600 dark:text-primary-400">
+                            {candidateDisplayId}
+                          </span>
+                          <Badge variant={statusVariant[candidate.status] || 'default'} className="text-[10px]">
+                            {candidate.status}
+                          </Badge>
+                        </div>
+                        <p className="font-medium text-gray-900 dark:text-white mt-1 text-sm line-clamp-1">
+                          {candidate.title}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">
+                          {candidate.address} • {candidate.category}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {selectedParentId && (
+              <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+                This complaint will be marked as <strong>Merged - Duplicate</strong> and its endorsers will be consolidated into the selected primary ticket.
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMergeOpen(false)} disabled={merging}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmMerge}
+              disabled={merging || !selectedParentId}
+              className="gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+            >
+              {merging ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitMerge className="h-4 w-4" />}
+              Confirm Merge
             </Button>
           </DialogFooter>
         </DialogContent>
