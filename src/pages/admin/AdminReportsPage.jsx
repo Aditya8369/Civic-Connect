@@ -443,7 +443,7 @@ const suggestions = searchQuery.trim()
                 onClick={() => navigate(`/admin/reports/${complaint.id}`)}
               >
                 <CardContent className="p-5">
-                  <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="flex flex-wrap items-start gap-2 mb-3">
                     <div className="flex items-start gap-2.5 min-w-0 flex-1">
                       <input
                         type="checkbox"
@@ -465,9 +465,9 @@ const suggestions = searchQuery.trim()
                         </h3>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-1.5 shrink-0 justify-end">
-                      <SlaBadge complaint={complaint} />
-                      <Badge variant={statusVariant[complaint.status] || 'default'} className="capitalize">
+                    <div className="flex flex-wrap items-center gap-1.5 justify-end">
+                      <SlaBadge complaint={complaint} className="whitespace-nowrap" />
+                      <Badge variant={statusVariant[complaint.status] || 'default'} className="capitalize whitespace-nowrap">
                         {complaint.status}
                       </Badge>
                     </div>
