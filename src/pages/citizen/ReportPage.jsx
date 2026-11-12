@@ -33,6 +33,7 @@ import { Badge } from '@/components/ui/badge'
 import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { findNearbyComplaints, parseCoordinates } from '@/utils/geo'
+import { ComplaintLocationMap } from '@/components/common/ComplaintLocationMap'
 import toast from 'react-hot-toast'
 
 const categories = [
@@ -100,7 +101,6 @@ export function ReportPage() {
   const [address, setAddress] = useState('')
   const [latitude, setLatitude] = useState('')
   const [longitude, setLongitude] = useState('')
-  const [locating, setLocating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const isSubmittingRef = useRef(false)
   const [cooldownRemaining, setCooldownRemaining] = useState(() => getRemainingCooldown(user?.uid))
@@ -257,28 +257,6 @@ export function ReportPage() {
     return () => clearTimeout(timer)
   }, [category, latitude, longitude, checkDuplicates])
 
-  const getCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported by your browser')
-      return
-    }
-    setLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const latStr = position.coords.latitude.toFixed(6)
-        const lngStr = position.coords.longitude.toFixed(6)
-        setLatitude(latStr)
-        setLongitude(lngStr)
-        setLocating(false)
-        toast.success('Location retrieved')
-        checkDuplicates(category, latStr, lngStr)
-      },
-      () => {
-        setLocating(false)
-        toast.error('Could not retrieve location. Please enter coordinates manually.')
-      }
-    )
-  }
 
   const handleEndorse = async (complaint) => {
     if (!user) {
@@ -619,6 +597,23 @@ export function ReportPage() {
               </div>
 
               <div className="space-y-2">
+                <Label>Pin complaint location</Label>
+                <ComplaintLocationMap
+                  latitude={latitude}
+                  longitude={longitude}
+                  address={address}
+                  selectable
+                  onLocationSelect={({ latitude: nextLatitude, longitude: nextLongitude, address: nextAddress }) => {
+                    setLatitude(nextLatitude)
+                    setLongitude(nextLongitude)
+                    if (nextAddress) setAddress(nextAddress)
+                    setHasAcknowledgedDuplicate(false)
+                    checkDuplicates(category, nextLatitude, nextLongitude)
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="address">Address *</Label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -661,19 +656,7 @@ export function ReportPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={getCurrentLocation}
-                  disabled={locating}
-                >
-                  <Crosshair className={`h-4 w-4 ${locating ? 'animate-spin' : ''}`} />
-                  {locating ? 'Getting location...' : 'Use Current Location'}
-                </Button>
-
+              <div className="flex items-center justify-end">
                 {checkingDuplicates && (
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-primary-500" />
