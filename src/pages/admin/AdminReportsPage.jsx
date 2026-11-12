@@ -8,7 +8,7 @@ import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { getDisplayId } from '@/firebase/complaintId'
 import { isUnconfirmedEmpty } from '@/firebase/snapshot'
-import { toCsv, downloadCsv, formatDateStamp } from '@/utils/csv'
+import { exportComplaintsToCSV } from '@/utils/csvExporter'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ComplaintCardSkeleton } from '@/components/common/ComplaintCardSkeleton'
 import { ConnectionErrorBanner } from '@/components/common/ConnectionErrorBanner'
@@ -50,31 +50,7 @@ const allCategories = [
 
 const allDepartments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
 
-const csvHeaders = [
-  'Complaint ID',
-  'Date',
-  'Title',
-  'Category',
-  'Department',
-  'Status',
-  'Address',
-  'Assigned Worker Name',
-  'Assigned Worker Phone',
-]
 
-function toCsvRow(c) {
-  return [
-    getDisplayId(c),
-    c.createdAt?.toDate ? formatDateStamp(c.createdAt.toDate()) : '',
-    c.title,
-    c.category,
-    c.department,
-    c.status,
-    c.address,
-    c.assignedWorker?.name,
-    c.assignedWorker?.phone,
-  ]
-}
 function HighlightMatch({ text, query }) {
   if (!text) return null
   if (!query?.trim()) return text
@@ -209,10 +185,20 @@ const filtered = complaints.filter((c) => {
 
   return true
 })
- const handleExport = () => {
-    const csv = toCsv(csvHeaders, filtered.map(toCsvRow))
-    downloadCsv(`civic-reports-${formatDateStamp(new Date())}.csv`, csv)
-    toast.success(`Exported ${filtered.length} report${filtered.length === 1 ? '' : 's'}`)
+  // Exports exactly what the admin currently sees (status, SLA, department,
+  // category, date range and search filters all applied) - no Firestore re-fetch.
+  const handleExport = () => {
+    try {
+      const count = exportComplaintsToCSV(filtered)
+      if (count === 0) {
+        toast.error('No reports to export')
+        return
+      }
+      toast.success(`Exported ${count} report${count === 1 ? '' : 's'}`)
+    } catch (err) {
+      console.error('CSV export failed:', err)
+      toast.error('Could not generate the CSV. Please try again.')
+    }
   }
 
   const handleExportPdf = async () => {
@@ -291,9 +277,14 @@ const suggestions = searchQuery.trim()
         description="Review and manage all citizen reports"
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={handleExport} disabled={loading || filtered.length === 0}>
+            <Button
+              variant="outline"
+              onClick={handleExport}
+              disabled={loading || filtered.length === 0}
+              aria-label={`Export CSV (${filtered.length} filtered report${filtered.length === 1 ? '' : 's'})`}
+            >
               <Download />
-              Export to CSV
+              Export CSV
             </Button>
             <Button
               variant="outline"
