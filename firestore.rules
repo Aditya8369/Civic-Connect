@@ -61,21 +61,37 @@ service cloud.firestore {
                request.resource.data.get('updatedAt', null) == request.time;
       }
 
-      allow read: if isAuthenticated() &&
-                  (resource.data.reportedBy == request.auth.uid || isAdmin());
+      function isCitizenEndorsement() {
+        let oldEndorsedBy = resource.data.get('endorsedBy', []);
+        let newEndorsedBy = request.resource.data.get('endorsedBy', []);
+        let oldCount = resource.data.get('endorsementCount', oldEndorsedBy.size());
+        let newCount = request.resource.data.get('endorsementCount', 0);
+        return request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['endorsedBy', 'endorsementCount', 'updatedAt']) &&
+               newEndorsedBy is list &&
+               newEndorsedBy.hasAll(oldEndorsedBy) &&
+               newEndorsedBy.size() == oldEndorsedBy.size() + 1 &&
+               request.auth.uid in newEndorsedBy &&
+               !(request.auth.uid in oldEndorsedBy) &&
+               newCount == oldCount + 1 &&
+               request.resource.data.get('updatedAt', null) == request.time;
+      }
+
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated() &&
                     request.resource.data.reportedBy == request.auth.uid &&
                     request.resource.data.status == 'Pending';
       allow update: if (isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                         ((resource.data.status == 'Pending' &&
-                          request.resource.data.status == 'Pending') || isCitizenAppeal())) || isAdmin();
+                          request.resource.data.status == 'Pending') || isCitizenAppeal())) ||
+                       (isAuthenticated() && isCitizenEndorsement()) ||
+                       isAdmin();
       allow delete: if isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                     resource.data.status == 'Pending';
 
       // Immutable event audit trail sub-collection
       match /events/{eventId} {
-        allow read: if isAuthenticated() &&
-                    (get(/databases/$(database)/documents/issues/$(issueId)).data.reportedBy == request.auth.uid || isAdmin());
+        allow read: if isAuthenticated();
         allow create: if isAuthenticated();
         allow update, delete: if false;
       }
