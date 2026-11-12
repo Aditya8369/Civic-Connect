@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ComplaintLocationMap } from './ComplaintLocationMap'
+import { ComplaintLocationMapLeaflet as ComplaintLocationMap } from './ComplaintLocationMapLeaflet'
 
 const mockMap = vi.hoisted(() => ({
   click: null,
