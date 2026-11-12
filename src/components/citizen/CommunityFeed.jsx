@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/contexts/AuthContext'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import {
   ArrowBigUp,
   MessageSquare,
@@ -19,7 +20,6 @@ import {
   Filter,
   Loader2,
   Clock,
-  Tag,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react'
@@ -279,10 +279,10 @@ export default function CommunityFeed() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1.5">
                       {issue.category && (
-                        <span className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium capitalize dark:bg-blue-900/30 dark:text-blue-300">
-                          <Tag className="w-3 h-3" />
-                          {issue.category}
-                        </span>
+                        <CategoryAvatar category={issue.category} size="xs" />
+                      )}
+                      {issue.department && (
+                        <DepartmentCrest department={issue.department} category={issue.category} variant="chip" size="xs" />
                       )}
                       {issue.status && (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium capitalize dark:bg-gray-800 dark:text-gray-300">

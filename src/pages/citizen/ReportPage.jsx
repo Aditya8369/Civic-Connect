@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { findNearbyComplaints, parseCoordinates } from '@/utils/geo'
 import toast from 'react-hot-toast'
@@ -504,7 +505,12 @@ export function ReportPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((cat) => (
-                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      <SelectItem key={cat} value={cat}>
+                        <div className="flex items-center gap-2">
+                          <CategoryAvatar category={cat} size="xs" showLabel={false} />
+                          <span>{cat}</span>
+                        </div>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -710,6 +716,12 @@ export function ReportPage() {
                                     >
                                       {match.status}
                                     </Badge>
+                                    <DepartmentCrest
+                                      department={match.department}
+                                      category={match.category || category}
+                                      size="xs"
+                                      variant="chip"
+                                    />
                                     <span className="inline-flex items-center rounded-md bg-amber-100 dark:bg-amber-950/50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
                                       {match.distanceMeters}m away
                                     </span>
