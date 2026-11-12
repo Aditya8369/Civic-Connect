@@ -61,6 +61,24 @@ service cloud.firestore {
                request.resource.data.get('updatedAt', null) == request.time;
       }
 
+      function isCitizenFeedback() {
+        let feedback = request.resource.data.get('feedback', null);
+        let comment = feedback.get('comment', '');
+        return resource.data.status == 'Resolved' &&
+               request.resource.data.status == 'Resolved' &&
+               (!('feedback' in resource.data) || resource.data.feedback == null) &&
+               request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['feedback', 'updatedAt']) &&
+               feedback is map &&
+               feedback.keys().hasAll(['rating', 'submittedAt']) &&
+               feedback.keys().hasOnly(['rating', 'comment', 'submittedAt']) &&
+               feedback.rating in [1, 2, 3, 4, 5] &&
+               comment is string &&
+               comment.size() <= 1000 &&
+               feedback.submittedAt == request.time &&
+               request.resource.data.get('updatedAt', null) == request.time;
+      }
+
       allow read: if isAuthenticated() &&
                   (resource.data.reportedBy == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() &&
@@ -68,7 +86,7 @@ service cloud.firestore {
                     request.resource.data.status == 'Pending';
       allow update: if (isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                         ((resource.data.status == 'Pending' &&
-                          request.resource.data.status == 'Pending') || isCitizenAppeal())) || isAdmin();
+                          request.resource.data.status == 'Pending') || isCitizenAppeal() || isCitizenFeedback())) || isAdmin();
       allow delete: if isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                     resource.data.status == 'Pending';
 
