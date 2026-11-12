@@ -10,6 +10,11 @@ const AuthPage = lazy(() => import('@/pages/auth/AuthPage').then((m) => ({ defau
 const DashboardPage = lazy(() => import('@/pages/citizen/DashboardPage').then((m) => ({ default: m.DashboardPage })))
 const ReportPage = lazy(() => import('@/pages/citizen/ReportPage').then((m) => ({ default: m.ReportPage })))
 const MyReportsPage = lazy(() => import('@/pages/citizen/MyReportsPage').then((m) => ({ default: m.MyReportsPage })))
+const ComplaintConfirmationPage = lazy(() =>
+  import('@/pages/citizen/ComplaintConfirmationPage').then((m) => ({
+    default: m.ComplaintConfirmationPage,
+  }))
+)
 const NotificationsPage = lazy(() => import('@/pages/citizen/NotificationsPage').then((m) => ({ default: m.NotificationsPage })))
 const ProfilePage = lazy(() => import('@/pages/citizen/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const ComplaintDetailsPage = lazy(() => import('@/pages/citizen/ComplaintDetailsPage').then((m) => ({ default: m.ComplaintDetailsPage })))
@@ -37,9 +42,15 @@ export function AppRoutes() {
             </ProtectedRoute>
           }
         >
-          <Route path="/dashboard" element={<DashboardPage />} />
+                    <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/report" element={<ReportPage />} />
           <Route path="/my-reports" element={<MyReportsPage />} />
+
+          <Route
+            path="/complaint-confirmation"
+            element={<ComplaintConfirmationPage />}
+          />
+
           <Route path="/report/:id" element={<ComplaintDetailsPage />} />
           <Route path="/complaints/:id" element={<ComplaintDetailsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />

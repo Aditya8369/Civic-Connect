@@ -460,8 +460,13 @@ export function ReportPage() {
       isSubmittingRef.current = false
       setSubmitting(false)
 
-      toast.success('Complaint submitted successfully!')
-      navigate('/my-reports')
+      navigate('/complaint-confirmation', {
+        state: {
+          complaintId,
+          issueId: issueRef.id,
+          title,
+        },
+      })
     } catch (err) {
       console.error('Complaint submission failed:', err)
       toast.error(err?.message || 'Failed to submit complaint. Please try again.')
