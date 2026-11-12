@@ -45,6 +45,7 @@ import {
 } from '@/components/ui/dialog'
 import toast from 'react-hot-toast'
 import ComplaintAudioPlayer from '@/components/citizen/ComplaintAudioPlayer'
+import ResolutionProofSlider, { getResolutionPhoto } from '@/components/citizen/ResolutionProofSlider'
 
 const statusVariant = {
   Resolved: 'success',
@@ -518,6 +519,8 @@ export function AdminComplaintDetailsPage() {
 
   const canReject = canRejectComplaint(complaint)
   const slaTarget = getSlaTargetDate(complaint.createdAt, complaint.category, complaint.department)
+  const initialPhoto = complaint.imageUrl || complaint.photos?.[0]
+  const resolutionPhoto = getResolutionPhoto(complaint)
 
   return (
     <div>
@@ -677,18 +680,17 @@ export function AdminComplaintDetailsPage() {
                 </p>
               </div>
 
-              {(complaint.imageUrl || (complaint.photos && complaint.photos.length > 0)) && (
+              {(initialPhoto || resolutionPhoto) && (
                 <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
                   <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-1.5">
                     <Camera className="h-4 w-4 text-primary-600 dark:text-primary-400" />
                     Photo Evidence
                   </h3>
-                  <div className="relative group inline-block overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-                    <img
-                      src={complaint.imageUrl || complaint.photos?.[0]}
-                      alt="Complaint evidence"
-                      className="h-48 w-full sm:w-80 object-cover cursor-pointer transition-transform duration-200 group-hover:scale-105"
-                      onClick={() => setZoomOpen(true)}
+                  <div className="relative group inline-block w-full max-w-xl overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+                    <ResolutionProofSlider
+                      beforePhoto={initialPhoto}
+                      afterPhoto={resolutionPhoto}
+                      onImageClick={() => setZoomOpen(true)}
                     />
                     <button
                       type="button"
@@ -1205,9 +1207,9 @@ export function AdminComplaintDetailsPage() {
                     <ZoomIn className="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
                   </button>
                 </div>
-                {(complaint.imageUrl || complaint.photos?.[0]) && (
+                {(initialPhoto || resolutionPhoto) && (
                   <a
-                    href={complaint.imageUrl || complaint.photos?.[0]}
+                    href={initialPhoto || resolutionPhoto}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-xs font-normal text-primary-600 dark:text-primary-400 hover:underline ml-1"
@@ -1224,7 +1226,7 @@ export function AdminComplaintDetailsPage() {
           </DialogHeader>
           <div className="flex items-center justify-center max-h-[70vh] overflow-auto rounded-lg bg-black/5 dark:bg-black/40 p-2">
             <img
-              src={complaint.imageUrl || complaint.photos?.[0]}
+              src={initialPhoto || resolutionPhoto}
               alt="Enlarged complaint evidence"
               style={{
                 transform: `scale(${zoomScale})`,
