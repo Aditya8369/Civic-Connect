@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -6,6 +7,7 @@ import { ComplaintLocationMap } from './ComplaintLocationMap'
 const mockMap = vi.hoisted(() => ({
   click: null,
   markerProps: null,
+  setView: vi.fn(),
 }))
 
 vi.mock('leaflet', () => ({
@@ -27,6 +29,7 @@ vi.mock('react-leaflet', () => ({
       }),
     }, 'pin')
   },
+  useMap: () => ({ setView: mockMap.setView, getZoom: () => 5 }),
   useMapEvents: (handlers) => {
     mockMap.click = handlers.click
   },
@@ -59,6 +62,7 @@ describe('ComplaintLocationMap', () => {
   beforeEach(() => {
     mockMap.click = null
     mockMap.markerProps = null
+    mockMap.setView.mockClear()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ display_name: 'Test Street, Pune, India' }),
@@ -81,6 +85,7 @@ describe('ComplaintLocationMap', () => {
     expect(mounted.container.querySelector('[data-testid="tiles"]')).not.toBeNull()
     expect(mounted.container.textContent).toContain('Pune')
     expect(mockMap.markerProps.draggable).toBe(false)
+    expect(mockMap.setView).toHaveBeenCalledWith([19.076, 72.8777], 15, { animate: true })
   })
 
   it('updates coordinates and reverse-geocoded address when the map is clicked', async () => {
@@ -92,7 +97,7 @@ describe('ComplaintLocationMap', () => {
 
     await act(async () => {
       mockMap.click({ latlng: { lat: 18.5204, lng: 73.8567 } })
-      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
     expect(onLocationSelect).toHaveBeenCalledWith({
