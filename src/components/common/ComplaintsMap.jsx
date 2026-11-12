@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom'
 import L from 'leaflet'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
-import { Filter, Layers, MapPin, Tag, AlertCircle, RefreshCw, Eye } from 'lucide-react'
+import { Filter, Layers, MapPin, AlertCircle, RefreshCw, Eye } from 'lucide-react'
 import { getDisplayId } from '@/firebase/complaintId'
 import { Badge } from '@/components/ui/badge'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { Button } from '@/components/ui/button'
 import { parseCoordinates } from '@/utils/geo'
 import {
@@ -585,12 +586,17 @@ export function ComplaintsMap({
                     </h4>
 
                     <div className="text-xs text-gray-500 space-y-0.5">
-                      {complaint.category && (
-                        <p className="flex items-center gap-1">
-                          <Tag className="w-3 h-3 text-gray-400 shrink-0" />
-                          <span className="truncate">{complaint.category}</span>
-                        </p>
-                      )}
+                      <div className="flex flex-wrap items-center gap-1 pt-0.5 pb-1">
+                        <DepartmentCrest
+                          department={complaint.department}
+                          category={complaint.category}
+                          size="xs"
+                          variant="chip"
+                        />
+                        {complaint.category && (
+                          <CategoryAvatar category={complaint.category} size="xs" />
+                        )}
+                      </div>
                       {complaint.address && (
                         <p className="flex items-center gap-1">
                           <MapPin className="w-3 h-3 text-gray-400 shrink-0" />

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { SlaBadge, SlaCountdown } from '@/components/common/SlaBadge'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { getSlaTargetDate } from '@/utils/sla'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -428,12 +429,20 @@ export function AdminComplaintDetailsPage() {
 
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 py-4 border-y border-gray-100 dark:border-gray-800">
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Category</p>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">{complaint.category || '-'}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Category</p>
+                  {complaint.category ? (
+                    <CategoryAvatar category={complaint.category} size="xs" />
+                  ) : (
+                    <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">-</p>
+                  )}
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Department</p>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">{complaint.department || 'Not assigned'}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Department</p>
+                  <DepartmentCrest
+                    department={complaint.department}
+                    category={complaint.category}
+                    size="xs"
+                  />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Created</p>
@@ -533,7 +542,12 @@ export function AdminComplaintDetailsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {departments.map((dept) => (
-                      <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                      <SelectItem key={dept} value={dept}>
+                        <div className="flex items-center gap-2">
+                          <DepartmentCrest department={dept} variant="avatar" size="xs" />
+                          <span>{dept}</span>
+                        </div>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

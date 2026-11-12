@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { CheckSquare, X, Building2, CheckCircle2, Clock, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -30,6 +30,7 @@ export function BulkActionsToolbar({
   selectedIds = [],
   complaints = [],
   onClearSelection,
+  onSelectionChange,
   onSuccess,
   actorUid,
   className = '',
@@ -37,6 +38,8 @@ export function BulkActionsToolbar({
   const [pendingAction, setPendingAction] = useState(null)
   const [remarks, setRemarks] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [outcome, setOutcome] = useState('')
+  const submittingRef = useRef(false)
 
   const complaintMap = useMemo(() => normalizeComplaintsMap(complaints), [complaints])
 
@@ -49,22 +52,26 @@ export function BulkActionsToolbar({
   }
 
   const handleOpenAction = (type, value) => {
-    if (!value) return
+    if (!value || submittingRef.current) return
     setRemarks('')
+    setOutcome('')
     setPendingAction({ type, value })
   }
 
   const handleCloseModal = () => {
-    if (submitting) return
+    if (submittingRef.current) return
     setPendingAction(null)
     setRemarks('')
+    setOutcome('')
   }
 
   const handleConfirm = async () => {
-    if (!pendingAction) return
+    if (!pendingAction || submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
+    setOutcome('')
     try {
-      await executeBulkComplaintAction({
+      const result = await executeBulkComplaintAction({
         actionType: pendingAction.type,
         value: pendingAction.value,
         complaintIds: selectedIds,
@@ -73,9 +80,23 @@ export function BulkActionsToolbar({
         remarks: remarks.trim(),
       })
 
-      const count = selectedIds.length
+      const count = result.count
+      const conflictIds = result.conflictIds || []
+      const failedIds = result.failedIds || []
+      const unchangedCount = result.unchangedIds?.length || 0
+      const remainingIds = [...conflictIds, ...failedIds]
+      if (remainingIds.length > 0) {
+        const summary = `${count} updated, ${conflictIds.length} changed or unavailable, ${failedIds.length} failed. ${unchangedCount} already had this status. Review the remaining selected reports before applying again.`
+        setOutcome(summary)
+        toast.error(summary)
+        if (count > 0) onSuccess?.()
+        onSelectionChange?.(remainingIds)
+        return
+      }
+
       if (pendingAction.type === 'status') {
-        toast.success(`Status updated to "${pendingAction.value}" for ${count} report${count === 1 ? '' : 's'}`)
+        const unchangedMessage = unchangedCount ? ` ${unchangedCount} already had this status.` : ''
+        toast.success(`Status updated to "${pendingAction.value}" for ${count} report${count === 1 ? '' : 's'}.${unchangedMessage}`)
       } else {
         toast.success(`Assigned ${count} report${count === 1 ? '' : 's'} to "${pendingAction.value}"`)
       }
@@ -88,6 +109,7 @@ export function BulkActionsToolbar({
       console.error('Bulk action error:', err)
       toast.error('Failed to perform bulk update. Please try again.')
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -116,6 +138,7 @@ export function BulkActionsToolbar({
               onClick={onClearSelection}
               className="h-7 px-2 text-xs text-gray-500 hover:text-gray-900 dark:hover:text-white"
               aria-label="Clear selection"
+              disabled={submitting}
             >
               <X className="h-3.5 w-3.5 mr-1" />
               Deselect
@@ -132,6 +155,7 @@ export function BulkActionsToolbar({
             className="h-8 text-xs gap-1.5"
             onClick={() => handleOpenAction('status', 'In Progress')}
             aria-label="Bulk mark In Progress"
+            disabled={submitting}
           >
             <Clock className="h-3.5 w-3.5 text-amber-500" />
             <span className="hidden sm:inline">Mark</span> In Progress
@@ -144,13 +168,14 @@ export function BulkActionsToolbar({
             className="h-8 text-xs gap-1.5"
             onClick={() => handleOpenAction('status', 'Resolved')}
             aria-label="Bulk mark Resolved"
+            disabled={submitting}
           >
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
             <span className="hidden sm:inline">Mark</span> Resolved
           </Button>
 
           {/* More Statuses Dropdown */}
-          <Select onValueChange={(val) => handleOpenAction('status', val)}>
+          <Select disabled={submitting} onValueChange={(val) => handleOpenAction('status', val)}>
             <SelectTrigger className="h-8 w-32 text-xs" aria-label="Bulk status update">
               <SelectValue placeholder="Set Status" />
             </SelectTrigger>
@@ -164,7 +189,7 @@ export function BulkActionsToolbar({
           </Select>
 
           {/* Department Dropdown */}
-          <Select onValueChange={(val) => handleOpenAction('department', val)}>
+          <Select disabled={submitting} onValueChange={(val) => handleOpenAction('department', val)}>
             <SelectTrigger className="h-8 w-44 text-xs" aria-label="Bulk assign department">
               <Building2 className="h-3.5 w-3.5 mr-1.5 text-gray-400" />
               <SelectValue placeholder="Assign Department" />
@@ -219,6 +244,11 @@ export function BulkActionsToolbar({
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            {outcome && (
+              <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
+                {outcome}
+              </p>
+            )}
             {/* Selected items preview */}
             <div className="rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30 p-3 max-h-48 overflow-y-auto space-y-2">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">

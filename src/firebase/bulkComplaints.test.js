@@ -9,15 +9,13 @@ import {
 const runtime = vi.hoisted(() => ({
   batches: [],
   counter: 0,
+  complaints: {},
 }))
 
 vi.mock('./services', () => ({ db: {} }))
 
-vi.mock('firebase/firestore', () => ({
-  doc: (ref, ...parts) => (parts.length ? parts.join('/') : `${ref}/${++runtime.counter}`),
-  collection: (_db, name) => name,
-  serverTimestamp: () => 'server-time',
-  writeBatch: () => {
+vi.mock('firebase/firestore', () => {
+  const writeBatch = () => {
     const currentBatch = {
       updates: [],
       sets: [],
@@ -30,13 +28,29 @@ vi.mock('firebase/firestore', () => ({
     }
     runtime.batches.push(currentBatch)
     return currentBatch
-  },
-}))
+  }
+  return {
+    doc: (ref, ...parts) => (parts.length ? parts.join('/') : `${ref}/${++runtime.counter}`),
+    collection: (_db, name) => name,
+    serverTimestamp: () => 'server-time',
+    writeBatch,
+    runTransaction: async (_db, callback) => {
+      const transaction = writeBatch()
+      transaction.get = async ref => ({
+        data: () => runtime.complaints[ref.split('/').at(-1)],
+      })
+      const result = await callback(transaction)
+      await transaction.commit()
+      return result
+    },
+  }
+})
 
 describe('bulkComplaints service', () => {
   beforeEach(() => {
     runtime.batches = []
     runtime.counter = 0
+    runtime.complaints = {}
     vi.clearAllMocks()
   })
 
@@ -78,7 +92,7 @@ describe('bulkComplaints service', () => {
       ).rejects.toThrow('New status is required')
     })
 
-    it('performs batched status update with atomic audit event creation', async () => {
+    it('performs transactional status update with atomic audit event creation', async () => {
       const complaints = [
         {
           id: 'c1',
@@ -96,6 +110,7 @@ describe('bulkComplaints service', () => {
         },
       ]
 
+      runtime.complaints = Object.fromEntries(complaints.map(complaint => [complaint.id, complaint]))
       const result = await bulkUpdateComplaintsStatus({
         complaintIds: ['c1', 'c2'],
         complaints,
@@ -104,7 +119,7 @@ describe('bulkComplaints service', () => {
         remarks: 'Triage team morning update',
       })
 
-      expect(result).toEqual({ success: true, count: 2 })
+      expect(result).toMatchObject({ success: true, count: 2, conflictIds: [], failedIds: [] })
       expect(runtime.batches).toHaveLength(1)
 
       const batch = runtime.batches[0]
@@ -165,6 +180,7 @@ describe('bulkComplaints service', () => {
 
     it('sets resolvedAt timestamp when updating status to Resolved', async () => {
       const complaints = [{ id: 'c1', status: 'In Progress' }]
+      runtime.complaints = { c1: complaints[0] }
 
       await bulkUpdateComplaintsStatus({
         complaintIds: ['c1'],
@@ -183,9 +199,10 @@ describe('bulkComplaints service', () => {
       expect(event.data.newStatus).toBe('Resolved')
     })
 
-    it('splits large updates into multiple batches to respect Firestore 500-op limit', async () => {
+    it('splits large updates into transactions within the Firestore write limit', async () => {
       const ids = Array.from({ length: 320 }, (_, i) => `complaint-${i}`)
       const complaints = ids.map((id) => ({ id, status: 'Pending' }))
+      runtime.complaints = Object.fromEntries(complaints.map(complaint => [complaint.id, complaint]))
 
       const result = await bulkUpdateComplaintsStatus({
         complaintIds: ids,
@@ -266,6 +283,7 @@ describe('bulkComplaints service', () => {
 
   describe('executeBulkComplaintAction dispatcher', () => {
     it('routes status action correctly', async () => {
+      runtime.complaints = { c1: { status: 'In Progress' } }
       const result = await executeBulkComplaintAction({
         actionType: 'status',
         value: 'Resolved',
