@@ -26,7 +26,7 @@ function MapCenterController({ coordinates }) {
   useEffect(() => {
     if (!coordinates) return
     map.setView([coordinates.lat, coordinates.lng], Math.max(map.getZoom(), 15), { animate: true })
-  }, [map, coordinates?.lat, coordinates?.lng])
+  }, [map, coordinates])
 
   return null
 }
@@ -84,7 +84,7 @@ export function ComplaintLocationMap({
 
   useEffect(() => {
     setSelected(coordinates)
-  }, [coordinates?.lat, coordinates?.lng])
+  }, [coordinates])
 
   const reverseGeocode = useCallback(async ({ lat, lng }) => {
     if (!onLocationSelect) return
