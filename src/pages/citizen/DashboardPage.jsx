@@ -37,6 +37,7 @@ const statusVariant = {
   Pending: 'destructive',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Merged - Duplicate': 'secondary',
 }
 
 function getGreeting() {
@@ -273,6 +274,11 @@ export function DashboardPage() {
                           {report.category && <CategoryAvatar category={report.category} size="xs" />}
                           <span>&middot; {report.createdAt?.toDate?.().toLocaleDateString() || ''}</span>
                         </div>
+                        {report.status === 'Merged - Duplicate' && report.mergedInto && (
+                          <p className="text-xs text-purple-600 dark:text-purple-400 font-medium mt-0.5">
+                            Consolidated into {report.mergedInto}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant={statusVariant[report.status] || 'default'} className="capitalize">

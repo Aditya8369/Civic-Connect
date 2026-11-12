@@ -1,7 +1,7 @@
 import { matchesComplaintSearch } from './complaintSearch'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Download, Flag, Search, X } from 'lucide-react'
+import { Download, FileText, Flag, LoaderCircle, Search, X } from 'lucide-react'
 import { collection, query, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore'
 import toast from 'react-hot-toast'
 import { db } from '@/firebase/services'
@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SlaBadge } from '@/components/common/SlaBadge'
 import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { isSlaBreached } from '@/utils/sla'
+import { matchesDateRange } from '@/utils/dateRange'
 import { BulkActionsToolbar } from '@/components/admin/BulkActionsToolbar'
 
 const statusVariant = {
@@ -28,6 +29,7 @@ const statusVariant = {
   Resolved: 'success',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Merged - Duplicate': 'secondary',
 }
 
 function formatDate(ts) {
@@ -117,6 +119,9 @@ useEffect(() => {
   const [slaFilter, setSlaFilter] = useState('all')
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [exportingPdf, setExportingPdf] = useState(false)
   const [selectedIds, setSelectedIds] = useState([])
   const selectAllRef = useRef(null)
   const { user } = useAuth()
@@ -194,6 +199,10 @@ const filtered = complaints.filter((c) => {
     return false
   }
 
+  if (!matchesDateRange(c, dateFrom, dateTo)) {
+    return false
+  }
+
   if (!matchesComplaintSearch(c, debouncedSearch, userCache[c.reportedBy])) {
     return false
   }
@@ -204,6 +213,34 @@ const filtered = complaints.filter((c) => {
     const csv = toCsv(csvHeaders, filtered.map(toCsvRow))
     downloadCsv(`civic-reports-${formatDateStamp(new Date())}.csv`, csv)
     toast.success(`Exported ${filtered.length} report${filtered.length === 1 ? '' : 's'}`)
+  }
+
+  const handleExportPdf = async () => {
+    setExportingPdf(true)
+    try {
+      // Let the spinner paint before the synchronous PDF build starts, and only load jsPDF when it is needed.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const { downloadComplaintsPdf } = await import('@/utils/pdfReport')
+      downloadComplaintsPdf({
+        complaints: filtered,
+        filters: {
+          status: statusFilter,
+          department: departmentFilter,
+          category: categoryFilter,
+          sla: slaFilter,
+          search: debouncedSearch,
+          dateFrom,
+          dateTo,
+        },
+        now: new Date(),
+      })
+      toast.success(`Exported ${filtered.length} report${filtered.length === 1 ? '' : 's'} to PDF`)
+    } catch (err) {
+      console.error('PDF export failed:', err)
+      toast.error('Could not generate the PDF. Please try again.')
+    } finally {
+      setExportingPdf(false)
+    }
   }
 
   const isAllSelected = filtered.length > 0 && filtered.every((c) => selectedIds.includes(c.id))
@@ -253,10 +290,21 @@ const suggestions = searchQuery.trim()
         title="Manage Reports"
         description="Review and manage all citizen reports"
         actions={
-          <Button variant="outline" onClick={handleExport} disabled={loading || filtered.length === 0}>
-            <Download />
-            Export to CSV
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={handleExport} disabled={loading || filtered.length === 0}>
+              <Download />
+              Export to CSV
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleExportPdf}
+              disabled={loading || filtered.length === 0 || exportingPdf}
+              aria-busy={exportingPdf}
+            >
+              {exportingPdf ? <LoaderCircle className="animate-spin" /> : <FileText />}
+              {exportingPdf ? 'Generating PDF...' : 'Export PDF'}
+            </Button>
+          </div>
         }
       />
 
@@ -341,6 +389,7 @@ const suggestions = searchQuery.trim()
             <SelectItem value="resolved">Resolved</SelectItem>
             <SelectItem value="rejected">Rejected</SelectItem>
             <SelectItem value="reopened">Reopened</SelectItem>
+            <SelectItem value="merged - duplicate">Merged - Duplicate</SelectItem>
           </SelectContent>
         </Select>
 
@@ -372,6 +421,23 @@ const suggestions = searchQuery.trim()
             ))}
           </SelectContent>
         </Select>
+
+        <Input
+          type="date"
+          className="w-40"
+          aria-label="From date"
+          value={dateFrom}
+          max={dateTo || undefined}
+          onChange={(e) => setDateFrom(e.target.value)}
+        />
+        <Input
+          type="date"
+          className="w-40"
+          aria-label="To date"
+          value={dateTo}
+          min={dateFrom || undefined}
+          onChange={(e) => setDateTo(e.target.value)}
+        />
 
         <Select value={slaFilter} onValueChange={setSlaFilter}>
           <SelectTrigger className="w-36">
@@ -418,7 +484,7 @@ const suggestions = searchQuery.trim()
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Flag className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
             <p className="text-sm font-medium text-gray-900 dark:text-white">
-              {searchQuery || statusFilter !== 'all' || departmentFilter !== 'all' || categoryFilter !== 'all' || slaFilter !== 'all'
+              {searchQuery || statusFilter !== 'all' || departmentFilter !== 'all' || categoryFilter !== 'all' || slaFilter !== 'all' || dateFrom || dateTo
                 ? 'No matching reports found'
                 : 'No reports found'}
             </p>
@@ -443,7 +509,7 @@ const suggestions = searchQuery.trim()
                 onClick={() => navigate(`/admin/reports/${complaint.id}`)}
               >
                 <CardContent className="p-5">
-                  <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="flex flex-wrap items-start gap-2 mb-3">
                     <div className="flex items-start gap-2.5 min-w-0 flex-1">
                       <input
                         type="checkbox"
@@ -465,9 +531,9 @@ const suggestions = searchQuery.trim()
                         </h3>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-1.5 shrink-0 justify-end">
-                      <SlaBadge complaint={complaint} />
-                      <Badge variant={statusVariant[complaint.status] || 'default'} className="capitalize">
+                    <div className="flex flex-wrap items-center gap-1.5 justify-end">
+                      <SlaBadge complaint={complaint} className="whitespace-nowrap" />
+                      <Badge variant={statusVariant[complaint.status] || 'default'} className="capitalize whitespace-nowrap">
                         {complaint.status}
                       </Badge>
                     </div>

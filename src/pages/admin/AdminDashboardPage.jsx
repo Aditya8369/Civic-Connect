@@ -25,6 +25,7 @@ const statusVariant = {
   Resolved: 'success',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Merged - Duplicate': 'secondary',
 }
 
 export function AdminDashboardPage() {

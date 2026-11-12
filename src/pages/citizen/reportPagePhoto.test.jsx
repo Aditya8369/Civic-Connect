@@ -118,4 +118,53 @@ describe('Issue #27 Photo Evidence Attachment Specifications', () => {
       expect(issuePayloadWithoutPhoto.photos).toEqual([])
     })
   })
+
+  describe('Issue #145 Offline photo evidence preservation', () => {
+    it('preserves photoFile and metadata when saving offline complaint', async () => {
+      const { normalizePhotoFile } = await import('@/firebase/offlineComplaintSync')
+      const file = new File(['offline-evidence'], 'pothole-depth.png', { type: 'image/png' })
+
+      const offlinePayload = {
+        title: 'Deep pothole',
+        description: 'Near junction',
+        category: 'Potholes & Road Damage',
+        address: 'MG Road',
+        userId: 'citizen-101',
+        photoFile: file,
+        photoName: file.name,
+        photoType: file.type,
+      }
+
+      expect(offlinePayload.photoFile).toBe(file)
+      expect(offlinePayload.photoName).toBe('pothole-depth.png')
+      expect(offlinePayload.photoType).toBe('image/png')
+
+      const normalized = normalizePhotoFile(offlinePayload)
+      expect(normalized).toBe(file)
+      expect(normalized.name).toBe('pothole-depth.png')
+      expect(normalized.type).toBe('image/png')
+    })
+
+    it('reconstructs File from a Blob when photoFile was deserialized without name', async () => {
+      const { normalizePhotoFile } = await import('@/firebase/offlineComplaintSync')
+      const blob = new Blob(['bytes'], { type: 'image/jpeg' })
+
+      const offlinePayload = {
+        title: 'Streetlight',
+        photoFile: blob,
+        photoName: 'captured-photo.jpg',
+        photoType: 'image/jpeg',
+      }
+
+      const normalized = normalizePhotoFile(offlinePayload)
+      expect(normalized.name).toBe('captured-photo.jpg')
+      expect(normalized.type).toBe('image/jpeg')
+    })
+
+    it('returns null from normalizePhotoFile when complaint has no photo', async () => {
+      const { normalizePhotoFile } = await import('@/firebase/offlineComplaintSync')
+      expect(normalizePhotoFile({ title: 'No photo' })).toBeNull()
+      expect(normalizePhotoFile(null)).toBeNull()
+    })
+  })
 })
