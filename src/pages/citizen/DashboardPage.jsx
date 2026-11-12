@@ -11,10 +11,12 @@ import { ConnectionErrorBanner } from '@/components/common/ConnectionErrorBanner
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import CommunityFeed from '@/components/citizen/CommunityFeed'
+import { CitizenOnboarding } from '@/components/citizen/CitizenOnboarding'
 
 const ComplaintsMap = lazy(() =>
   import('@/components/common/ComplaintsMap').then((m) => ({ default: m.ComplaintsMap }))
@@ -156,6 +158,9 @@ export function DashboardPage() {
           <Plus className="h-5 w-5" /> New Complaint
         </Button>
       </div>
+
+      <CitizenOnboarding />
+
       {/* Dashboard Tabs */}
       <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6 gap-2">
         <button
@@ -263,9 +268,11 @@ export function DashboardPage() {
                     <div key={report.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
                       <div>
                         <p className="text-sm font-medium text-gray-900 dark:text-white">{report.title}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {report.createdAt?.toDate?.().toLocaleDateString() || ''}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <DepartmentCrest department={report.department} category={report.category} size="xs" variant="chip" />
+                          {report.category && <CategoryAvatar category={report.category} size="xs" />}
+                          <span>&middot; {report.createdAt?.toDate?.().toLocaleDateString() || ''}</span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant={statusVariant[report.status] || 'default'} className="capitalize">

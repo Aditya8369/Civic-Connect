@@ -215,3 +215,17 @@ export function calculateMapBounds(points) {
   ]
 }
 
+/**
+ * Converts complaints (or map points) into Leaflet heat-layer tuples.
+ * Invalid coordinates are ignored; every valid complaint contributes weight 1,
+ * allowing overlapping complaints to accumulate into higher-density hotspots.
+ */
+export function buildHeatmapPoints(items) {
+  if (!Array.isArray(items)) return []
+
+  return items.flatMap((item) => {
+    if (!item) return []
+    const coords = parseCoordinates(item.coordinates || item)
+    return coords ? [[coords.lat, coords.lng, 1]] : []
+  })
+}

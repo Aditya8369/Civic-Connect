@@ -1,29 +1,50 @@
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore'
-import * as functionsV1 from 'firebase-functions'
+import * as functionsV1 from 'firebase-functions/v1'
+import { getApps, initializeApp } from 'firebase-admin/app'
+import { getAuth } from 'firebase-admin/auth'
 import { generateSubmissionReceiptTemplate, generateResolutionTemplate } from './templates.js'
 import { sendEmail } from './transporter.js'
 
+async function getReporterEmail(uid) {
+  const app = getApps().find(({ name }) => name === '[DEFAULT]') ?? initializeApp()
+  return (await getAuth(app).getUser(uid)).email
+}
+
+function issueEmailOptions() {
+  return { requireReportedBy: true, getUserEmail: getReporterEmail, appBaseUrl: process.env.APP_BASE_URL }
+}
+
+function requiresOwnerLookup(data, options) {
+  return options.requireReportedBy || Object.hasOwn(data, 'reportedBy')
+}
+
+function complaintDetailUrl(context, trackingId, options) {
+  const base = options.appBaseUrl || options.env?.APP_BASE_URL || 'https://civicconnect.gov'
+  const routeId = context?.params?.issueId || trackingId
+  return `${base.replace(/\/+$/, '')}/complaints/${encodeURIComponent(routeId)}`
+}
+
 /**
- * Resolve citizen recipient email from complaint document or users collection
+ * Resolve the owner of an app issue, with compatibility for legacy complaints.
  */
 export async function resolveRecipientEmail(data = {}, options = {}) {
-  // Direct email fields on complaint
-  if (data.citizenEmail) return data.citizenEmail
-  if (data.userEmail) return data.userEmail
-  if (data.email) return data.email
-  if (data.reporterEmail) return data.reporterEmail
-  if (data.contactEmail) return data.contactEmail
+  const ownerLookup = requiresOwnerLookup(data, options)
+  if (!ownerLookup) {
+    const address = data.citizenEmail || data.userEmail || data.email || data.reporterEmail || data.contactEmail
+    if (address) return address
+  }
 
-  // Custom resolver function if injected
-  const uid = data.userId || data.uid || data.citizenUid || data.authorId || data.createdBy
+  const uid = ownerLookup ? data.reportedBy : (data.userId || data.uid || data.citizenUid || data.authorId || data.createdBy)
+  if (ownerLookup && (typeof uid !== 'string' || !uid.trim())) return null
   if (uid && typeof options.getUserEmail === 'function') {
     try {
       const email = await options.getUserEmail(uid)
       if (email) return email
     } catch (err) {
-      console.warn('[EmailNotification] options.getUserEmail failed:', err.message)
+      console.warn('[EmailNotification] User email lookup failed:', err.code || 'unknown')
     }
   }
+  if (ownerLookup) return null
 
   // Firestore user lookup if firestore instance is available
   if (uid && options.firestore) {
@@ -58,7 +79,7 @@ export async function handleComplaintCreate(snapshot, context = {}, options = {}
       data?.id ||
       'CMP-UNKNOWN'
 
-    const trackingId = data.trackingId || data.id || complaintId
+    const trackingId = data.complaintId || data.trackingId || data.id || complaintId
     const recipientEmail = await resolveRecipientEmail(data, options)
 
     if (!recipientEmail) {
@@ -72,8 +93,7 @@ export async function handleComplaintCreate(snapshot, context = {}, options = {}
       }
     }
 
-    const appBaseUrl = options.appBaseUrl || options.env?.APP_BASE_URL || 'https://civicconnect.gov'
-    const trackingLink = options.trackingLink || `${appBaseUrl}/complaints/${trackingId}`
+    const trackingLink = options.trackingLink || complaintDetailUrl(context, trackingId, options)
 
     const { subject, html, text } = generateSubmissionReceiptTemplate({
       trackingId,
@@ -138,7 +158,7 @@ export async function handleComplaintUpdate(change, context = {}, options = {}) 
       afterData?.id ||
       'CMP-UNKNOWN'
 
-    const trackingId = afterData.trackingId || afterData.id || complaintId
+    const trackingId = afterData.complaintId || afterData.trackingId || afterData.id || complaintId
 
     const beforeStatus = String(beforeData?.status || '').trim().toLowerCase()
     const afterStatus = String(afterData?.status || '').trim().toLowerCase()
@@ -165,9 +185,10 @@ export async function handleComplaintUpdate(change, context = {}, options = {}) 
       }
     }
 
-    const recipientEmail =
-      (await resolveRecipientEmail(afterData, options)) ||
-      (await resolveRecipientEmail(beforeData, options))
+    let recipientEmail = await resolveRecipientEmail(afterData, options)
+    if (!recipientEmail && !requiresOwnerLookup(afterData, options)) {
+      recipientEmail = await resolveRecipientEmail(beforeData, options)
+    }
 
     if (!recipientEmail) {
       console.warn(`[EmailNotification] Complaint ${complaintId} has no recipient email. Skipping resolution notice.`)
@@ -180,9 +201,9 @@ export async function handleComplaintUpdate(change, context = {}, options = {}) 
       }
     }
 
-    const appBaseUrl = options.appBaseUrl || options.env?.APP_BASE_URL || 'https://civicconnect.gov'
-    const feedbackLink = options.feedbackLink || `${appBaseUrl}/complaints/${trackingId}#feedback`
-    const trackingLink = options.trackingLink || `${appBaseUrl}/complaints/${trackingId}`
+    const detailUrl = complaintDetailUrl(context, trackingId, options)
+    const feedbackLink = options.feedbackLink || `${detailUrl}#feedback`
+    const trackingLink = options.trackingLink || detailUrl
 
     const officerNotes =
       afterData.officerNotes ||
@@ -255,11 +276,11 @@ export const onComplaintUpdated = onDocumentUpdated('complaints/{complaintId}', 
  * Firebase Functions v2 Triggers for issues/{issueId} (matching Firestore database collection)
  */
 export const onIssueCreated = onDocumentCreated('issues/{issueId}', async (event) => {
-  return handleComplaintCreate(event.data, { params: event.params })
+  return handleComplaintCreate(event.data, { params: event.params }, issueEmailOptions())
 })
 
 export const onIssueUpdated = onDocumentUpdated('issues/{issueId}', async (event) => {
-  return handleComplaintUpdate(event.data, { params: event.params })
+  return handleComplaintUpdate(event.data, { params: event.params }, issueEmailOptions())
 })
 
 /**
@@ -275,10 +296,10 @@ export function createV1ComplaintTriggers(customFunctions = functionsV1) {
       .onUpdate(async (change, context) => handleComplaintUpdate(change, context)),
     onIssueCreatedV1: customFunctions.firestore
       .document('issues/{issueId}')
-      .onCreate(async (snapshot, context) => handleComplaintCreate(snapshot, context)),
+      .onCreate(async (snapshot, context) => handleComplaintCreate(snapshot, context, issueEmailOptions())),
     onIssueUpdatedV1: customFunctions.firestore
       .document('issues/{issueId}')
-      .onUpdate(async (change, context) => handleComplaintUpdate(change, context)),
+      .onUpdate(async (change, context) => handleComplaintUpdate(change, context, issueEmailOptions())),
   }
 }
 
