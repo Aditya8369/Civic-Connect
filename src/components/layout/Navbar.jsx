@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { Menu, Bell, BellRing } from 'lucide-react'
+import { Menu, Bell, BellRing, Search } from 'lucide-react'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
+import { useSpotlightSearch } from '@/contexts/SpotlightContext'
 import { ThemeToggle } from '@/components/common/ThemeToggle'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -27,6 +28,7 @@ const icons = {
 export function Navbar({ onMenuClick }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const { openSearch } = useSpotlightSearch()
   const [unreadCount, setUnreadCount] = useState(0)
   const [recentNotifications, setRecentNotifications] = useState([])
   const [permissionStatus, setPermissionStatus] = useState(() => getPushPermissionStatus())
@@ -120,6 +122,22 @@ export function Navbar({ onMenuClick }) {
       <Button variant="ghost" size="icon" onClick={onMenuClick} className="lg:hidden rounded-full" aria-label="Open navigation menu">
         <Menu className="h-5 w-5" />
       </Button>
+
+      {/* Global Spotlight Search Trigger */}
+      <div className="flex-1 max-w-xs sm:max-w-sm">
+        <button
+          type="button"
+          onClick={openSearch}
+          className="group flex w-full items-center gap-2 rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-1.5 text-xs text-gray-500 transition-all hover:border-gray-300 hover:bg-gray-100 hover:text-gray-900 dark:border-gray-800 dark:bg-gray-900/60 dark:text-gray-400 dark:hover:border-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+          aria-label="Search reports (Ctrl+K or Cmd+K)"
+        >
+          <Search className="h-3.5 w-3.5 text-gray-400 group-hover:text-gray-600 dark:text-gray-500 dark:group-hover:text-gray-300" />
+          <span className="flex-1 text-left truncate">Search reports, wards...</span>
+          <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-mono text-gray-400 shadow-2xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
+            <span className="text-xs">{typeof navigator !== 'undefined' && navigator.platform?.toUpperCase()?.includes('MAC') ? '⌘' : 'Ctrl+'}</span>K
+          </kbd>
+        </button>
+      </div>
 
       <div className="flex-1" />
 
