@@ -28,6 +28,7 @@ dist-ssr
 # Environment files
 .env
 .env.*
+!.env.example
 .env.local
 
 # Lighthouse CI reports
