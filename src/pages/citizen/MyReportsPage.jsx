@@ -35,6 +35,7 @@ const statusVariant = {
   Pending: 'destructive',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Merged - Duplicate': 'secondary',
 }
 
 function formatDate(timestamp) {
@@ -207,6 +208,11 @@ export function MyReportsPage() {
                         <CategoryAvatar category={report.category} size="xs" />
                       )}
                     </div>
+                    {report.status === 'Merged - Duplicate' && report.mergedInto && (
+                      <p className="text-xs text-purple-600 dark:text-purple-400 font-medium mt-1">
+                        Consolidated into {report.mergedInto}
+                      </p>
+                    )}
                   </div>
 
                   <div className="mt-auto space-y-2">

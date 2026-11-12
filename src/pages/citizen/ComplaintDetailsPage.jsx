@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, MapPin, CalendarDays, FileText, ClipboardCheck, AlertTriangle, Star, Camera, ZoomIn, ZoomOut, ExternalLink } from 'lucide-react'
+import { ArrowLeft, MapPin, CalendarDays, FileText, ClipboardCheck, AlertTriangle, Star, Camera, ZoomIn, ZoomOut, ExternalLink, GitMerge } from 'lucide-react'
 import { doc, collection, onSnapshot, serverTimestamp, updateDoc, query, where, getDocs, limit } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
@@ -30,6 +30,7 @@ const statusVariant = {
   Pending: 'destructive',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Merged - Duplicate': 'secondary',
 }
 
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
@@ -325,6 +326,31 @@ export function ComplaintDetailsPage() {
                       <SlaBadge complaint={complaint} />
                     </div>
                     <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-1">{complaint.title}</h1>
+                    {complaint.status === 'Merged - Duplicate' && (
+                      <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm dark:border-purple-900/50 dark:bg-purple-900/20">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <GitMerge className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                            <span className="font-medium text-purple-900 dark:text-purple-200">
+                              Consolidated with ticket: <span className="font-mono font-semibold">{complaint.mergedInto || 'CMP-XXXX-XXXX'}</span>
+                            </span>
+                          </div>
+                          {(complaint.mergedIntoId || complaint.mergedInto) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1 border-purple-300 dark:border-purple-800 text-purple-700 dark:text-purple-300"
+                              onClick={() => navigate(`/complaints/${complaint.mergedIntoId || complaint.mergedInto}`)}
+                            >
+                              <ExternalLink className="h-3 w-3" /> View Consolidated Ticket
+                            </Button>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-purple-700 dark:text-purple-300">
+                          This issue was merged with an existing report and is being resolved jointly.
+                        </p>
+                      </div>
+                    )}
                   </div>
                   {canReopen && (
                     <Button size="sm" className="shrink-0" onClick={() => setReopenOpen(true)}>

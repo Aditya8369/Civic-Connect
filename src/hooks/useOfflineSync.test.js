@@ -2,10 +2,30 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useOfflineSync } from './useOfflineSync'
 import { createTransactionStore } from '@/firebase/testSupport/transactionStore'
 
-const runtime = vi.hoisted(() => ({ auth: { currentUser: null }, store: null, pending: null, id: 0, cleanupError: null }))
+const runtime = vi.hoisted(() => ({
+  auth: { currentUser: null },
+  store: null,
+  pending: null,
+  id: 0,
+  cleanupError: null,
+  uploadError: null,
+  uploadCalls: [],
+}))
 vi.mock('react', () => ({ useCallback: callback => callback, useEffect() {}, useRef: current => ({ current }) }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: runtime.auth.currentUser }) }))
 vi.mock('@/firebase/services', () => ({ db: {}, auth: runtime.auth }))
+vi.mock('@/firebase/storage', () => ({
+  uploadComplaintPhoto: vi.fn(async (file, id) => {
+    runtime.uploadCalls.push({ file, id })
+    if (runtime.uploadError) throw runtime.uploadError
+    const filename = file.name || 'photo.jpg'
+    return {
+      downloadUrl: `https://storage.googleapis.com/test-bucket/${id}/${filename}`,
+      path: `complaint-photos/${id}/${filename}`,
+      filename,
+    }
+  }),
+}))
 vi.mock('@/utils/offlineQueue', () => ({
   getPendingComplaints: async uid => structuredClone([...runtime.pending.values()].filter(item => item.userId === uid)),
   removeOfflineComplaint: async id => {
@@ -46,9 +66,94 @@ beforeEach(() => {
   runtime.store = createTransactionStore()
   runtime.pending = new Map([[entry.localId, entry]])
   runtime.cleanupError = null
+  runtime.uploadError = null
+  runtime.uploadCalls = []
   runtime.id = 0
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+it('uploads and attaches photo evidence when syncing an offline complaint with a photo', async () => {
+  const photoFile = new File(['png-bytes'], 'broken-pipe.png', { type: 'image/png' })
+  const photoEntry = { ...entry, photoFile, photoName: 'broken-pipe.png', photoType: 'image/png' }
+  runtime.pending = new Map([[entry.localId, photoEntry]])
+
+  await useOfflineSync().syncComplaints()
+
+  const saved = runtime.store.read(issue)
+  expect(runtime.uploadCalls).toHaveLength(1)
+  expect(runtime.uploadCalls[0].id).toBe(entry.localId)
+  expect(runtime.uploadCalls[0].file.name).toBe('broken-pipe.png')
+
+  expect(saved).toMatchObject({
+    title: 'Lamp',
+    reportedBy: entry.userId,
+    status: 'Pending',
+    imageUrl: `https://storage.googleapis.com/test-bucket/${entry.localId}/broken-pipe.png`,
+    photos: [
+      {
+        downloadUrl: `https://storage.googleapis.com/test-bucket/${entry.localId}/broken-pipe.png`,
+        path: `complaint-photos/${entry.localId}/broken-pipe.png`,
+        filename: 'broken-pipe.png',
+      },
+    ],
+  })
+  expect(runtime.store.read(counter)).toEqual({ lastNumber: 1 })
+  expect(runtime.store.read(receipt)).toEqual({ createdAt: 'server-time' })
+  expect(runtime.pending.size).toBe(0)
+})
+
+it('retains the queued complaint and does not commit writes when photo upload fails', async () => {
+  const photoFile = new File(['png-bytes'], 'hazard.png', { type: 'image/png' })
+  const photoEntry = { ...entry, photoFile, photoName: 'hazard.png', photoType: 'image/png' }
+  runtime.pending = new Map([[entry.localId, photoEntry]])
+  runtime.uploadError = new Error('Network error uploading photo to Storage')
+
+  await useOfflineSync().syncComplaints()
+
+  expect(runtime.store.history).toEqual([])
+  expect(runtime.store.read(issue)).toBeUndefined()
+  expect(runtime.store.read(counter)).toBeUndefined()
+  expect(runtime.store.read(receipt)).toBeUndefined()
+  expect(runtime.pending.size).toBe(1)
+  expect(runtime.pending.get(entry.localId).photoFile).toBe(photoFile)
+})
+
+it('retains photo evidence in queue if transaction commit fails after successful photo upload', async () => {
+  const photoFile = new File(['png-bytes'], 'drainage.png', { type: 'image/png' })
+  const photoEntry = { ...entry, photoFile, photoName: 'drainage.png', photoType: 'image/png' }
+  runtime.pending = new Map([[entry.localId, photoEntry]])
+  runtime.store.failCommit = Object.assign(new Error('unavailable'), { code: 'unavailable' })
+
+  await useOfflineSync().syncComplaints()
+
+  expect(runtime.uploadCalls).toHaveLength(1)
+  expect(runtime.store.history).toEqual([])
+  expect(runtime.store.read(issue)).toBeUndefined()
+  expect(runtime.pending.size).toBe(1)
+  expect(runtime.pending.get(entry.localId).photoFile).toBe(photoFile)
+
+  // Retry succeeds
+  runtime.store.failCommit = null
+  await useOfflineSync().syncComplaints()
+  expect(runtime.store.read(issue)).toBeDefined()
+  expect(runtime.store.read(issue).imageUrl).toContain('drainage.png')
+  expect(runtime.pending.size).toBe(0)
+})
+
+it('normalizes photo evidence from a Blob with preserved photo metadata', async () => {
+  const rawBlob = new Blob(['bytes'], { type: 'image/jpeg' })
+  const blobEntry = { ...entry, photoFile: rawBlob, photoName: 'camera-photo.jpg', photoType: 'image/jpeg' }
+  runtime.pending = new Map([[entry.localId, blobEntry]])
+
+  await useOfflineSync().syncComplaints()
+
+  const saved = runtime.store.read(issue)
+  expect(runtime.uploadCalls).toHaveLength(1)
+  expect(runtime.uploadCalls[0].file.name).toBe('camera-photo.jpg')
+  expect(saved.imageUrl).toBe(`https://storage.googleapis.com/test-bucket/${entry.localId}/camera-photo.jpg`)
+  expect(saved.photos[0].filename).toBe('camera-photo.jpg')
+  expect(runtime.pending.size).toBe(0)
+})
 
 it('commits one complaint, ticket, event and notice when two tabs sync the same queue item', async () => {
   await Promise.all([useOfflineSync().syncComplaints(), useOfflineSync().syncComplaints()])
