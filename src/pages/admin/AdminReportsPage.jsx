@@ -28,6 +28,7 @@ const statusVariant = {
   Resolved: 'success',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Merged - Duplicate': 'secondary',
 }
 
 function formatDate(ts) {
@@ -341,6 +342,7 @@ const suggestions = searchQuery.trim()
             <SelectItem value="resolved">Resolved</SelectItem>
             <SelectItem value="rejected">Rejected</SelectItem>
             <SelectItem value="reopened">Reopened</SelectItem>
+            <SelectItem value="merged - duplicate">Merged - Duplicate</SelectItem>
           </SelectContent>
         </Select>
 
