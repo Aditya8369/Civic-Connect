@@ -6,7 +6,7 @@ import { MapPin, Crosshair, Send, AlertTriangle, ExternalLink, ThumbsUp, Check, 
 import {
   collection,
   doc,
-  writeBatch,
+  runTransaction,
   serverTimestamp,
   query,
   where,
@@ -14,13 +14,14 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { endorseComplaint } from '@/firebase/endorseComplaint'
-import { generateComplaintId, getDisplayId } from '@/firebase/complaintId'
+import { allocateComplaintId, getDisplayId } from '@/firebase/complaintId'
 import { addNotificationToBatch } from '@/firebase/notifications'
 import { addComplaintEventToBatch } from '@/firebase/complaintEvents'
 import {
   validateComplaintPhoto,
   uploadComplaintPhoto,
   uploadComplaintAudio,
+  deleteComplaintEvidence,
 } from '@/firebase/storage'
 import VoiceRecorder from '@/components/citizen/VoiceRecorder'
 import { useAuth } from '@/hooks/useAuth'
@@ -397,22 +398,55 @@ export function ReportPage() {
         return
       }
 
-      // Generate the public complaint ID before uploading any evidence.
-      const complaintId = await generateComplaintId()
+      // Pre-allocate the Firestore document reference so its ID can be used as the
+      // storage attachment directory. This avoids prematurely allocating or burning
+      // a sequential municipal complaintId before evidence uploads succeed.
+      const issueRef = doc(collection(db, 'issues'))
+      const attachmentId = issueRef.id
 
-      // Upload optional photo and voice evidence without changing the existing photo helpers.
-      const [photoUpload, audioUpload] = await Promise.all([
-        photoFile
-          ? uploadComplaintPhoto(photoFile, complaintId)
-          : Promise.resolve(null),
-        voiceNote?.blob
-          ? uploadComplaintAudio(
+      // Track uploaded artifacts so any partial upload failure can clean them up immediately,
+      // preventing orphaned storage files.
+      const uploadedArtifacts = []
+      let photoUpload = null
+      let audioUpload = null
+
+      try {
+        const uploadPromises = []
+        if (photoFile) {
+          uploadPromises.push(
+            uploadComplaintPhoto(photoFile, attachmentId).then((res) => {
+              if (res) {
+                photoUpload = res
+                if (res.path) uploadedArtifacts.push(res.path)
+              }
+              return res
+            })
+          )
+        }
+
+        if (voiceNote?.blob) {
+          uploadPromises.push(
+            uploadComplaintAudio(
               voiceNote.blob,
-              complaintId,
+              attachmentId,
               voiceNote.durationSeconds
-            )
-          : Promise.resolve(null),
-      ])
+            ).then((res) => {
+              if (res) {
+                audioUpload = res
+                if (res.path) uploadedArtifacts.push(res.path)
+              }
+              return res
+            })
+          )
+        }
+
+        await Promise.all(uploadPromises)
+      } catch (uploadError) {
+        if (uploadedArtifacts.length > 0) {
+          await deleteComplaintEvidence(uploadedArtifacts)
+        }
+        throw uploadError
+      }
 
       const imageUrl = photoUpload?.downloadUrl || null
       const photos = photoUpload ? [photoUpload] : []
@@ -426,45 +460,57 @@ export function ReportPage() {
           }
         : null
 
-      // Complaint and admin notification commit together, so a failed notification
-      // can't leave behind a saved complaint that the citizen then re-submits.
-      const batch = writeBatch(db)
-      const issueRef = doc(collection(db, 'issues'))
-      batch.set(issueRef, {
-        complaintId,
-        title,
-        description,
-        category,
-        address,
-        latitude: latitude ? parseFloat(latitude) : null,
-        longitude: longitude ? parseFloat(longitude) : null,
-        status: 'Pending',
-        department: '',
-        reportedBy: user.uid,
-        imageUrl,
-        photos,
-        audioNote,
-        endorsedBy: [],
-        endorsementCount: 0,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      })
-      addComplaintEventToBatch(batch, issueRef.id, {
-        actorUid: user.uid,
-        action: 'Complaint submitted',
-        previousStatus: null,
-        newStatus: 'Pending',
-        remarks: description || 'Complaint submitted',
-      })
-      addNotificationToBatch(batch, {
-        recipientRole: 'admin',
-        senderUid: user.uid,
-        issueId: complaintId,
-        type: 'new_complaint',
-        title: 'New Complaint Submitted',
-        message: 'A citizen has submitted a new complaint.',
-      })
-      await batch.commit()
+      // Allocate the municipal ticket ID atomically inside the transaction.
+      // If the commit fails, the counter write is rolled back and uploaded
+      // storage artifacts are cleaned up so no orphan files or ticket gaps remain.
+      let complaintId = null
+      try {
+        await runTransaction(db, async (transaction) => {
+          complaintId = await allocateComplaintId(transaction)
+
+          transaction.set(issueRef, {
+            complaintId,
+            title,
+            description,
+            category,
+            address,
+            latitude: latitude ? parseFloat(latitude) : null,
+            longitude: longitude ? parseFloat(longitude) : null,
+            status: 'Pending',
+            department: '',
+            reportedBy: user.uid,
+            imageUrl,
+            photos,
+            audioNote,
+            endorsedBy: [],
+            endorsementCount: 0,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          })
+
+          addComplaintEventToBatch(transaction, issueRef.id, {
+            actorUid: user.uid,
+            action: 'Complaint submitted',
+            previousStatus: null,
+            newStatus: 'Pending',
+            remarks: description || 'Complaint submitted',
+          })
+
+          addNotificationToBatch(transaction, {
+            recipientRole: 'admin',
+            senderUid: user.uid,
+            issueId: complaintId,
+            type: 'new_complaint',
+            title: 'New Complaint Submitted',
+            message: 'A citizen has submitted a new complaint.',
+          })
+        })
+      } catch (commitError) {
+        if (uploadedArtifacts.length > 0) {
+          await deleteComplaintEvidence(uploadedArtifacts)
+        }
+        throw commitError
+      }
 
       // Record successful submission timestamp for rate-limiting cooldown
       recordSubmissionTimestamp(user?.uid, Date.now())
