@@ -2,7 +2,7 @@ import { saveOfflineComplaint } from '@/utils/offlineQueue'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { MapPin, Crosshair, Send, AlertTriangle, ExternalLink, ThumbsUp, Check, Loader2, Clock, Camera, Trash2 } from 'lucide-react'
+import { MapPin, Send, AlertTriangle, ExternalLink, ThumbsUp, Check, Loader2, Clock, Camera, Trash2 } from 'lucide-react'
 import {
   collection,
   doc,
