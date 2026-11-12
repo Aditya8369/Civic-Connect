@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import L from 'leaflet'
-import { MapContainer, Marker, TileLayer, useMapEvents } from 'react-leaflet'
+import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import { Crosshair, Loader2, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,17 @@ L.Icon.Default.mergeOptions({
 
 const DEFAULT_CENTER = [20.5937, 78.9629]
 const DEFAULT_ZOOM = 5
+
+function MapCenterController({ coordinates }) {
+  const map = useMap()
+
+  useEffect(() => {
+    if (!coordinates) return
+    map.setView([coordinates.lat, coordinates.lng], Math.max(map.getZoom(), 15), { animate: true })
+  }, [map, coordinates?.lat, coordinates?.lng])
+
+  return null
+}
 
 function MapClickHandler({ onSelect }) {
   useMapEvents({
@@ -152,7 +163,7 @@ export function ComplaintLocationMap({
   const zoom = coordinates ? 15 : DEFAULT_ZOOM
 
   return (
-    <section className={`space-y-2 ${className}`} aria-label="Complaint location map">
+    <section className={`complaint-location-map space-y-2 ${className}`} aria-label="Complaint location map">
       {selectable && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-gray-600 dark:text-gray-300">
@@ -175,6 +186,7 @@ export function ComplaintLocationMap({
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
+          <MapCenterController coordinates={selected} />
           {selectable && <MapClickHandler onSelect={handleSelect} />}
           {selected && (
             <SelectedLocationMarker
