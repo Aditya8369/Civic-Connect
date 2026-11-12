@@ -18,8 +18,9 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SlaBadge } from '@/components/common/SlaBadge'
+import { SlaEscalationBanner } from '@/components/admin/SlaEscalationBanner'
 import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
-import { isSlaBreached } from '@/utils/sla'
+import { getSlaTargetDate, isSlaBreached } from '@/utils/sla'
 import { BulkActionsToolbar } from '@/components/admin/BulkActionsToolbar'
 
 const statusVariant = {
@@ -115,6 +116,7 @@ useEffect(() => {
 }, [searchQuery])
   const [statusFilter, setStatusFilter] = useState('all')
   const [slaFilter, setSlaFilter] = useState('all')
+const [showUrgentOnly, setShowUrgentOnly] = useState(false)
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [selectedIds, setSelectedIds] = useState([])
@@ -185,6 +187,19 @@ const filtered = complaints.filter((c) => {
   }
 
   if (slaFilter === 'breached' && !isSlaBreached(c)) return false
+if (showUrgentOnly) {
+  const targetDate = getSlaTargetDate(
+    c.createdAt,
+    c.category,
+    c.department
+  )
+
+  if (!targetDate) return false
+
+  const remainingMs = targetDate.getTime() - Date.now()
+
+  if (remainingMs > 2 * 60 * 60 * 1000) return false
+}
 
   if (departmentFilter !== 'all' && c.department !== departmentFilter) {
     return false
@@ -258,6 +273,10 @@ const suggestions = searchQuery.trim()
             Export to CSV
           </Button>
         }
+      />
+      <SlaEscalationBanner
+        complaints={complaints}
+        onShowUrgentTickets={() => setShowUrgentOnly(true)}
       />
 
       <div className="flex flex-wrap gap-3 mb-6">
