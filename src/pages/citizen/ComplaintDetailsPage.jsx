@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog'
 import toast from 'react-hot-toast'
 import ComplaintAudioPlayer from '@/components/citizen/ComplaintAudioPlayer'
+import { MilestoneCelebrationBanner } from '@/components/citizen/MilestoneCelebrationBanner'
 
 const statusVariant = {
   Resolved: 'success',
@@ -307,6 +308,8 @@ export function ComplaintDetailsPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
+          <MilestoneCelebrationBanner complaint={complaint} />
+
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
