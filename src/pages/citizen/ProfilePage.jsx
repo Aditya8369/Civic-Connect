@@ -18,6 +18,11 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/hooks/useAuth'
 import { getPushPermissionStatus, requestPushPermission } from '@/firebase/notifications'
+import {
+  loadNotificationPreferences,
+  saveNotificationPreferences,
+  DEFAULT_NOTIFICATION_PREFERENCES,
+} from '@/firebase/notificationPreferences'
 import { useCivicGamification } from '@/hooks/useCivicGamification'
 import { BadgesShowcaseCard } from '@/components/citizen/BadgesShowcaseCard'
 import { CivicChampionLeaderboardCard } from '@/components/citizen/CivicChampionLeaderboardCard'
@@ -73,6 +78,8 @@ export function ProfilePage() {
   )
   const [requestingPush, setRequestingPush] = useState(false)
   const [updatingPreference, setUpdatingPreference] = useState(null)
+  const [preferences, setPreferences] = useState(DEFAULT_NOTIFICATION_PREFERENCES)
+  const [preferencesLoading, setPreferencesLoading] = useState(true)
 
   // Live Civic Gamification & Leaderboard State
   const {
