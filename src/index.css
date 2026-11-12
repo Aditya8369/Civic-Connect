@@ -84,3 +84,6 @@ html.theme-transition *::after {
     transition: none !important;
   }
 }
+
+/* Leaflet controls inside complaint-location maps */
+.complaint-location-map .leaflet-container { z-index: 0; font-family: inherit; }
