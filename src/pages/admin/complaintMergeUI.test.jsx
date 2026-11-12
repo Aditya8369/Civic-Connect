@@ -4,6 +4,10 @@ import { ComplaintDetailsPage } from '@/pages/citizen/ComplaintDetailsPage'
 import { Dialog } from '@/components/ui/dialog'
 import { createTransactionStore } from '@/firebase/testSupport/transactionStore'
 
+vi.mock('@/firebase/complaintReferences', () => ({
+  resolveCitizenComplaintDocumentId: async (issueId) => issueId,
+}))
+
 const runtime = vi.hoisted(() => ({
   current: null,
   store: null,
@@ -258,8 +262,12 @@ it('displays the Consolidated Duplicate Complaints card when parent has merged c
   expect(treeText).toContain('CMP-2026-0002')
 })
 
-it('citizen view displays consolidated banner when ticket is Merged - Duplicate', () => {
+it('citizen view displays consolidated banner when ticket is Merged - Duplicate', async () => {
   const instance = mount(ComplaintDetailsPage)
+
+  await Promise.resolve()
+  await Promise.resolve()
+
   runtime.listeners.at(-1)({
     id: 'ticket-child',
     exists: () => true,

@@ -1,4 +1,4 @@
-
+import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
 import { useState, useEffect, useRef } from 'react'
 import { Menu, Bell, BellRing } from 'lucide-react'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
@@ -169,16 +169,34 @@ export function Navbar({ onMenuClick }) {
     )
   }
 
-  const handleNotificationItemClick = (notification) => {
+  const handleNotificationItemClick = async (notification) => {
     if (!notification.issueId) {
       handleBellClick()
       return
     }
 
+    // Preserve existing admin navigation.
     if (user?.role === 'admin') {
       navigate(`/admin/reports/${notification.issueId}`)
-    } else {
-      navigate(`/complaints/${notification.issueId}`)
+      return
+    }
+
+    // Resolve citizen notification references securely.
+    try {
+      const documentId = await resolveCitizenComplaintDocumentId(
+        notification.issueId,
+        user?.uid,
+      )
+
+      if (!documentId) {
+        toast.error('Complaint not found or you do not have access.')
+        return
+      }
+
+      navigate(`/complaints/${documentId}`)
+    } catch (err) {
+      console.error('Error opening notification complaint:', err)
+      toast.error('Unable to open complaint. Please try again.')
     }
   }
 
