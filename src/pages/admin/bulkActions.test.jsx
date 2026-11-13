@@ -67,10 +67,16 @@ vi.mock('react-hot-toast', () => ({
   },
 }))
 
+vi.mock('@/firebase/dashboardStats', () => ({
+  DASHBOARD_WINDOW_SIZE: 200,
+  startDashboardAggregates: () => ({ refresh: vi.fn(), stop: vi.fn() }),
+}))
+
 vi.mock('firebase/firestore', () => ({
   collection: (_db, name) => name,
   query: (col) => col,
   orderBy: () => ({}),
+  limit: () => ({}),
   onSnapshot: (_q, callback) => {
     runtime.listeners.push(callback)
     return vi.fn()
