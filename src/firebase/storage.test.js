@@ -3,6 +3,8 @@ import {
   validateComplaintPhoto,
   sanitizeFilename,
   uploadComplaintPhoto,
+  deleteStorageFile,
+  deleteComplaintEvidence,
   MAX_PHOTO_SIZE_BYTES,
 } from './storage'
 
@@ -33,6 +35,7 @@ vi.mock('firebase/storage', () => ({
   ref: vi.fn((_storage, path) => ({ _path: path })),
   uploadBytes: vi.fn(() => Promise.resolve({})),
   getDownloadURL: vi.fn(() => Promise.resolve('https://storage.googleapis.com/test-bucket/photo.jpg')),
+  deleteObject: vi.fn(() => Promise.resolve()),
 }))
 vi.mock('./services', () => ({
   auth: { currentUser: null },
@@ -165,6 +168,56 @@ describe('Firebase Storage Helper', () => {
       } finally {
         import.meta.env.VITE_MOCK_STORAGE = origEnv
       }
+    })
+  })
+
+  describe('deleteStorageFile and deleteComplaintEvidence', () => {
+    it('deletes storage object using reference path', async () => {
+      const { ref, deleteObject } = await import('firebase/storage')
+      const fakeStorage = {}
+
+      const success = await deleteStorageFile('complaint-photos/issue-123/evidence.jpg', fakeStorage)
+      expect(success).toBe(true)
+      expect(ref).toHaveBeenCalledWith(fakeStorage, 'complaint-photos/issue-123/evidence.jpg')
+      expect(deleteObject).toHaveBeenCalled()
+    })
+
+    it('returns false gracefully when path is empty or falsy', async () => {
+      expect(await deleteStorageFile('')).toBe(false)
+      expect(await deleteStorageFile(null)).toBe(false)
+      expect(await deleteStorageFile(undefined)).toBe(false)
+    })
+
+    it('catches deleteObject rejection gracefully without throwing', async () => {
+      const { deleteObject } = await import('firebase/storage')
+      deleteObject.mockRejectedValueOnce(new Error('Storage object not found'))
+
+      const success = await deleteStorageFile('complaint-photos/issue-123/missing.jpg', {})
+      expect(success).toBe(false)
+    })
+
+    it('cleans up multiple uploaded evidence files concurrently', async () => {
+      const { ref, deleteObject } = await import('firebase/storage')
+      const fakeStorage = {}
+
+      const results = await deleteComplaintEvidence(
+        [
+          'complaint-photos/issue-123/photo.jpg',
+          { path: 'complaint-audio/issue-123/audio.webm' },
+        ],
+        fakeStorage
+      )
+
+      expect(results).toHaveLength(2)
+      expect(ref).toHaveBeenCalledWith(fakeStorage, 'complaint-photos/issue-123/photo.jpg')
+      expect(ref).toHaveBeenCalledWith(fakeStorage, 'complaint-audio/issue-123/audio.webm')
+      expect(deleteObject).toHaveBeenCalledTimes(2)
+    })
+
+    it('handles empty or non-array inputs to deleteComplaintEvidence safely', async () => {
+      expect(await deleteComplaintEvidence([])).toEqual([])
+      expect(await deleteComplaintEvidence(null)).toEqual([])
+      expect(await deleteComplaintEvidence(undefined)).toEqual([])
     })
   })
 })

@@ -8,11 +8,11 @@ function formatId(num) {
   return `CMP-${year}-${String(num).padStart(4, '0')}`
 }
 
-export async function allocateComplaintId(transaction) {
-  const ref = doc(db, COUNTER_PATH)
+export async function allocateComplaintId(transaction, customDb = db) {
+  const ref = doc(customDb, COUNTER_PATH)
   const snap = await transaction.get(ref)
   let nextNum = 1
-  if (snap.exists()) {
+  if (snap.exists() && typeof snap.data()?.lastNumber === 'number') {
     nextNum = snap.data().lastNumber + 1
   }
   transaction.set(ref, { lastNumber: nextNum }, { merge: true })

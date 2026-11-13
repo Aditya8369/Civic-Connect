@@ -44,6 +44,27 @@ service cloud.firestore {
     }
 
     match /issues/{issueId} {
+      function isResolutionFeedback() {
+        let feedback = request.resource.data.get('feedback', {});
+        let allowedTags = ['Quick response', 'Courteous staff', 'Clean finish'];
+        let attachment = feedback.get('attachment', null);
+        return resource.data.status == 'Resolved' &&
+               resource.data.get('feedback', null) == null &&
+               request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['feedback', 'updatedAt']) &&
+               feedback.keys().hasOnly(['rating', 'tags', 'comment', 'attachment', 'submittedAt']) &&
+               feedback.rating is int && feedback.rating >= 1 && feedback.rating <= 5 &&
+               feedback.tags is list && feedback.tags.hasOnly(allowedTags) &&
+               feedback.tags.size() == feedback.tags.toSet().size() &&
+               feedback.comment is string && feedback.comment.size() <= 1000 &&
+               feedback.submittedAt == request.time && request.resource.data.updatedAt == request.time &&
+               (attachment == null ||
+                 (attachment.keys().hasOnly(['kind', 'path']) &&
+                  attachment.kind in ['photo', 'voice'] &&
+                  attachment.path is string &&
+                  attachment.path.matches('resolution-feedback/' + request.auth.uid + '/' + issueId + '/[0-9a-f-]{36}')));
+      }
+
       function isCitizenAppeal() {
         let resolvedAt = resource.data.get('resolvedAt', null);
         let reason = request.resource.data.get('reopenReason', null);
@@ -61,33 +82,77 @@ service cloud.firestore {
                request.resource.data.get('updatedAt', null) == request.time;
       }
 
+      function isCitizenUpvote() {
+        let diff = request.resource.data.diff(resource.data);
+        let currentCount = resource.data.get('upvotesCount', 0);
+        let newCount = request.resource.data.get('upvotesCount', 0);
+        let prevUpvotedBy = resource.data.get('upvotedBy', []);
+        let nextUpvotedBy = request.resource.data.get('upvotedBy', []);
+
+        return diff.affectedKeys().hasOnly(['upvotedBy', 'upvotesCount', 'updatedAt']) &&
+               request.resource.data.reportedBy == resource.data.reportedBy &&
+               request.resource.data.status == resource.data.status &&
+               newCount is int && newCount >= 0 &&
+               (
+                 // Adding an upvote:
+                 (newCount == currentCount + 1 &&
+                  !(request.auth.uid in prevUpvotedBy) &&
+                  request.auth.uid in nextUpvotedBy) ||
+                 // Removing an upvote:
+                 (newCount == (currentCount > 0 ? currentCount - 1 : 0) &&
+                  request.auth.uid in prevUpvotedBy &&
+                  !(request.auth.uid in nextUpvotedBy))
+               );
+      }
+
       function isCitizenEndorsement() {
-        let oldEndorsedBy = resource.data.get('endorsedBy', []);
-        let newEndorsedBy = request.resource.data.get('endorsedBy', []);
-        let oldCount = resource.data.get('endorsementCount', oldEndorsedBy.size());
+        let diff = request.resource.data.diff(resource.data);
+        let currentCount = resource.data.get('endorsementCount', 0);
         let newCount = request.resource.data.get('endorsementCount', 0);
-        return request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['endorsedBy', 'endorsementCount', 'updatedAt']) &&
-               newEndorsedBy is list &&
-               newEndorsedBy.hasAll(oldEndorsedBy) &&
-               newEndorsedBy.size() == oldEndorsedBy.size() + 1 &&
-               request.auth.uid in newEndorsedBy &&
-               !(request.auth.uid in oldEndorsedBy) &&
-               newCount == oldCount + 1 &&
-               request.resource.data.get('updatedAt', null) == request.time;
+        let prevEndorsedBy = resource.data.get('endorsedBy', []);
+        let nextEndorsedBy = request.resource.data.get('endorsedBy', []);
+
+        return diff.affectedKeys().hasOnly(['endorsedBy', 'endorsementCount', 'updatedAt']) &&
+               request.resource.data.reportedBy == resource.data.reportedBy &&
+               request.resource.data.status == resource.data.status &&
+               newCount is int && newCount >= 0 &&
+               newCount == currentCount + 1 &&
+               !(request.auth.uid in prevEndorsedBy) &&
+               request.auth.uid in nextEndorsedBy;
       }
 
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() &&
                     request.resource.data.reportedBy == request.auth.uid &&
-                    request.resource.data.status == 'Pending';
+                    request.resource.data.status == 'Pending' &&
+                    !request.resource.data.keys().hasAny(['feedback']);
       allow update: if (isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                         ((resource.data.status == 'Pending' &&
-                          request.resource.data.status == 'Pending') || isCitizenAppeal())) ||
-                       (isAuthenticated() && isCitizenEndorsement()) ||
-                       isAdmin();
+                          request.resource.data.status == 'Pending' &&
+                          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['feedback'])) ||
+                         isCitizenAppeal() || isResolutionFeedback())) || isAdmin();
       allow delete: if isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                     resource.data.status == 'Pending';
+
+      // Community discussion comments sub-collection
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() &&
+                      request.resource.data.authorId == request.auth.uid &&
+                      request.resource.data.text is string &&
+                      request.resource.data.text.size() > 0 &&
+                      request.resource.data.text.size() <= 1000 &&
+                      request.resource.data.createdAt == request.time;
+        allow update: if isAuthenticated() &&
+                      resource.data.authorId == request.auth.uid &&
+                      request.resource.data.authorId == resource.data.authorId &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'updatedAt']) &&
+                      request.resource.data.text is string &&
+                      request.resource.data.text.size() > 0 &&
+                      request.resource.data.text.size() <= 1000;
+        allow delete: if isAuthenticated() &&
+                      (resource.data.authorId == request.auth.uid || isAdmin());
+      }
 
       // Immutable event audit trail sub-collection
       match /events/{eventId} {
@@ -109,6 +174,39 @@ service cloud.firestore {
 
     match /counters/{counterId} {
       allow read, write: if isAuthenticated();
+    }
+
+    match /leaderboard/{userId} {
+      function isValidLeaderboardEntry() {
+        let data = request.resource.data;
+        let allowedKeys = [
+          'uid', 'name', 'displayName', 'monthlyScore',
+          'allTimeScore', 'badgesCount', 'reportsCount', 'level', 'updatedAt'
+        ];
+        return data.keys().hasOnly(allowedKeys) &&
+               data.uid == userId &&
+               data.get('name', '') is string &&
+               data.get('name', '').size() <= 100 &&
+               data.get('displayName', '') is string &&
+               data.get('displayName', '').size() <= 100 &&
+               data.get('monthlyScore', 0) is number &&
+               data.get('monthlyScore', 0) >= 0 &&
+               data.get('allTimeScore', 0) is number &&
+               data.get('allTimeScore', 0) >= 0 &&
+               data.get('badgesCount', 0) is number &&
+               data.get('badgesCount', 0) >= 0 &&
+               data.get('reportsCount', 0) is number &&
+               data.get('reportsCount', 0) >= 0 &&
+               data.get('level', 1) is number &&
+               data.get('level', 1) >= 1 &&
+               data.get('updatedAt', null) == request.time;
+      }
+
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() &&
+                            (request.auth.uid == userId || isAdmin()) &&
+                            isValidLeaderboardEntry();
+      allow delete: if isAdmin();
     }
   }
 }

@@ -251,20 +251,23 @@ describe('VoiceRecorder', () => {
 
   it('automatically stops recording after 60 seconds', async () => {
     vi.useFakeTimers()
+    try {
+      const onRecordingComplete = vi.fn()
 
-    const onRecordingComplete = vi.fn()
+      await renderRecorder({ onRecordingComplete })
+      await clickButton('Start recording')
 
-    await renderRecorder({ onRecordingComplete })
-    await clickButton('Start recording')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000)
+      })
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_000)
-    })
-
-    expect(mockRecorder.state).toBe('inactive')
-    expect(onRecordingComplete).toHaveBeenCalled()
-    expect(container.textContent).toContain('Play')
-  })
+      expect(mockRecorder.state).toBe('inactive')
+      expect(onRecordingComplete).toHaveBeenCalled()
+      expect(container.textContent).toContain('Play')
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 15000)
 
   it('stops the microphone when the component unmounts', async () => {
     await renderRecorder()
@@ -278,5 +281,155 @@ describe('VoiceRecorder', () => {
 
     expect(mockTrack.stop).toHaveBeenCalled()
     expect(mockRecorder.state).toBe('inactive')
+  })
+
+  it('renders the waveform visualizer container and 32 tactile bars', async () => {
+    await renderRecorder()
+
+    const waveformContainer = container.querySelector('[data-testid="recording-waveform"]')
+    expect(waveformContainer).not.toBeNull()
+    expect(waveformContainer.getAttribute('aria-label')).toBe('Audio waveform visualization')
+    expect(waveformContainer.getAttribute('data-waveform-mode')).toBe('idle')
+
+    const bars = container.querySelectorAll('[data-testid="waveform-bar"]')
+    expect(bars.length).toBe(32)
+  })
+
+  it('uses real Web Audio API AnalyserNode when available', async () => {
+    const mockAnalyser = {
+      fftSize: 0,
+      smoothingTimeConstant: 0,
+      frequencyBinCount: 32,
+      getByteFrequencyData: vi.fn((arr) => {
+        arr.fill(180)
+      }),
+      disconnect: vi.fn(),
+    }
+    const mockSource = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    }
+    const mockAudioContext = {
+      state: 'running',
+      resume: vi.fn().mockResolvedValue(),
+      createAnalyser: vi.fn(() => mockAnalyser),
+      createMediaStreamSource: vi.fn(() => mockSource),
+      close: vi.fn().mockResolvedValue(),
+    }
+
+    globalThis.AudioContext = vi.fn(() => mockAudioContext)
+
+    await renderRecorder()
+    await clickButton('Start recording')
+
+    expect(globalThis.AudioContext).toHaveBeenCalled()
+    expect(mockAudioContext.createAnalyser).toHaveBeenCalled()
+    expect(mockAudioContext.createMediaStreamSource).toHaveBeenCalledWith(mockStream)
+    expect(mockSource.connect).toHaveBeenCalledWith(mockAnalyser)
+
+    const waveform = container.querySelector('[data-testid="recording-waveform"]')
+    expect(waveform.getAttribute('data-waveform-mode')).toBe('analyser')
+
+    delete globalThis.AudioContext
+  })
+
+  it('falls back to simulated waveform when Web Audio API is unavailable', async () => {
+    delete globalThis.AudioContext
+    delete globalThis.webkitAudioContext
+
+    await renderRecorder()
+    await clickButton('Start recording')
+
+    const waveform = container.querySelector('[data-testid="recording-waveform"]')
+    expect(waveform.getAttribute('data-waveform-mode')).toBe('simulated')
+    expect(mockRecorder.state).toBe('recording')
+  })
+
+  it('handles AudioContext initialization failure gracefully without crashing', async () => {
+    globalThis.AudioContext = vi.fn(() => {
+      throw new Error('Audio hardware initialization failed')
+    })
+
+    await renderRecorder()
+    await clickButton('Start recording')
+
+    // Should not crash, and should fall back to simulated mode
+    const waveform = container.querySelector('[data-testid="recording-waveform"]')
+    expect(waveform.getAttribute('data-waveform-mode')).toBe('simulated')
+    expect(mockRecorder.state).toBe('recording')
+
+    delete globalThis.AudioContext
+  })
+
+  it('cleans up AudioContext, analyser, and animation frame when recording stops', async () => {
+    const mockAnalyser = {
+      fftSize: 0,
+      smoothingTimeConstant: 0,
+      frequencyBinCount: 32,
+      getByteFrequencyData: vi.fn(),
+      disconnect: vi.fn(),
+    }
+    const mockSource = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    }
+    const mockAudioContext = {
+      state: 'running',
+      resume: vi.fn().mockResolvedValue(),
+      createAnalyser: vi.fn(() => mockAnalyser),
+      createMediaStreamSource: vi.fn(() => mockSource),
+      close: vi.fn().mockResolvedValue(),
+    }
+
+    globalThis.AudioContext = vi.fn(() => mockAudioContext)
+
+    await renderRecorder()
+    await clickButton('Start recording')
+    await clickButton('Stop recording')
+
+    expect(mockAudioContext.close).toHaveBeenCalled()
+    expect(mockSource.disconnect).toHaveBeenCalled()
+    expect(mockAnalyser.disconnect).toHaveBeenCalled()
+
+    const waveform = container.querySelector('[data-testid="recording-waveform"]')
+    expect(waveform.getAttribute('data-waveform-mode')).toBe('idle')
+
+    delete globalThis.AudioContext
+  })
+
+  it('cleans up Web Audio resources when component unmounts during active recording', async () => {
+    const mockAnalyser = {
+      fftSize: 0,
+      smoothingTimeConstant: 0,
+      frequencyBinCount: 32,
+      getByteFrequencyData: vi.fn(),
+      disconnect: vi.fn(),
+    }
+    const mockSource = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    }
+    const mockAudioContext = {
+      state: 'running',
+      resume: vi.fn().mockResolvedValue(),
+      createAnalyser: vi.fn(() => mockAnalyser),
+      createMediaStreamSource: vi.fn(() => mockSource),
+      close: vi.fn().mockResolvedValue(),
+    }
+
+    globalThis.AudioContext = vi.fn(() => mockAudioContext)
+
+    await renderRecorder()
+    await clickButton('Start recording')
+
+    await act(async () => {
+      root.unmount()
+      root = null
+    })
+
+    expect(mockAudioContext.close).toHaveBeenCalled()
+    expect(mockTrack.stop).toHaveBeenCalled()
+
+    delete globalThis.AudioContext
   })
 })

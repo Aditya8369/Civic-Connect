@@ -379,7 +379,8 @@ export function computeCivicLeaderboard(
   const ranked = list.map((p) => {
     let monthlyScore = p.monthlyScore
     let allTimeScore = p.allTimeScore
-    let badgesCount = p.unlockedBadgesCount
+    let badgesCount =
+      p.unlockedBadgesCount !== undefined ? p.unlockedBadgesCount : p.badgesCount
 
     if (monthlyScore === undefined && (p.filedComplaints || p.endorsedComplaints)) {
       const scoreData = computeCivicScore({
@@ -420,7 +421,9 @@ export function computeCivicLeaderboard(
       badgesCount: typeof badgesCount === 'number' ? badgesCount : 0,
       reportsCount: Array.isArray(p.filedComplaints)
         ? p.filedComplaints.length
-        : p.reportsCount || 0,
+        : typeof p.reportsCount === 'number'
+        ? p.reportsCount
+        : 0,
       isCurrentUser: Boolean(
         currentUserId && (p.uid === currentUserId || p.id === currentUserId)
       ),

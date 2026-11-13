@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest'
 import { createTransactionStore } from './testSupport/transactionStore'
 import { mergeComplaints } from './complaintMerge'
@@ -76,6 +77,7 @@ it('atomically merges child complaint into parent with deduplicated endorsers, a
   const updatedParent = runtime.store.read(parentPath)
   expect(updatedParent.mergedChildIds).toEqual(['child-1'])
   expect(updatedParent.mergedChildComplaintIds).toEqual(['CMP-2026-0002'])
+  expect(updatedParent.mergedReporters).toEqual(['citizen-child'])
   // 'citizen-shared' was in both, so deduplicated endorsers should have length 3
   expect(updatedParent.endorsedBy).toEqual(['citizen-shared', 'citizen-b', 'citizen-a'])
   expect(updatedParent.endorsementCount).toBe(3)
@@ -258,5 +260,43 @@ it('uses parentId if parent does not have a custom complaintId assigned', async 
   const updatedChild = runtime.store.read(childPath)
   expect(updatedChild.mergedInto).toBe('parent-1')
 })
+
+it('consolidates mergedReporters without duplicates and excludes the parent author', async () => {
+  runtime.store.write(parentPath, {
+    ...parentFixture,
+    mergedReporters: ['citizen-prior'],
+  })
+  runtime.store.write(childPath, {
+    ...childFixture,
+    reportedBy: 'citizen-child',
+    mergedReporters: ['citizen-grandchild', 'citizen-prior'],
+  })
+
+  await mergeComplaints({
+    childId: 'child-1',
+    parentId: 'parent-1',
+    actorUid: 'admin-1',
+  })
+
+  const updatedParent = runtime.store.read(parentPath)
+  expect(updatedParent.mergedReporters).toEqual(['citizen-prior', 'citizen-child', 'citizen-grandchild'])
+})
+
+it('does not add duplicate reporter if child was reported by parent author', async () => {
+  runtime.store.write(childPath, {
+    ...childFixture,
+    reportedBy: 'citizen-parent',
+  })
+
+  await mergeComplaints({
+    childId: 'child-1',
+    parentId: 'parent-1',
+    actorUid: 'admin-1',
+  })
+
+  const updatedParent = runtime.store.read(parentPath)
+  expect(updatedParent.mergedReporters).toEqual([])
+})
+
 
 

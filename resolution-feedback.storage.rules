@@ -1,0 +1,34 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Merge this match into the project's existing bucket rules before deploying.
+    match /resolution-feedback/{uid}/{issueId}/{fileId} {
+      function issue() {
+        return firestore.get(/databases/(default)/documents/issues/$(issueId)).data;
+      }
+
+      function owner() {
+        return request.auth != null && request.auth.uid == uid && issue().reportedBy == uid;
+      }
+
+      function isSavedAttachment() {
+        let feedback = issue().get('feedback', null);
+        let attachment = feedback is map ? feedback.get('attachment', null) : null;
+        return attachment is map &&
+          attachment.get('path', null) == 'resolution-feedback/' + uid + '/' + issueId + '/' + fileId;
+      }
+
+      allow create: if owner() && issue().status == 'Resolved' &&
+        issue().get('feedback', null) == null &&
+        fileId.matches('[0-9a-f-]{36}') &&
+        request.resource.size > 0 && request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('(image/(jpeg|png|jpg)|audio/(webm|ogg|mp4|wav|x-wav|mpeg|aac))(;.*)?');
+
+      allow get: if request.auth != null &&
+        (owner() || request.auth.token.get('role', null) == 'admin') &&
+        isSavedAttachment();
+
+      allow delete: if owner() && fileId.matches('[0-9a-f-]{36}') && !isSavedAttachment();
+    }
+  }
+}
