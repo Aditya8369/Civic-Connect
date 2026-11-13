@@ -321,6 +321,19 @@ export function ComplaintDetailsPage() {
                         </p>
                       </div>
                     )}
+                    {isMergedViewer && (
+                      <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm dark:border-purple-900/50 dark:bg-purple-900/20">
+                        <div className="flex items-center gap-2">
+                          <GitMerge className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                          <span className="font-medium text-purple-900 dark:text-purple-200">
+                            Primary Consolidated Ticket
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-purple-700 dark:text-purple-300">
+                          Your reported issue was consolidated into this primary grievance. Updates and resolution progress on this ticket apply jointly to all merged reports.
+                        </p>
+                      </div>
+                    )}
                   </div>
                   {canReopen && (
                     <Button size="sm" className="shrink-0" onClick={() => setReopenOpen(true)}>
