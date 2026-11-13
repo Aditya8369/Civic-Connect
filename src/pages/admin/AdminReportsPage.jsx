@@ -1,13 +1,16 @@
 import { matchesComplaintSearch } from './complaintSearch'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Download, Flag, Search, X } from 'lucide-react'
-import { collection, query, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore'
+import { ChevronLeft, ChevronRight, Download, FileText, Flag, LoaderCircle, Search, X } from 'lucide-react'
+import { doc, getDoc } from 'firebase/firestore'
 import toast from 'react-hot-toast'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { getDisplayId } from '@/firebase/complaintId'
-import { isUnconfirmedEmpty } from '@/firebase/snapshot'
+import {
+  fetchAllReportsForExport,
+  subscribeToReportsPage,
+} from '@/firebase/adminReportsQuery'
 import { toCsv, downloadCsv, formatDateStamp } from '@/utils/csv'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ComplaintCardSkeleton } from '@/components/common/ComplaintCardSkeleton'
@@ -49,31 +52,7 @@ const allCategories = [
 
 const allDepartments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
 
-const csvHeaders = [
-  'Complaint ID',
-  'Date',
-  'Title',
-  'Category',
-  'Department',
-  'Status',
-  'Address',
-  'Assigned Worker Name',
-  'Assigned Worker Phone',
-]
 
-function toCsvRow(c) {
-  return [
-    getDisplayId(c),
-    c.createdAt?.toDate ? formatDateStamp(c.createdAt.toDate()) : '',
-    c.title,
-    c.category,
-    c.department,
-    c.status,
-    c.address,
-    c.assignedWorker?.name,
-    c.assignedWorker?.phone,
-  ]
-}
 function HighlightMatch({ text, query }) {
   if (!text) return null
   if (!query?.trim()) return text
@@ -103,6 +82,9 @@ export function AdminReportsPage() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [pageIndex, setPageIndex] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [exportingCsv, setExportingCsv] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
 const [showSuggestions, setShowSuggestions] = useState(false)
@@ -118,11 +100,18 @@ useEffect(() => {
   const [slaFilter, setSlaFilter] = useState('all')
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [exportingPdf, setExportingPdf] = useState(false)
   const [selectedIds, setSelectedIds] = useState([])
   const selectAllRef = useRef(null)
   const { user } = useAuth()
   const [userCache, setUserCache] = useState({})
   const cacheRef = useRef({})
+  // pageCursorsRef.current[n] is the startAfter() cursor used to load page n (page 0 has none).
+  const pageCursorsRef = useRef([null])
+  // Last displayed document of the page currently on screen; becomes the next page's cursor.
+  const lastCursorRef = useRef(null)
   const navigate = useNavigate()
 
   const fetchUsers = async (list) => {
@@ -147,64 +136,162 @@ useEffect(() => {
       cacheRef.current = cache
       setUserCache({ ...cache })
     }
+    return cache
+  }
+
+  // Server-side filters. Changing any of them (via changeFilter -> resetPagination)
+  // returns to page 1 and drops every stored cursor, so a cursor that belongs to an
+  // old filter is never reused.
+  const serverFilters = {
+    status: statusFilter,
+    department: departmentFilter,
+    category: categoryFilter,
+    dateFrom,
+    dateTo,
+  }
+
+  const resetPagination = () => {
+    pageCursorsRef.current = [null]
+    lastCursorRef.current = null
+    setPageIndex(0)
+    setHasMore(false)
+    setSelectedIds([])
+  }
+
+  const changeFilter = (setter) => (value) => {
+    setter(value)
+    resetPagination()
   }
 
   useEffect(() => {
+    // `cancelled` is flipped by the cleanup, so a response for a previous filter/page
+    // can never overwrite the results of a newer one.
+    let cancelled = false
     setLoading(true)
     setLoadError(false)
-    const q = query(collection(db, 'issues'), orderBy('createdAt', 'desc'))
-    const unsub = onSnapshot(
-      q,
-      { includeMetadataChanges: true },
-      async (snapshot) => {
-        if (isUnconfirmedEmpty(snapshot)) {
+    const unsub = subscribeToReportsPage(
+      {
+        status: statusFilter,
+        department: departmentFilter,
+        category: categoryFilter,
+        dateFrom,
+        dateTo,
+        cursor: pageCursorsRef.current[pageIndex] ?? null,
+      },
+      {
+        onPage: ({ docs, cursor, hasMore: more }) => {
+          if (cancelled) return
+          lastCursorRef.current = cursor
+          setComplaints(docs)
+          setHasMore(more)
+          setLoadError(false)
+          setLoading(false)
+          fetchUsers(docs)
+        },
+        onOfflineEmpty: () => {
+          if (cancelled) return
           if (!navigator.onLine) {
             setLoadError(true)
             setLoading(false)
           }
-          return
-        }
-        const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-        setComplaints(list)
-        setLoadError(false)
-        setLoading(false)
-        fetchUsers(list)
-      },
-      (err) => {
-        console.error('AdminReports Firestore error:', err)
-        setLoadError(true)
-        setLoading(false)
+        },
+        onError: (err) => {
+          if (cancelled) return
+          console.error('AdminReports Firestore error:', err)
+          setLoadError(true)
+          setLoading(false)
+        },
       }
     )
-    return unsub
-  }, [reloadKey])
+    return () => {
+      cancelled = true
+      unsub()
+    }
+    // fetchUsers only touches refs/state setters, so it is intentionally not a dependency.
+  }, [statusFilter, departmentFilter, categoryFilter, dateFrom, dateTo, pageIndex, reloadKey])
 
-const filtered = complaints.filter((c) => {
-  if (statusFilter !== 'all') {
-    const val = statusFilter === 'in-progress' ? 'in progress' : statusFilter
-    if (c.status?.toLowerCase() !== val) return false
+  const handleNextPage = () => {
+    if (loading || !hasMore || !lastCursorRef.current) return
+    pageCursorsRef.current = [...pageCursorsRef.current.slice(0, pageIndex + 1), lastCursorRef.current]
+    setSelectedIds([])
+    setPageIndex(pageIndex + 1)
   }
 
-  if (slaFilter === 'breached' && !isSlaBreached(c)) return false
-
-  if (departmentFilter !== 'all' && c.department !== departmentFilter) {
-    return false
+  const handlePreviousPage = () => {
+    if (loading || pageIndex === 0) return
+    setSelectedIds([])
+    setPageIndex(pageIndex - 1)
   }
 
-  if (categoryFilter !== 'all' && c.category !== categoryFilter) {
-    return false
+  // Search and SLA cannot be expressed as Firestore constraints (substring match across
+  // fields / a computed deadline), so they narrow the rows of the loaded page client-side.
+  const matchesClientFilters = (c, users) => {
+    if (slaFilter === 'breached' && !isSlaBreached(c)) return false
+    return matchesComplaintSearch(c, debouncedSearch, users[c.reportedBy])
   }
 
-  if (!matchesComplaintSearch(c, debouncedSearch, userCache[c.reportedBy])) {
-    return false
+  const filtered = complaints.filter((c) => matchesClientFilters(c, userCache))
+
+  // Exports cover every report matching the filters, not just the visible page.
+  const collectExportRows = async () => {
+    const { docs, truncated } = await fetchAllReportsForExport(serverFilters)
+    const users = debouncedSearch ? await fetchUsers(docs) : userCache
+    if (truncated) {
+      toast(`Export limited to the ${docs.length} most recent matching reports.`)
+    }
+    return docs.filter((c) => matchesClientFilters(c, users))
   }
 
-  return true
-})
- const handleExport = () => {
-    const csv = toCsv(csvHeaders, filtered.map(toCsvRow))
-    downloadCsv(`civic-reports-${formatDateStamp(new Date())}.csv`, csv)
-    toast.success(`Exported ${filtered.length} report${filtered.length === 1 ? '' : 's'}`)
+  const handleExport = async () => {
+    setExportingCsv(true)
+    try {
+      const rows = await collectExportRows()
+      if (rows.length === 0) {
+        toast('No reports match the current filters')
+        return
+      }
+      const csv = toCsv(csvHeaders, rows.map(toCsvRow))
+      downloadCsv(`civic-reports-${formatDateStamp(new Date())}.csv`, csv)
+      toast.success(`Exported ${rows.length} report${rows.length === 1 ? '' : 's'}`)
+    } catch (err) {
+      console.error('CSV export failed:', err)
+      toast.error('Could not export reports. Please try again.')
+    } finally {
+      setExportingCsv(false)
+    }
+  }
+
+  const handleExportPdf = async () => {
+    setExportingPdf(true)
+    try {
+      // Let the spinner paint before the synchronous PDF build starts, and only load jsPDF when it is needed.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const rows = await collectExportRows()
+      if (rows.length === 0) {
+        toast('No reports match the current filters')
+        return
+      }
+      const { downloadComplaintsPdf } = await import('@/utils/pdfReport')
+      downloadComplaintsPdf({
+        complaints: rows,
+        filters: {
+          status: statusFilter,
+          department: departmentFilter,
+          category: categoryFilter,
+          sla: slaFilter,
+          search: debouncedSearch,
+          dateFrom,
+          dateTo,
+        },
+        now: new Date(),
+      })
+      toast.success(`Exported ${rows.length} report${rows.length === 1 ? '' : 's'} to PDF`)
+    } catch (err) {
+      console.error('PDF export failed:', err)
+      toast.error('Could not generate the PDF. Please try again.')
+    } finally {
+      setExportingPdf(false)
+    }
   }
 
   const isAllSelected = filtered.length > 0 && filtered.every((c) => selectedIds.includes(c.id))
@@ -254,10 +341,26 @@ const suggestions = searchQuery.trim()
         title="Manage Reports"
         description="Review and manage all citizen reports"
         actions={
-          <Button variant="outline" onClick={handleExport} disabled={loading || filtered.length === 0}>
-            <Download />
-            Export to CSV
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={handleExport}
+              disabled={loading || complaints.length === 0 || exportingCsv || exportingPdf}
+              aria-busy={exportingCsv}
+            >
+              {exportingCsv ? <LoaderCircle className="animate-spin" /> : <Download />}
+              Export to CSV
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleExportPdf}
+              disabled={loading || complaints.length === 0 || exportingPdf || exportingCsv}
+              aria-busy={exportingPdf}
+            >
+              {exportingPdf ? <LoaderCircle className="animate-spin" /> : <FileText />}
+              {exportingPdf ? 'Generating PDF...' : 'Export PDF'}
+            </Button>
+          </div>
         }
       />
 
@@ -331,7 +434,7 @@ const suggestions = searchQuery.trim()
           )}
         </div>
 
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={changeFilter(setStatusFilter)}>
           <SelectTrigger className="w-36">
             <SelectValue placeholder="All Status" />
           </SelectTrigger>
@@ -346,7 +449,7 @@ const suggestions = searchQuery.trim()
           </SelectContent>
         </Select>
 
-        <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+        <Select value={departmentFilter} onValueChange={changeFilter(setDepartmentFilter)}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="All Departments" />
           </SelectTrigger>
@@ -363,7 +466,7 @@ const suggestions = searchQuery.trim()
           </SelectContent>
         </Select>
 
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+        <Select value={categoryFilter} onValueChange={changeFilter(setCategoryFilter)}>
           <SelectTrigger className="w-48">
             <SelectValue placeholder="All Categories" />
           </SelectTrigger>
@@ -374,6 +477,23 @@ const suggestions = searchQuery.trim()
             ))}
           </SelectContent>
         </Select>
+
+        <Input
+          type="date"
+          className="w-40"
+          aria-label="From date"
+          value={dateFrom}
+          max={dateTo || undefined}
+          onChange={(e) => changeFilter(setDateFrom)(e.target.value)}
+        />
+        <Input
+          type="date"
+          className="w-40"
+          aria-label="To date"
+          value={dateTo}
+          min={dateFrom || undefined}
+          onChange={(e) => changeFilter(setDateTo)(e.target.value)}
+        />
 
         <Select value={slaFilter} onValueChange={setSlaFilter}>
           <SelectTrigger className="w-36">
@@ -420,7 +540,7 @@ const suggestions = searchQuery.trim()
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Flag className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
             <p className="text-sm font-medium text-gray-900 dark:text-white">
-              {searchQuery || statusFilter !== 'all' || departmentFilter !== 'all' || categoryFilter !== 'all' || slaFilter !== 'all'
+              {searchQuery || statusFilter !== 'all' || departmentFilter !== 'all' || categoryFilter !== 'all' || slaFilter !== 'all' || dateFrom || dateTo
                 ? 'No matching reports found'
                 : 'No reports found'}
             </p>
@@ -493,6 +613,42 @@ const suggestions = searchQuery.trim()
             )
           })}
         </div>
+      )}
+
+      {!loadError && (pageIndex > 0 || hasMore || complaints.length > 0) && (
+        <nav
+          aria-label="Reports pagination"
+          className="mt-6 flex flex-wrap items-center justify-between gap-3"
+        >
+          <p className="text-xs text-gray-500 dark:text-gray-400" aria-live="polite">
+            Page {pageIndex + 1}
+            {!loading && ` · ${complaints.length} report${complaints.length === 1 ? '' : 's'}`}
+            {(debouncedSearch || slaFilter !== 'all') &&
+              ' · search and SLA filters apply to this page only'}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePreviousPage}
+              disabled={loading || pageIndex === 0}
+              aria-label="Previous page"
+            >
+              <ChevronLeft />
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNextPage}
+              disabled={loading || !hasMore}
+              aria-label="Next page"
+            >
+              Next
+              <ChevronRight />
+            </Button>
+          </div>
+        </nav>
       )}
 
       <BulkActionsToolbar

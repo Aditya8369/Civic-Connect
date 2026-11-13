@@ -84,3 +84,95 @@ html.theme-transition *::after {
     transition: none !important;
   }
 }
+
+/* ==========================================================================
+   Print Stylesheet - Municipal Grievance Receipt & Official Exports (#161)
+   ========================================================================== */
+@media print {
+  @page {
+    /* Auto paper sizing allows both A4 and US Letter without forcing a fixed format */
+    size: auto;
+    margin: 10mm 12mm;
+  }
+
+  /* Reset document canvas to clean white background and dark ink text */
+  html,
+  body {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    background-image: none !important;
+    color: #0f172a !important;
+    font-size: 11pt !important;
+    line-height: 1.4 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Unset flex / height scrolling containers that clip print pages */
+  body *,
+  main,
+  div {
+    overflow: visible !important;
+  }
+
+  /* Hide web chrome: navigation, sidebars, headers, footers, buttons & modals */
+  aside,
+  nav,
+  header:not(.printable-receipt header),
+  footer:not(.printable-receipt footer),
+  button,
+  [role="dialog"],
+  [aria-modal="true"],
+  .no-print,
+  .print-hidden,
+  .screen-only {
+    display: none !important;
+  }
+
+  /* Remove desktop layout sidebar padding & constrain to page width */
+  .lg\:pl-64 {
+    padding-left: 0 !important;
+  }
+
+  .page-container {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Ensure the printable receipt is visible, isolated, and cleanly bordered */
+  .printable-receipt-wrapper,
+  .printable-receipt {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  /* Section break protection across physical pages */
+  .print-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Remove web shadows, blur filters and excessive decorations */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+    filter: none !important;
+  }
+
+  /* Vector & QR code sharpness preservation */
+  svg[data-testid="receipt-qr-code"] {
+    shape-rendering: crispEdges !important;
+    image-rendering: pixelated !important;
+  }
+}

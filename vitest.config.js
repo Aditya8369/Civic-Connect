@@ -1,4 +1,3 @@
-
 import { defineConfig } from 'vitest/config'
 import { fileURLToPath } from 'node:url'
 
@@ -11,10 +10,6 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    clearMocks: true,
-    restoreMocks: true,
-  },
-  test: {
     clearMocks: true,
     restoreMocks: true,
   },

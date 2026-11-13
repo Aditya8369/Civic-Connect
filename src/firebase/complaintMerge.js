@@ -97,9 +97,18 @@ export async function mergeComplaints({
       new Set([...existingChildComplaintIds, childCid, ...childMergedComplaintIds])
     )
 
+    // Consolidate reporters who filed merged duplicate tickets
+    const existingReporters = Array.isArray(parent.mergedReporters) ? parent.mergedReporters : []
+    const childReporters = Array.isArray(child.mergedReporters) ? child.mergedReporters : []
+    const childAuthor = child.reportedBy ? [child.reportedBy] : []
+    const mergedReporters = Array.from(
+      new Set([...existingReporters, ...childAuthor, ...childReporters])
+    ).filter(uid => uid && uid !== parent.reportedBy)
+
     transaction.update(parentRef, {
       mergedChildIds,
       mergedChildComplaintIds,
+      mergedReporters,
       endorsedBy: consolidatedEndorsers,
       endorsementCount,
       updatedAt: serverTimestamp(),

@@ -1,4 +1,4 @@
-import { doc, runTransaction, writeBatch, serverTimestamp } from 'firebase/firestore'
+import { doc, runTransaction, serverTimestamp } from 'firebase/firestore'
 import { db } from './services'
 import { addComplaintEventToBatch } from './complaintEvents'
 import { addNotificationToBatch } from './notifications'
@@ -113,68 +113,101 @@ export async function bulkAssignComplaintsDepartment({
   customDb = db,
 }) {
   if (!complaintIds || complaintIds.length === 0) {
-    return { success: true, count: 0 }
+    return { success: true, count: 0, conflictIds: [], failedIds: [], unchangedIds: [] }
   }
   if (!newDepartment) {
     throw new Error('New department is required for bulk department reassignment')
   }
 
   const complaintMap = normalizeComplaintsMap(complaints)
+  const ids = [...new Set(complaintIds)]
+  const result = { success: true, count: 0, conflictIds: [], failedIds: [], unchangedIds: [] }
 
-  const chunks = []
-  for (let i = 0; i < complaintIds.length; i += BATCH_CHUNK_SIZE) {
-    chunks.push(complaintIds.slice(i, i + BATCH_CHUNK_SIZE))
-  }
+  for (let i = 0; i < ids.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + BATCH_CHUNK_SIZE)
+    try {
+      const committed = await runTransaction(customDb, async transaction => {
+        const refs = chunk.map(id => doc(customDb, 'issues', id))
+        const snapshots = await Promise.all(refs.map(ref => transaction.get(ref)))
+        const updatedIds = []
+        const conflictIds = []
+        const unchangedIds = []
+        const failedIds = []
 
-  for (const chunk of chunks) {
-    const batch = writeBatch(customDb)
+        for (const [index, id] of chunk.entries()) {
+          const snapshot = snapshots[index]
+          const complaint = snapshot?.data?.() || complaintMap[id]
+          if (!complaint) {
+            failedIds.push(id)
+            continue
+          }
 
-    for (const id of chunk) {
-      const complaint = complaintMap[id] || {}
-      const ref = doc(customDb, 'issues', id)
+          // State machine invariants: cannot reassign department for terminal complaints
+          if (complaint.status === 'Merged - Duplicate' || complaint.status === 'Rejected') {
+            conflictIds.push(id)
+            continue
+          }
 
-      const updateData = {
-        department: newDepartment,
-        updatedAt: serverTimestamp(),
-      }
-      batch.update(ref, updateData)
+          if (complaint.department === newDepartment) {
+            unchangedIds.push(id)
+            continue
+          }
 
-      // Atomic audit event creation in sub-collection issues/{id}/events
-      addComplaintEventToBatch(
-        batch,
-        id,
-        {
-          actorUid,
-          action: 'Department assigned',
-          previousStatus: complaint.status || null,
-          newStatus: complaint.status || null,
-          remarks: remarks || `Bulk department reassignment to ${newDepartment}`,
-        },
-        customDb
-      )
+          const updateData = {
+            department: newDepartment,
+            updatedAt: serverTimestamp(),
+          }
+          transaction.update(refs[index], updateData)
 
-      // Citizen in-app notification
-      if (complaint.reportedBy) {
-        addNotificationToBatch(
-          batch,
-          {
-            recipientUid: complaint.reportedBy,
-            recipientRole: 'citizen',
-            senderUid: actorUid,
-            issueId: complaint.complaintId || id,
-            type: 'department_assigned',
-            title: 'Department Assigned',
-            message: `Your complaint has been assigned to the ${newDepartment} department.`,
-          },
-          customDb
-        )
-      }
+          // Atomic audit event creation in sub-collection issues/{id}/events
+          addComplaintEventToBatch(
+            transaction,
+            id,
+            {
+              actorUid,
+              action: 'Department assigned',
+              previousStatus: complaint.status || null,
+              newStatus: complaint.status || null,
+              remarks: remarks || `Bulk department reassignment to ${newDepartment}`,
+            },
+            customDb
+          )
+
+          // Citizen in-app notification
+          if (complaint.reportedBy) {
+            addNotificationToBatch(
+              transaction,
+              {
+                recipientUid: complaint.reportedBy,
+                recipientRole: 'citizen',
+                senderUid: actorUid,
+                issueId: complaint.complaintId || id,
+                type: 'department_assigned',
+                title: 'Department Assigned',
+                message: `Your complaint has been assigned to the ${newDepartment} department.`,
+              },
+              customDb
+            )
+          }
+
+          updatedIds.push(id)
+        }
+
+        return { updatedIds, conflictIds, unchangedIds, failedIds }
+      })
+
+      result.count += committed.updatedIds.length
+      result.conflictIds.push(...committed.conflictIds)
+      result.unchangedIds.push(...committed.unchangedIds)
+      result.failedIds.push(...committed.failedIds)
+    } catch (error) {
+      console.error('Bulk department transaction failed:', error)
+      result.failedIds.push(...chunk)
     }
-
-    await batch.commit()
   }
 
-  return { success: true, count: complaintIds.length }
+  result.success = result.conflictIds.length === 0 && result.failedIds.length === 0
+  return result
 }
 
 /**

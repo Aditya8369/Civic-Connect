@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, MapPin, CalendarDays, FileText, ClipboardCheck, AlertTriangle, Star, Camera, ZoomIn, ZoomOut, ExternalLink, GitMerge } from 'lucide-react'
-import { doc, collection, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore'
-import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
+import { ArrowLeft, MapPin, CalendarDays, FileText, ClipboardCheck, AlertTriangle, Camera, ZoomIn, ZoomOut, ExternalLink, GitMerge } from 'lucide-react'
+import { doc, collection, onSnapshot, serverTimestamp, query, where, getDocs, limit } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
+import { ResolutionFeedback } from '@/components/citizen/ResolutionFeedback'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dialog'
 import toast from 'react-hot-toast'
 import ComplaintAudioPlayer from '@/components/citizen/ComplaintAudioPlayer'
+import ResolutionProofSlider, { getResolutionPhoto } from '@/components/citizen/ResolutionProofSlider'
 
 const statusVariant = {
   Resolved: 'success',
@@ -35,14 +36,6 @@ const statusVariant = {
 }
 
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
-
-const ratingLabels = {
-  1: 'Poor',
-  2: 'Fair',
-  3: 'Good',
-  4: 'Very Good',
-  5: 'Excellent',
-}
 
 function canReopenComplaint(complaint) {
   const resolvedAt = complaint.resolvedAt?.toDate?.()
@@ -91,16 +84,13 @@ export function ComplaintDetailsPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [complaint, setComplaint] = useState(null)
+  const [citizen, setCitizen] = useState(null)
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [reopenOpen, setReopenOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
-  const [rating, setRating] = useState(0)
-  const [ratingHover, setRatingHover] = useState(0)
-  const [feedbackComment, setFeedbackComment] = useState('')
-  const [submittingFeedback, setSubmittingFeedback] = useState(false)
   const [saving, setSaving] = useState(false)
   const [zoomOpen, setZoomOpen] = useState(false)
   const [zoomScale, setZoomScale] = useState(1)
@@ -124,7 +114,77 @@ useEffect(() => {
       )
       if (cancelled) return
 
-      if (!documentId) {
+  useEffect(() => {
+    if (!complaint?.reportedBy) return
+    if (user?.uid === complaint.reportedBy) {
+      setCitizen({
+        name: user.name || user.displayName,
+        email: user.email,
+      })
+    }
+    let active = true
+    getDoc(doc(db, 'users', complaint.reportedBy))
+      .then((snap) => {
+        if (!active || !snap.exists()) return
+        setCitizen((prev) => ({ ...prev, ...snap.data() }))
+      })
+      .catch(() => {
+        // Fallback remains
+      })
+    return () => {
+      active = false
+    }
+  }, [complaint?.reportedBy, user?.uid, user?.name, user?.displayName, user?.email])
+
+  const handlePrintReceipt = () => {
+    if (typeof window !== 'undefined' && typeof window.print === 'function') {
+      window.print()
+    }
+  }
+
+  useEffect(() => {
+    const unsubEvents = onSnapshot(
+      collection(db, `issues/${id}/events`),
+      (snap) => {
+        if (snap?.docs) {
+          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+          setEvents(sortEvents(list))
+        }
+      },
+      (error) => {
+        console.error('ComplaintDetails events Firestore error:', error)
+      }
+    )
+
+    const unsubComplaint = onSnapshot(
+      doc(db, 'issues', id),
+      (snap) => {
+        if (snap.exists()) {
+          setComplaint({ id: snap.id, ...snap.data() })
+          setLoading(false)
+        } else {
+          const q = query(
+            collection(db, 'issues'),
+            where('complaintId', '==', id),
+            limit(1)
+          )
+          getDocs(q)
+            .then((querySnap) => {
+              if (!querySnap.empty) {
+                navigate(`/complaints/${querySnap.docs[0].id}`, { replace: true })
+              } else {
+                setNotFound(true)
+                setLoading(false)
+              }
+            })
+            .catch(() => {
+              setNotFound(true)
+              setLoading(false)
+            })
+        }
+      },
+      (error) => {
+        console.error('ComplaintDetails Firestore error:', error)
         setNotFound(true)
         setLoading(false)
         return
@@ -240,6 +300,8 @@ if (loadError) {
   const lastUpdated = complaint.updatedAt?.toDate?.() || complaint.createdAt?.toDate?.()
   const slaTarget = getSlaTargetDate(complaint.createdAt, complaint.category, complaint.department)
   const canReopen = canReopenComplaint(complaint)
+  const initialPhoto = complaint.imageUrl || complaint.photos?.[0]
+  const resolutionPhoto = getResolutionPhoto(complaint)
 
   const timelineEvents = (events && events.length > 0)
     ? events.map((evt) => ({
@@ -324,37 +386,15 @@ if (loadError) {
     }
   }
 
-  const handleSubmitFeedback = async () => {
-    if (rating < 1 || rating > 5) {
-      toast.error('Please select a star rating from 1 to 5')
-      return
-    }
-    setSubmittingFeedback(true)
-    try {
-      await updateDoc(doc(db, 'issues', id), {
-        feedback: {
-          rating,
-          comment: feedbackComment.trim(),
-          submittedAt: serverTimestamp(),
-        },
-        updatedAt: serverTimestamp(),
-      })
-      toast.success('Thank you for your feedback!')
-    } catch (err) {
-      toast.error('Failed to submit feedback')
-      console.error(err)
-    } finally {
-      setSubmittingFeedback(false)
-    }
-  }
-
   return (
     <div>
-      <motion.div
-        initial={{ opacity: 0, x: -8 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.3 }}
-      >
+      {/* Normal screen presentation */}
+      <div className="print:hidden">
+        <motion.div
+          initial={{ opacity: 0, x: -8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3 }}
+        >
         <Button
           variant="ghost"
           size="sm"
@@ -367,6 +407,8 @@ if (loadError) {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
+          <MilestoneCelebrationBanner complaint={complaint} />
+
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -409,12 +451,36 @@ if (loadError) {
                         </p>
                       </div>
                     )}
+                    {isMergedViewer && (
+                      <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm dark:border-purple-900/50 dark:bg-purple-900/20">
+                        <div className="flex items-center gap-2">
+                          <GitMerge className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                          <span className="font-medium text-purple-900 dark:text-purple-200">
+                            Primary Consolidated Ticket
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-purple-700 dark:text-purple-300">
+                          Your reported issue was consolidated into this primary grievance. Updates and resolution progress on this ticket apply jointly to all merged reports.
+                        </p>
+                      </div>
+                    )}
                   </div>
-                  {canReopen && (
-                    <Button size="sm" className="shrink-0" onClick={() => setReopenOpen(true)}>
-                      Reopen Issue
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={handlePrintReceipt}
+                    >
+                      <Printer className="h-4 w-4" />
+                      Print Official Receipt
                     </Button>
-                  )}
+                    {canReopen && (
+                      <Button size="sm" className="shrink-0" onClick={() => setReopenOpen(true)}>
+                        Reopen Issue
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 py-4 border-y border-gray-100 dark:border-gray-800">
@@ -468,18 +534,17 @@ if (loadError) {
                   <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">{complaint.description}</p>
                 </div>
 
-                {(complaint.imageUrl || (complaint.photos && complaint.photos.length > 0)) && (
+                {(initialPhoto || resolutionPhoto) && (
                   <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-1.5">
                       <Camera className="h-4 w-4 text-primary-600 dark:text-primary-400" />
                       Photo Evidence
                     </h3>
-                    <div className="relative group inline-block overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-                      <img
-                        src={complaint.imageUrl || complaint.photos?.[0]}
-                        alt="Complaint evidence"
-                        className="h-48 w-full sm:w-80 object-cover cursor-pointer transition-transform duration-200 group-hover:scale-105"
-                        onClick={() => setZoomOpen(true)}
+                    <div className="relative group inline-block w-full max-w-xl overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+                      <ResolutionProofSlider
+                        beforePhoto={initialPhoto}
+                        afterPhoto={resolutionPhoto}
+                        onImageClick={() => setZoomOpen(true)}
                       />
                       <button
                         type="button"
@@ -579,133 +644,16 @@ if (loadError) {
             </Card>
           </motion.div>
 
-          {complaint.status === 'Resolved' && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.15 }}
-            >
-              {complaint.feedback ? (
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
-                        Your Feedback
-                      </CardTitle>
-                      <Badge variant="success">Submitted</Badge>
-                    </div>
-                    <CardDescription>
-                      Thank you for helping us improve our municipal services.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1">
-                        {[1, 2, 3, 4, 5].map((s) => (
-                          <Star
-                            key={s}
-                            className={`h-5 w-5 ${
-                              s <= complaint.feedback.rating
-                                ? 'text-amber-400 fill-amber-400'
-                                : 'text-gray-300 dark:text-gray-700'
-                            }`}
-                          />
-                        ))}
-                      </div>
-                      <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                        {complaint.feedback.rating} / 5
-                      </span>
-                      {ratingLabels[complaint.feedback.rating] && (
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
-                          ({ratingLabels[complaint.feedback.rating]})
-                        </span>
-                      )}
-                    </div>
-                    {complaint.feedback.comment && (
-                      <p className="mt-3 text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800">
-                        {complaint.feedback.comment}
-                      </p>
-                    )}
-                    {complaint.feedback.submittedAt && (
-                      <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                        Submitted on {complaint.feedback.submittedAt.toDate?.().toLocaleDateString() || '-'}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              ) : (
-                <Card className="border-amber-200 dark:border-amber-900/50">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
-                      Rate Resolution
-                    </CardTitle>
-                    <CardDescription>
-                      This complaint has been resolved. How satisfied are you with the resolution?
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
-                        Satisfaction Rating <span className="text-red-500">*</span>
-                      </p>
-                      <div className="flex items-center gap-1.5" onMouseLeave={() => setRatingHover(0)}>
-                        {[1, 2, 3, 4, 5].map((s) => {
-                          const active = s <= (ratingHover || rating)
-                          return (
-                            <button
-                              key={s}
-                              type="button"
-                              onClick={() => setRating(s)}
-                              onMouseEnter={() => setRatingHover(s)}
-                              aria-label={`Rate ${s} star${s > 1 ? 's' : ''}`}
-                              className="p-1 transition-transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded cursor-pointer"
-                            >
-                              <Star
-                                className={`h-6 w-6 transition-colors ${
-                                  active
-                                    ? 'text-amber-400 fill-amber-400'
-                                    : 'text-gray-300 dark:text-gray-700'
-                                }`}
-                              />
-                            </button>
-                          )
-                        })}
-                        {(ratingHover || rating) > 0 && (
-                          <span className="text-sm font-medium text-amber-600 dark:text-amber-400 ml-2">
-                            {ratingLabels[ratingHover || rating]}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label htmlFor="feedback-comment" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                        Feedback Comments (Optional)
-                      </label>
-                      <textarea
-                        id="feedback-comment"
-                        rows={3}
-                        value={feedbackComment}
-                        onChange={(e) => setFeedbackComment(e.target.value)}
-                        placeholder="Tell us what went well or what could be improved..."
-                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
-                      />
-                    </div>
-
-                    <Button
-                      onClick={handleSubmitFeedback}
-                      disabled={rating === 0 || submittingFeedback}
-                      size="sm"
-                      className="gap-2"
-                    >
-                      {submittingFeedback ? 'Submitting...' : 'Submit Feedback'}
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-            </motion.div>
+          {complaint.status === 'Resolved' && complaint.reportedBy === user?.uid && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Resolution feedback</CardTitle>
+                <CardDescription>Tell us how the work went.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResolutionFeedback key={id} issueId={id} title={complaint.title} feedback={complaint.feedback} />
+              </CardContent>
+            </Card>
           )}
         </div>
 
@@ -756,17 +704,7 @@ if (loadError) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="rounded-lg bg-gray-100 dark:bg-gray-800 h-48 flex items-center justify-center overflow-hidden">
-                  <div className="text-center">
-                    <MapPin className="h-8 w-8 text-primary-600 dark:text-primary-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{complaint.address}</p>
-                    {complaint.latitude && complaint.longitude && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        {complaint.latitude}, {complaint.longitude}
-                      </p>
-                    )}
-                  </div>
-                </div>
+                <ComplaintLocationMap latitude={complaint.latitude} longitude={complaint.longitude} address={complaint.address} height="240px" />
               </CardContent>
             </Card>
           </motion.div>
@@ -842,9 +780,9 @@ if (loadError) {
                   </button>
                 </div>
 
-                {(complaint.imageUrl || complaint.photos?.[0]) && (
+                {(initialPhoto || resolutionPhoto) && (
                   <a
-                    href={complaint.imageUrl || complaint.photos?.[0]}
+                    href={initialPhoto || resolutionPhoto}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-xs font-normal text-primary-600 dark:text-primary-400 hover:underline ml-1"
@@ -861,7 +799,7 @@ if (loadError) {
           </DialogHeader>
           <div className="flex items-center justify-center max-h-[70vh] overflow-auto rounded-lg bg-black/5 dark:bg-black/40 p-2">
             <img
-              src={complaint.imageUrl || complaint.photos?.[0]}
+              src={initialPhoto || resolutionPhoto}
               alt="Enlarged complaint evidence"
               style={{ transform: `scale(${zoomScale})`, transformOrigin: 'center center' }}
               className={`max-h-[65vh] w-auto max-w-full object-contain rounded-md transition-transform duration-150 ${
@@ -872,6 +810,16 @@ if (loadError) {
           </div>
         </DialogContent>
       </Dialog>
+      </div>
+
+      {/* Dedicated print container */}
+      <div className="hidden print:block print:w-full printable-receipt-wrapper">
+        <PrintableGrievanceReceipt
+          complaint={complaint}
+          citizen={citizen}
+          user={user}
+        />
+      </div>
     </div>
   )
 }

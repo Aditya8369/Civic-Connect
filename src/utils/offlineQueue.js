@@ -34,12 +34,52 @@ function openDatabase() {
   })
 }
 
+// Normalize photo evidence from queue record to a valid File or Blob
+export function normalizePhotoFile(complaint) {
+  const photo = complaint?.photoFile || complaint?.photoBlob
+  if (!photo) return null
+
+  const name = photo.name || complaint?.photoName || 'evidence.jpg'
+  const type = photo.type || complaint?.photoType || photo.blob?.type || 'image/jpeg'
+  const blob = photo.blob || photo
+
+  if (typeof File !== 'undefined') {
+    if (photo instanceof File && photo.name) {
+      return photo
+    }
+    try {
+      return new File([blob], name, { type })
+    } catch {
+      // Continue to fallback if File constructor fails
+    }
+  }
+
+  if (!blob.name) {
+    try {
+      Object.defineProperty(blob, 'name', { value: name, configurable: true, writable: true })
+    } catch {}
+  }
+  if (!blob.type) {
+    try {
+      Object.defineProperty(blob, 'type', { value: type, configurable: true, writable: true })
+    } catch {}
+  }
+  return blob
+}
+
 // Save a complaint for later submission.
 export async function saveOfflineComplaint(complaint) {
   const db = await openDatabase()
 
+  const photoFile = complaint.photoFile || null
+  const photoName = photoFile?.name || complaint.photoName || null
+  const photoType = photoFile?.type || complaint.photoType || null
+
   const record = {
     ...complaint,
+    photoFile,
+    photoName,
+    photoType,
     localId: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
     syncStatus: 'pending',
