@@ -84,6 +84,7 @@ export function ComplaintDetailsPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [complaint, setComplaint] = useState(null)
+  const [citizen, setCitizen] = useState(null)
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -93,6 +94,34 @@ export function ComplaintDetailsPage() {
   const [zoomOpen, setZoomOpen] = useState(false)
   const [zoomScale, setZoomScale] = useState(1)
   const transitionPending = useRef(false)
+
+  useEffect(() => {
+    if (!complaint?.reportedBy) return
+    if (user?.uid === complaint.reportedBy) {
+      setCitizen({
+        name: user.name || user.displayName,
+        email: user.email,
+      })
+    }
+    let active = true
+    getDoc(doc(db, 'users', complaint.reportedBy))
+      .then((snap) => {
+        if (!active || !snap.exists()) return
+        setCitizen((prev) => ({ ...prev, ...snap.data() }))
+      })
+      .catch(() => {
+        // Fallback remains
+      })
+    return () => {
+      active = false
+    }
+  }, [complaint?.reportedBy, user?.uid, user?.name, user?.displayName, user?.email])
+
+  const handlePrintReceipt = () => {
+    if (typeof window !== 'undefined' && typeof window.print === 'function') {
+      window.print()
+    }
+  }
 
   useEffect(() => {
     const unsubEvents = onSnapshot(
@@ -260,11 +289,13 @@ export function ComplaintDetailsPage() {
 
   return (
     <div>
-      <motion.div
-        initial={{ opacity: 0, x: -8 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.3 }}
-      >
+      {/* Normal screen presentation */}
+      <div className="print:hidden">
+        <motion.div
+          initial={{ opacity: 0, x: -8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3 }}
+        >
         <Button
           variant="ghost"
           size="sm"
@@ -335,11 +366,22 @@ export function ComplaintDetailsPage() {
                       </div>
                     )}
                   </div>
-                  {canReopen && (
-                    <Button size="sm" className="shrink-0" onClick={() => setReopenOpen(true)}>
-                      Reopen Issue
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={handlePrintReceipt}
+                    >
+                      <Printer className="h-4 w-4" />
+                      Print Official Receipt
                     </Button>
-                  )}
+                    {canReopen && (
+                      <Button size="sm" className="shrink-0" onClick={() => setReopenOpen(true)}>
+                        Reopen Issue
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 py-4 border-y border-gray-100 dark:border-gray-800">
@@ -563,17 +605,7 @@ export function ComplaintDetailsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="rounded-lg bg-gray-100 dark:bg-gray-800 h-48 flex items-center justify-center overflow-hidden">
-                  <div className="text-center">
-                    <MapPin className="h-8 w-8 text-primary-600 dark:text-primary-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{complaint.address}</p>
-                    {complaint.latitude && complaint.longitude && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        {complaint.latitude}, {complaint.longitude}
-                      </p>
-                    )}
-                  </div>
-                </div>
+                <ComplaintLocationMap latitude={complaint.latitude} longitude={complaint.longitude} address={complaint.address} height="240px" />
               </CardContent>
             </Card>
           </motion.div>
@@ -679,6 +711,16 @@ export function ComplaintDetailsPage() {
           </div>
         </DialogContent>
       </Dialog>
+      </div>
+
+      {/* Dedicated print container */}
+      <div className="hidden print:block print:w-full printable-receipt-wrapper">
+        <PrintableGrievanceReceipt
+          complaint={complaint}
+          citizen={citizen}
+          user={user}
+        />
+      </div>
     </div>
   )
 }
