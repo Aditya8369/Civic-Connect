@@ -5,6 +5,7 @@ import { Navbar } from '@/components/layout/Navbar'
 import { MobileSidebar } from '@/components/layout/MobileSidebar'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { PageSkeleton } from '@/components/common/PageSkeleton'
+import { Footer } from '@/components/layout/Footer'
 
 export function CitizenLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -16,12 +17,13 @@ export function CitizenLayout() {
       <MobileSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden lg:pl-64">
         <Navbar onMenuClick={() => setSidebarOpen(true)} />
-        <main className="flex-1 overflow-y-auto">
-          <div className="page-container">
+        <main className="flex flex-1 flex-col overflow-y-auto">
+          <div className="page-container flex-1">
             <Suspense fallback={<PageSkeleton />}>
               <Outlet />
             </Suspense>
           </div>
+          <Footer />
         </main>
       </div>
     </div>

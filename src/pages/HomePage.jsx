@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion'
 import { Flag, FileText, Building2, CheckCircle2, ArrowRight, ChevronRight, Landmark } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/useAuth'
+import { Footer } from '@/components/layout/Footer'
 
 const steps = [
   {
@@ -158,21 +159,7 @@ export function HomePage() {
 
       </main>
 
-      <footer className="border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950">
-        <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary-600">
-                <Flag className="h-3.5 w-3.5 text-white" />
-              </div>
-              <span className="text-sm font-semibold text-gray-900 dark:text-white">CivicConnect</span>
-            </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              &copy; {new Date().getFullYear()} CivicConnect. An official municipal grievance platform.
-            </p>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   )
 }
