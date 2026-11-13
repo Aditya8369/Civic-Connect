@@ -611,17 +611,7 @@ export function ComplaintDetailsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="rounded-lg bg-gray-100 dark:bg-gray-800 h-48 flex items-center justify-center overflow-hidden">
-                  <div className="text-center">
-                    <MapPin className="h-8 w-8 text-primary-600 dark:text-primary-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{complaint.address}</p>
-                    {complaint.latitude && complaint.longitude && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        {complaint.latitude}, {complaint.longitude}
-                      </p>
-                    )}
-                  </div>
-                </div>
+                <ComplaintLocationMap latitude={complaint.latitude} longitude={complaint.longitude} address={complaint.address} height="240px" />
               </CardContent>
             </Card>
           </motion.div>
