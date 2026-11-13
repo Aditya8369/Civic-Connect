@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "report:bundle-size": "node scripts/report-bundle-size.mjs",
-    "postinstall": "node -e \"const fs = require('fs'); if (fs.existsSync('.env.example') && !fs.existsSync('.env')) fs.copyFileSync('.env.example', '.env');\""
+    "postinstall": "node -e \"const fs = require('fs'); if (fs.existsSync('.env.example') && !fs.existsSync('.env')) fs.copyFileSync('.env.example', '.env');\"",
+    "emulators:start": "npx --yes firebase-tools emulators:start --project demo-civic-connect",
+    "emulators:seed": "node scripts/seed-emulators.js"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.2.4",
@@ -23,7 +25,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "firebase": "^10.14.1",
-    "firebase-admin": "^14.5.0",
+    "firebase-admin": "^14.5.1",
     "firebase-functions": "^7.4.0",
     "framer-motion": "^14.9.0",
     "jspdf": "^4.2.1",
