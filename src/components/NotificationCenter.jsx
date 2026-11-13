@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
+import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
 import { useNavigate } from 'react-router-dom'
 import { BellRing, CheckCircle2, AlertCircle } from 'lucide-react'
-import { collection, query, where, onSnapshot, doc, writeBatch, getDocs, limit } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, writeBatch } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { Card, CardContent } from '@/components/ui/card'
@@ -81,20 +82,20 @@ export function NotificationCenter({ className = '' }) {
     if (!n.issueId) return
 
     try {
-      const q = query(
-        collection(db, 'issues'),
-        where('complaintId', '==', n.issueId),
-        limit(1)
+      const documentId = await resolveCitizenComplaintDocumentId(
+        n.issueId,
+        user?.uid,
       )
-      const snap = await getDocs(q)
-      if (!snap.empty) {
-        navigate(`/complaints/${snap.docs[0].id}`)
+
+      if (!documentId) {
+        toast.error('Complaint not found or you do not have access.')
         return
       }
-      navigate(`/complaints/${n.issueId}`)
+
+      navigate(`/complaints/${documentId}`)
     } catch (err) {
       console.error('Error navigating to complaint:', err)
-      navigate(`/complaints/${n.issueId}`)
+      toast.error('Unable to open complaint. Please try again.')
     }
   }
 

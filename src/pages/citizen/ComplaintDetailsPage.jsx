@@ -88,12 +88,31 @@ export function ComplaintDetailsPage() {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const [reopenOpen, setReopenOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [saving, setSaving] = useState(false)
   const [zoomOpen, setZoomOpen] = useState(false)
   const [zoomScale, setZoomScale] = useState(1)
   const transitionPending = useRef(false)
+useEffect(() => {
+  let cancelled = false
+  let unsubEvents
+  let unsubComplaint
+
+  setLoading(true)
+  setNotFound(false)
+  setLoadError(false)
+  setComplaint(null)
+  setEvents([])
+
+  const loadComplaint = async () => {
+    try {
+      const documentId = await resolveCitizenComplaintDocumentId(
+        id,
+        user?.uid,
+      )
+      if (cancelled) return
 
   useEffect(() => {
     if (!complaint?.reportedBy) return
@@ -168,14 +187,74 @@ export function ComplaintDetailsPage() {
         console.error('ComplaintDetails Firestore error:', error)
         setNotFound(true)
         setLoading(false)
+        return
       }
-    )
 
-    return () => {
-      unsubEvents?.()
-      unsubComplaint?.()
+      // Replace public tracking IDs with the actual Firestore document ID.
+      if (documentId !== id) {
+        navigate(`/complaints/${documentId}`, { replace: true })
+        return
+      }
+
+      // Start the events listener only after resolving the document ID.
+      unsubEvents = onSnapshot(
+        collection(db, `issues/${documentId}/events`),
+        (snap) => {
+          if (cancelled) return
+
+          if (snap?.docs) {
+            const list = snap.docs.map((d) => ({
+              id: d.id,
+              ...d.data(),
+            }))
+            setEvents(sortEvents(list))
+          }
+        },
+        (error) => {
+          console.error('ComplaintDetails events Firestore error:', error)
+        },
+      )
+
+      // Listen to the verified complaint document.
+      unsubComplaint = onSnapshot(
+        doc(db, 'issues', documentId),
+        (snap) => {
+          if (cancelled) return
+
+          if (snap.exists()) {
+            setComplaint({ id: snap.id, ...snap.data() })
+            setNotFound(false)
+          } else {
+            setNotFound(true)
+          }
+
+          setLoading(false)
+        },
+        (error) => {
+          if (cancelled) return
+
+          console.error('ComplaintDetails Firestore error:', error)
+          setLoadError(true)
+          setLoading(false)
+        },
+      )
+    } catch (error) {
+      if (cancelled) return
+
+      console.error('Error loading complaint:', error)
+      setLoadError(true)
+      setLoading(false)
     }
-  }, [id, navigate])
+  }
+
+  loadComplaint()
+
+  return () => {
+    cancelled = true
+    unsubEvents?.()
+    unsubComplaint?.()
+  }
+}, [id, navigate, user?.uid])
 
   if (loading) {
     return (
@@ -184,7 +263,27 @@ export function ComplaintDetailsPage() {
       </div>
     )
   }
-
+if (loadError) {
+  return (
+    <div className="flex flex-col items-center justify-center py-20">
+      <AlertTriangle className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+        Unable to load complaint
+      </h2>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+        Please check your connection and try again.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-4"
+        onClick={() => window.location.reload()}
+      >
+        Try Again
+      </Button>
+    </div>
+  )
+}
   if (notFound || !complaint) {
     return (
       <div className="flex flex-col items-center justify-center py-20">

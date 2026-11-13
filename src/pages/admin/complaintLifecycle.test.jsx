@@ -6,6 +6,10 @@ import { Select } from '@/components/ui/select'
 import toast from 'react-hot-toast'
 import { createTransactionStore } from '@/firebase/testSupport/transactionStore'
 
+vi.mock('@/firebase/complaintReferences', () => ({
+  resolveCitizenComplaintDocumentId: async (issueId) => issueId,
+}))
+
 const runtime = vi.hoisted(() => ({ current: null, store: null, listeners: [], notificationId: 0, auth: { currentUser: null } }))
 vi.mock('react', async original => ({
   ...await original(),
@@ -85,21 +89,51 @@ const events = () => runtime.store.history.filter(entry => entry.key.startsWith(
 const departmentSelect = ui => nodes(ui.instance.render()).find(node => node.type === Select && node.props.onValueChange)
 
 function setup(action) {
-  const original = { title: 'Lamp', status: action.from, reportedBy: 'citizen-1', complaintId: 'CMP-2026-0001', department: 'Roads', resolvedAt: Date.now() - 1000 }
+  const original = {
+    title: 'Lamp',
+    status: action.from,
+    reportedBy: 'citizen-1',
+    complaintId: 'CMP-2026-0001',
+    department: 'Roads',
+    resolvedAt: Date.now() - 1000,
+  }
+
   runtime.store = createTransactionStore({ [path]: original })
   const instance = mount(action.Page)
-  runtime.listeners.at(-1)(snapshot(original))
-  if (action.open) buttons(instance.render(), action.open)[0].props.onClick()
-  return {
-    original, instance,
-    fill(value) {
-      nodes(dialog(instance.render(), action)).find(node => node.type === 'textarea').props.onChange({ target: { value } })
-    },
-    submit() {
-      const tree = instance.render()
-      return buttons(action.open ? dialog(tree, action) : tree, action.submit)[0].props.onClick
-    },
+
+  const finishSetup = () => {
+    runtime.listeners.at(-1)(snapshot(original))
+
+    if (action.open) {
+      buttons(instance.render(), action.open)[0].props.onClick()
+    }
+
+    return {
+      original,
+      instance,
+      fill(value) {
+        nodes(dialog(instance.render(), action))
+          .find(node => node.type === 'textarea')
+          .props.onChange({ target: { value } })
+      },
+      submit() {
+        const tree = instance.render()
+        return buttons(
+          action.open ? dialog(tree, action) : tree,
+          action.submit,
+        )[0].props.onClick
+      },
+    }
   }
+
+  // Citizen complaint loading now resolves asynchronously.
+  if (action.Page === ComplaintDetailsPage) {
+    return Promise.resolve()
+      .then(() => Promise.resolve())
+      .then(finishSetup)
+  }
+
+  return finishSetup()
 }
 
 beforeEach(() => {
@@ -212,7 +246,7 @@ it('rejects an assignment retry after a new sign-in with the same UID', async ()
 
 for (const action of actions) {
   it.each(['permission-denied', 'unavailable'])(action.label + ' keeps both documents unchanged on %s, then retries', async code => {
-    const ui = setup(action)
+    const ui = await setup(action)
     if (action.reason) ui.fill('  Needs follow-up  ')
     runtime.store.failCommit = new Error(code)
     await ui.submit()()
@@ -247,7 +281,7 @@ for (const action of actions) {
 
   if (action.reason) {
     it(action.label + ' rejects blank input', async () => {
-      const ui = setup(action)
+      const ui = await setup(action)
       ui.fill(' \t ')
       await ui.submit()()
       expect(runtime.store.history).toEqual([])
@@ -285,7 +319,7 @@ it('rejects replay of a committed action from the old snapshot', async () => {
 })
 
 it('checks reopening eligibility again against the stored resolution date', async () => {
-  const ui = setup(actions[2])
+  const ui = await setup(actions[2])
   ui.fill('Still broken')
   const expired = { ...ui.original, resolvedAt: Date.now() - 8 * 24 * 60 * 60 * 1000 }
   runtime.store.write(path, expired)
@@ -309,7 +343,7 @@ it.each([
   ['rejection', actions[1], { status: 'Resolved' }],
   ['reopening', actions[2], { resolvedAt: Date.now() - 8 * 24 * 60 * 60 * 1000 }],
 ])('explains why a stale %s dialog cannot submit after a newer snapshot', async (_label, action, patch) => {
-  const ui = setup(action)
+  const ui = await setup(action)
   ui.fill('Still broken')
   const latest = { ...ui.original, ...patch }
   runtime.store.write(path, latest)
