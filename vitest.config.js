@@ -14,8 +14,4 @@ export default defineConfig({
     clearMocks: true,
     restoreMocks: true,
   },
-  test: {
-    clearMocks: true,
-    restoreMocks: true,
-  },
 })
