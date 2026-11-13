@@ -27,6 +27,7 @@ import {
   REPORTS_PAGE_SIZE,
   buildReportsPageConstraints,
   fetchAllReportsForExport,
+  fetchAllReportsForSearch,
   subscribeToReportsPage,
 } from './adminReportsQuery'
 
@@ -187,5 +188,15 @@ describe('fetchAllReportsForExport', () => {
     const { docs, truncated } = await fetchAllReportsForExport({}, { batchSize: 3, maxDocs: 6 })
     expect(docs).toHaveLength(6)
     expect(truncated).toBe(true)
+  })
+})
+
+describe('fetchAllReportsForSearch', () => {
+  it('reads every matching document without the export safety cap', async () => {
+    fs.getDocsResults = [snap(fakeDocs(501)), snap(fakeDocs(2, 500))]
+    const docs = await fetchAllReportsForSearch({}, { batchSize: 500 })
+
+    expect(docs).toHaveLength(502)
+    expect(docs.at(-1).id).toBe('doc-501')
   })
 })

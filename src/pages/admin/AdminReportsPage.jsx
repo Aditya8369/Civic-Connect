@@ -9,6 +9,8 @@ import { useAuth } from '@/hooks/useAuth'
 import { getDisplayId } from '@/firebase/complaintId'
 import {
   fetchAllReportsForExport,
+  fetchAllReportsForSearch,
+  REPORTS_PAGE_SIZE,
   subscribeToReportsPage,
 } from '@/firebase/adminReportsQuery'
 import { toCsv, downloadCsv, formatDateStamp } from '@/utils/csv'
@@ -189,6 +191,37 @@ export function AdminReportsPage() {
   }
 
   useEffect(() => {
+    if (!debouncedSearch) return undefined
+
+    let cancelled = false
+    setLoading(true)
+    setLoadError(false)
+    setPageIndex(0)
+
+    fetchAllReportsForSearch(serverFilters)
+      .then(async (docs) => {
+        if (cancelled) return
+        setComplaints(docs)
+        setHasMore(false)
+        setLoadError(false)
+        setLoading(false)
+        await fetchUsers(docs)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error('AdminReports search error:', err)
+        setLoadError(true)
+        setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [statusFilter, departmentFilter, categoryFilter, dateFrom, dateTo, reloadKey, debouncedSearch])
+
+  useEffect(() => {
+    if (debouncedSearch) return undefined
+
     // `cancelled` is flipped by the cleanup, so a response for a previous filter/page
     // can never overwrite the results of a newer one.
     let cancelled = false
@@ -233,10 +266,17 @@ export function AdminReportsPage() {
       unsub()
     }
     // fetchUsers only touches refs/state setters, so it is intentionally not a dependency.
-  }, [statusFilter, departmentFilter, categoryFilter, dateFrom, dateTo, pageIndex, reloadKey])
+  }, [statusFilter, departmentFilter, categoryFilter, dateFrom, dateTo, pageIndex, reloadKey, debouncedSearch])
 
   const handleNextPage = () => {
-    if (loading || !hasMore || !lastCursorRef.current) return
+    if (loading) return
+    if (debouncedSearch) {
+      if (!hasSearchNextPage) return
+      setSelectedIds([])
+      setPageIndex((index) => index + 1)
+      return
+    }
+    if (!hasMore || !lastCursorRef.current) return
     pageCursorsRef.current = [...pageCursorsRef.current.slice(0, pageIndex + 1), lastCursorRef.current]
     setSelectedIds([])
     setPageIndex(pageIndex + 1)
@@ -248,8 +288,8 @@ export function AdminReportsPage() {
     setPageIndex(pageIndex - 1)
   }
 
-  // Search, SLA, and Urgent filters cannot be expressed as Firestore constraints,
-  // so they narrow the rows of the loaded page client-side.
+  // SLA and Urgent filters are evaluated client-side; search loads the complete
+  // server-filtered result set before applying the same matcher.
   const matchesClientFilters = (c, users) => {
     if (slaFilter === 'breached' && !isSlaBreached(c)) return false
     if (showUrgentOnly) {
@@ -262,6 +302,12 @@ export function AdminReportsPage() {
   }
 
   const filtered = complaints.filter((c) => matchesClientFilters(c, userCache))
+  const visibleComplaints = debouncedSearch
+    ? filtered.slice(pageIndex * REPORTS_PAGE_SIZE, (pageIndex + 1) * REPORTS_PAGE_SIZE)
+    : filtered
+  const hasSearchNextPage = debouncedSearch &&
+    filtered.length > (pageIndex + 1) * REPORTS_PAGE_SIZE
+  const canGoToNextPage = debouncedSearch ? hasSearchNextPage : hasMore
 
   // Exports cover every report matching the filters, not just the visible page.
   const collectExportRows = async () => {
@@ -601,7 +647,7 @@ export function AdminReportsPage() {
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((complaint) => {
+          {visibleComplaints.map((complaint) => {
             const user = userCache[complaint.reportedBy]
             const isSelected = selectedIds.includes(complaint.id)
             return (
@@ -665,16 +711,14 @@ export function AdminReportsPage() {
         </div>
       )}
 
-      {!loadError && (pageIndex > 0 || hasMore || complaints.length > 0) && (
+      {!loadError && (pageIndex > 0 || canGoToNextPage || complaints.length > 0) && (
         <nav
           aria-label="Reports pagination"
           className="mt-6 flex flex-wrap items-center justify-between gap-3"
         >
           <p className="text-xs text-gray-500 dark:text-gray-400" aria-live="polite">
             Page {pageIndex + 1}
-            {!loading && ` · ${complaints.length} report${complaints.length === 1 ? '' : 's'}`}
-            {(debouncedSearch || slaFilter !== 'all' || showUrgentOnly) &&
-              ' · search and SLA filters apply to this page only'}
+            {!loading && ` · ${debouncedSearch ? filtered.length : complaints.length} report${(debouncedSearch ? filtered.length : complaints.length) === 1 ? '' : 's'}`}
           </p>
           <div className="flex items-center gap-2">
             <Button
@@ -691,7 +735,7 @@ export function AdminReportsPage() {
               variant="outline"
               size="sm"
               onClick={handleNextPage}
-              disabled={loading || !hasMore}
+              disabled={loading || !canGoToNextPage}
               aria-label="Next page"
             >
               Next

@@ -132,3 +132,28 @@ export async function fetchAllReportsForExport(
     cursor = page.cursor
   }
 }
+
+/**
+ * Reads every report matching the server-side filters for a complete client-side
+ * search. Unlike exports, search results must not be silently capped.
+ */
+export async function fetchAllReportsForSearch(
+  filters = {},
+  { batchSize = 500 } = {}
+) {
+  const docs = []
+  let cursor = null
+
+  for (;;) {
+    const snapshot = await getDocs(
+      query(
+        collection(db, 'issues'),
+        ...buildReportsPageConstraints({ ...filters, cursor, pageSize: batchSize })
+      )
+    )
+    const page = toPage(snapshot, batchSize)
+    docs.push(...page.docs)
+    if (!page.hasMore) return docs
+    cursor = page.cursor
+  }
+}

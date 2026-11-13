@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-const rt = vi.hoisted(() => ({ subs: [], fetchAll: null }))
+const rt = vi.hoisted(() => ({ subs: [], fetchAll: null, searchResults: [] }))
 
 vi.mock('@/firebase/adminReportsQuery', () => ({
   REPORTS_PAGE_SIZE: 15,
@@ -14,6 +14,7 @@ vi.mock('@/firebase/adminReportsQuery', () => ({
     return sub.unsub
   }),
   fetchAllReportsForExport: vi.fn((...args) => rt.fetchAll(...args)),
+  fetchAllReportsForSearch: vi.fn(async () => rt.searchResults),
 }))
 vi.mock('@/firebase/services', () => ({ db: {} }))
 vi.mock('firebase/firestore', () => ({
@@ -261,9 +262,14 @@ describe('AdminReportsPage server-side filters', () => {
   })
 })
 
-describe('AdminReportsPage client-side search and SLA (per page)', () => {
-  it('search narrows the loaded page and says it only applies to this page', async () => {
+describe('AdminReportsPage client-side search and SLA', () => {
+  it('searches all matching reports and paginates the complete result set', async () => {
     await emit(latest(), page([...make(1, 0, { title: 'Pothole near school' }), ...make(2, 1)], { hasMore: true }))
+    rt.searchResults = [
+      ...make(1, 0, { title: 'Pothole near school' }),
+      ...make(15, 1),
+      ...make(1, 16, { title: 'Another pothole' }),
+    ]
     const input = el('input[aria-label="Search complaints"]')
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
     vi.useFakeTimers()
@@ -273,10 +279,9 @@ describe('AdminReportsPage client-side search and SLA (per page)', () => {
     })
     await act(async () => vi.advanceTimersByTime(300))
     vi.useRealTimers()
-    expect(cards()).toHaveLength(1)
-    expect(container.textContent).toContain('search and SLA filters apply to this page only')
-    // search does not trigger a new Firestore query
-    expect(rt.subs).toHaveLength(1)
+    expect(cards()).toHaveLength(2)
+    expect(container.textContent).toContain('2 reports')
+    expect(nextBtn().disabled).toBe(false)
   })
 })
 
