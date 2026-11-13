@@ -11,3 +11,4 @@ const Label = forwardRef(({ className, ...props }, ref) => (
 Label.displayName = 'Label'
 
 export { Label }
+export default Label

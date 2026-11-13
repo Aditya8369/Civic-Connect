@@ -42,10 +42,10 @@ export function AuthPage() {
           err.code === 'auth/invalid-email'
             ? 'Please enter a valid email address'
             : err.code === 'auth/too-many-requests'
-              ? 'Too many attempts. Please try again later.'
-              : err.code === 'auth/network-request-failed'
-                ? 'Network error. Please check your connection.'
-                : 'Could not send the reset email. Please try again.'
+            ? 'Too many attempts. Please try again later.'
+            : err.code === 'auth/network-request-failed'
+            ? 'Network error. Please check your connection.'
+            : 'Could not send the reset email. Please try again.'
         toast.error(msg)
       } finally {
         setSubmitting(false)
@@ -67,6 +67,7 @@ export function AuthPage() {
         return
       }
     }
+
     setSubmitting(true)
     try {
       if (mode === 'signin') {
@@ -88,13 +89,14 @@ export function AuthPage() {
       }
     } catch (err) {
       if (err.code === 'auth/session-changed') return
-      const msg = err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential'
-        ? 'Invalid email or password'
-        : err.code === 'auth/email-already-in-use'
+      const msg =
+        err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential'
+          ? 'Invalid email or password'
+          : err.code === 'auth/email-already-in-use'
           ? 'An account with this email already exists'
           : err.code === 'auth/weak-password'
-            ? 'Password must be at least 6 characters'
-            : err.message || 'Something went wrong'
+          ? 'Password must be at least 6 characters'
+          : err.message || 'Something went wrong'
       toast.error(msg)
     } finally {
       setSubmitting(false)
@@ -125,9 +127,9 @@ export function AuthPage() {
               <button
                 type="button"
                 onClick={() => {
-                  setRole('citizen');
-                  setEmail('');
-                  setPassword('');
+                  setRole('citizen')
+                  setEmail('')
+                  setPassword('')
                 }}
                 className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${
                   role === 'citizen'
@@ -139,11 +141,11 @@ export function AuthPage() {
               </button>
               <button
                 type="button"
-                onClick={() => { 
-                  setRole('admin'); 
-                  setMode('signin');
-                  setEmail('admin@civicconnect.dev');
-                  setPassword('AdminDev123!');
+                onClick={() => {
+                  setRole('admin')
+                  setMode('signin')
+                  setEmail('')
+                  setPassword('')
                 }}
                 className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${
                   role === 'admin'
@@ -154,6 +156,7 @@ export function AuthPage() {
                 Administrator
               </button>
             </div>
+
             <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
               <button
                 type="button"
@@ -181,6 +184,7 @@ export function AuthPage() {
               )}
             </div>
           </CardHeader>
+
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               {mode === 'signup' && (
@@ -268,7 +272,11 @@ export function AuthPage() {
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                     >
-                      {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      {showConfirmPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -276,7 +284,11 @@ export function AuthPage() {
 
               <Button type="submit" className="w-full gap-2 h-11" disabled={submitting}>
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                {mode === 'signin' ? 'Sign In' : mode === 'signup' ? 'Create Account' : 'Send Reset Link'}
+                {mode === 'signin'
+                  ? 'Sign In'
+                  : mode === 'signup'
+                  ? 'Create Account'
+                  : 'Send Reset Link'}
               </Button>
 
               {mode === 'reset' && (

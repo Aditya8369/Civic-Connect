@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { findNearbyComplaints, parseCoordinates } from '@/utils/geo'
 import toast from 'react-hot-toast'
@@ -49,6 +50,7 @@ const statusVariant = {
   Resolved: 'success',
   'In Progress': 'warning',
   Pending: 'destructive',
+  'Merged - Duplicate': 'secondary',
 }
 
 const COOLDOWN_SECONDS = 60
@@ -360,6 +362,16 @@ export function ReportPage() {
     try {
       // Save complaint locally when the device is offline.
       if (!navigator.onLine) {
+        if (photoFile) {
+          const photoValidation = validateComplaintPhoto(photoFile)
+          if (!photoValidation.valid) {
+            toast.error(photoValidation.error)
+            isSubmittingRef.current = false
+            setSubmitting(false)
+            return
+          }
+        }
+
         await saveOfflineComplaint({
           title,
           description,
@@ -368,6 +380,7 @@ export function ReportPage() {
           latitude: latitude ? parseFloat(latitude) : null,
           longitude: longitude ? parseFloat(longitude) : null,
           userId: user.uid,
+          photoFile: photoFile || null,
         })
 
         recordSubmissionTimestamp(user.uid, Date.now())
@@ -459,8 +472,13 @@ export function ReportPage() {
       isSubmittingRef.current = false
       setSubmitting(false)
 
-      toast.success('Complaint submitted successfully!')
-      navigate('/my-reports')
+      navigate('/complaint-confirmation', {
+        state: {
+          complaintId,
+          issueId: issueRef.id,
+          title,
+        },
+      })
     } catch (err) {
       console.error('Complaint submission failed:', err)
       toast.error(err?.message || 'Failed to submit complaint. Please try again.')
@@ -504,7 +522,12 @@ export function ReportPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((cat) => (
-                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      <SelectItem key={cat} value={cat}>
+                        <div className="flex items-center gap-2">
+                          <CategoryAvatar category={cat} size="xs" showLabel={false} />
+                          <span>{cat}</span>
+                        </div>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -710,6 +733,12 @@ export function ReportPage() {
                                     >
                                       {match.status}
                                     </Badge>
+                                    <DepartmentCrest
+                                      department={match.department}
+                                      category={match.category || category}
+                                      size="xs"
+                                      variant="chip"
+                                    />
                                     <span className="inline-flex items-center rounded-md bg-amber-100 dark:bg-amber-950/50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
                                       {match.distanceMeters}m away
                                     </span>
