@@ -1,17 +1,20 @@
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Flag, Shield, BarChart3, Users, Clock, ArrowRight, Star, AlertTriangle } from 'lucide-react'
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
+import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { getDisplayId } from '@/firebase/complaintId'
+import { DASHBOARD_WINDOW_SIZE, startDashboardAggregates } from '@/firebase/dashboardStats'
 import { isSlaBreached } from '@/utils/sla'
 import { SlaBadge } from '@/components/common/SlaBadge'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { BulkActionsToolbar } from '@/components/admin/BulkActionsToolbar'
+import { DepartmentWorkloadMonitor } from '@/components/admin/DepartmentWorkloadMonitor'
 
 const ComplaintsMap = lazy(() =>
   import('@/components/common/ComplaintsMap').then((m) => ({ default: m.ComplaintsMap }))
@@ -23,11 +26,14 @@ const statusVariant = {
   Resolved: 'success',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Merged - Duplicate': 'secondary',
 }
 
 export function AdminDashboardPage() {
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
+  const [aggregates, setAggregates] = useState(null)
+  const [aggregatesFailed, setAggregatesFailed] = useState(false)
   const [slaFilter, setSlaFilter] = useState('all')
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedIds, setSelectedIds] = useState([])
@@ -35,24 +41,43 @@ export function AdminDashboardPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
+  // Whole-collection totals come from server-side aggregations rather than from
+  // downloading every document; they refresh on an interval and when the live window changes.
   useEffect(() => {
-    const q = query(collection(db, 'issues'), orderBy('createdAt', 'desc'))
+    const aggregatesJob = startDashboardAggregates({
+      onData: (data) => {
+        setAggregates(data)
+        setAggregatesFailed(false)
+      },
+      onError: (err) => {
+        console.error('AdminDashboard aggregate error:', err)
+        setAggregatesFailed(true)
+      },
+    })
+
+    // Real-time listener bounded to the newest reports (recent list, map, SLA widgets).
+    const q = query(collection(db, 'issues'), orderBy('createdAt', 'desc'), limit(DASHBOARD_WINDOW_SIZE))
     const unsub = onSnapshot(
       q,
       (snapshot) => {
         const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
         setComplaints(list)
         setLoading(false)
+        aggregatesJob.refresh()
       },
       (err) => {
         console.error('AdminDashboard Firestore error:', err)
         setLoading(false)
       }
     )
-    return unsub
+    return () => {
+      unsub()
+      aggregatesJob.stop()
+    }
   }, [])
 
   const stats = useMemo(() => {
+    // Windowed fallback, used only if the aggregate queries fail.
     const total = complaints.length
     let pending = 0, inProgress = 0, resolved = 0, breached = 0
     let totalRating = 0, ratedCount = 0
@@ -69,7 +94,7 @@ export function AdminDashboardPage() {
       }
     }
     const avgRating = ratedCount > 0 ? (totalRating / ratedCount).toFixed(1) : null
-    return {
+    const windowed = {
       total,
       pending,
       inProgress,
@@ -79,7 +104,21 @@ export function AdminDashboardPage() {
       avgRating,
       ratedCount,
     }
-  }, [complaints])
+    if (!aggregates) return windowed
+    return {
+      ...windowed,
+      total: aggregates.total,
+      pending: aggregates.pending,
+      inProgress: aggregates.inProgress,
+      resolved: aggregates.resolved,
+      ratedCount: aggregates.ratedCount,
+      avgRating: aggregates.avgRating != null ? aggregates.avgRating.toFixed(1) : null,
+    }
+  }, [complaints, aggregates])
+
+  // Headline numbers wait for the server-side totals (or their failure) so a partial
+  // window count is never flashed as the real total.
+  const statsLoading = loading || (!aggregates && !aggregatesFailed)
 
   const filteredReports = useMemo(() => {
     if (slaFilter === 'breached') {
@@ -174,6 +213,15 @@ export function AdminDashboardPage() {
         </Suspense>
       ) : (
         <>
+          {aggregatesFailed && !aggregates && (
+            <div
+              role="alert"
+              className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+            >
+              Unable to load complete dashboard statistics. Some displayed data may
+              be limited to the latest {DASHBOARD_WINDOW_SIZE} reports. Please try again later.
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
             {statCards.map((stat) => (
               <Card key={stat.label}>
@@ -182,7 +230,7 @@ export function AdminDashboardPage() {
                     <div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
                       <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-                        {loading ? '-' : stat.value}
+                        {statsLoading ? '-' : stat.value}
                       </p>
                     </div>
                     <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${stat.color}`}>
@@ -193,6 +241,12 @@ export function AdminDashboardPage() {
               </Card>
             ))}
           </div>
+
+          <DepartmentWorkloadMonitor
+            complaints={complaints}
+            workload={aggregates?.workload}
+            loading={statsLoading}
+          />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -276,9 +330,11 @@ export function AdminDashboardPage() {
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-mono text-gray-400 dark:text-gray-500">{getDisplayId(r)}</p>
                         <p className="text-sm font-medium text-gray-900 dark:text-white truncate mt-0.5">{r.title}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {r.category} &middot; {r.department || 'Unassigned'} &middot; {r.createdAt?.toDate?.().toLocaleDateString() || '-'}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          <DepartmentCrest department={r.department} category={r.category} size="xs" variant="chip" />
+                          {r.category && <CategoryAvatar category={r.category} size="xs" />}
+                          <span>&middot; {r.createdAt?.toDate?.().toLocaleDateString() || '-'}</span>
+                        </div>
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 shrink-0 ml-3 justify-end">
@@ -300,19 +356,19 @@ export function AdminDashboardPage() {
             <CardTitle>Quick Stats</CardTitle>
           </CardHeader>
           <CardContent>
-            {loading ? (
+            {statsLoading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
               </div>
             ) : (
               <div className="space-y-4">
                 {[
-                  { icon: Users, label: 'Active Citizens', desc: 'Unique complainants', value: stats.activeCitizens, bg: 'bg-gray-50 dark:bg-gray-800/50', iconColor: 'text-primary-600 dark:text-primary-400' },
+                  { icon: Users, label: 'Active Citizens', desc: `Unique complainants (latest ${DASHBOARD_WINDOW_SIZE} reports)`, value: stats.activeCitizens, bg: 'bg-gray-50 dark:bg-gray-800/50', iconColor: 'text-primary-600 dark:text-primary-400' },
                   { icon: Star, label: 'Citizen Satisfaction', desc: stats.ratedCount ? `${stats.ratedCount} review${stats.ratedCount === 1 ? '' : 's'}` : 'No ratings yet', value: stats.avgRating ? `${stats.avgRating} ★` : '-', bg: 'bg-amber-50 dark:bg-amber-900/20', iconColor: 'text-amber-500 fill-amber-500' },
                   {
                     icon: AlertTriangle,
                     label: 'Breached SLA',
-                    desc: 'Exceeded resolution target (click to filter)',
+                    desc: `Exceeded resolution target · latest ${DASHBOARD_WINDOW_SIZE} reports (click to filter)`,
                     value: stats.breached,
                     bg: stats.breached > 0 ? 'bg-red-50 dark:bg-red-900/20' : 'bg-gray-50 dark:bg-gray-800/50',
                     iconColor: stats.breached > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400',
@@ -348,7 +404,7 @@ export function AdminDashboardPage() {
         selectedIds={selectedIds}
         complaints={complaints}
         onClearSelection={() => setSelectedIds([])}
-        onSuccess={() => setSelectedIds([])}
+        onSelectionChange={setSelectedIds}
         actorUid={user?.uid}
       />
     </div>

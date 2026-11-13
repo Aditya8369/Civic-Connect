@@ -1,17 +1,19 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   collection,
   query,
-  where,
   onSnapshot,
   doc,
   runTransaction,
   addDoc,
   serverTimestamp,
   orderBy,
+  limit,
 } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/contexts/AuthContext'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import {
   ArrowBigUp,
   MessageSquare,
@@ -19,14 +21,15 @@ import {
   Filter,
   Loader2,
   Clock,
-  Tag,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { EmptyState } from '@/components/common/EmptyState'
 
 export default function CommunityFeed() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
   const [sortBy, setSortBy] = useState('recent') // 'recent' | 'upvoted'
@@ -39,7 +42,7 @@ export default function CommunityFeed() {
   // 1. Fetch live active complaints from Firestore
   useEffect(() => {
     setLoading(true)
-    const issuesRef = collection(db, 'issues')
+    const issuesRef = query(collection(db, 'issues'), orderBy('createdAt', 'desc'), limit(50))
     
     // Live stream active issues
     const unsubscribe = onSnapshot(
@@ -223,10 +226,23 @@ export default function CommunityFeed() {
           <Loader2 className="w-8 h-8 animate-spin mb-2" />
           <p className="text-sm">Loading community feed...</p>
         </div>
+      ) : complaints.length === 0 ? (
+        <EmptyState
+          variant="community"
+          heading="No Community Posts Yet"
+          description="There are no posts to display right now. Be part of your community by sharing an update."
+          actionLabel="Create a Post"
+          onAction={() => navigate('/report')}
+        />
       ) : filteredComplaints.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-xl border border-gray-200 dark:bg-gray-900 dark:border-gray-800">
-          <p className="text-gray-500 text-sm dark:text-gray-400">No community issues found.</p>
-        </div>
+        <EmptyState
+          variant="community"
+          heading="No Community Posts Found"
+          description="There are no community posts in this category. Try selecting a different category."
+          actionLabel="Show All Categories"
+          actionVariant="outline"
+          onAction={() => setCategoryFilter('all')}
+        />
       ) : (
         <div className="space-y-4">
           {filteredComplaints.map((issue) => {
@@ -264,10 +280,10 @@ export default function CommunityFeed() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1.5">
                       {issue.category && (
-                        <span className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium capitalize dark:bg-blue-900/30 dark:text-blue-300">
-                          <Tag className="w-3 h-3" />
-                          {issue.category}
-                        </span>
+                        <CategoryAvatar category={issue.category} size="xs" />
+                      )}
+                      {issue.department && (
+                        <DepartmentCrest department={issue.department} category={issue.category} variant="chip" size="xs" />
                       )}
                       {issue.status && (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium capitalize dark:bg-gray-800 dark:text-gray-300">

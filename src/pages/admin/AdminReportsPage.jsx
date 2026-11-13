@@ -1,12 +1,16 @@
+import { matchesComplaintSearch } from './complaintSearch'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Download, Flag, Search } from 'lucide-react'
-import { collection, query, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore'
+import { ChevronLeft, ChevronRight, Download, FileText, Flag, LoaderCircle, Search, X } from 'lucide-react'
+import { doc, getDoc } from 'firebase/firestore'
 import toast from 'react-hot-toast'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { getDisplayId } from '@/firebase/complaintId'
-import { isUnconfirmedEmpty } from '@/firebase/snapshot'
+import {
+  fetchAllReportsForExport,
+  subscribeToReportsPage,
+} from '@/firebase/adminReportsQuery'
 import { toCsv, downloadCsv, formatDateStamp } from '@/utils/csv'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ComplaintCardSkeleton } from '@/components/common/ComplaintCardSkeleton'
@@ -17,7 +21,9 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SlaBadge } from '@/components/common/SlaBadge'
-import { isSlaBreached } from '@/utils/sla'
+import { SlaEscalationBanner } from '@/components/admin/SlaEscalationBanner'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
+import { getSlaTargetDate, isSlaBreached } from '@/utils/sla'
 import { BulkActionsToolbar } from '@/components/admin/BulkActionsToolbar'
 
 const statusVariant = {
@@ -26,11 +32,34 @@ const statusVariant = {
   Resolved: 'success',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Merged - Duplicate': 'secondary',
 }
 
 function formatDate(ts) {
   if (!ts?.toDate) return ''
   return ts.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const csvHeaders = [
+  'Tracking ID',
+  'Title',
+  'Category',
+  'Department',
+  'Status',
+  'Address',
+  'Created Date',
+]
+
+function toCsvRow(complaint) {
+  return [
+    getDisplayId(complaint),
+    complaint.title || '',
+    complaint.category || '',
+    complaint.department || 'Not assigned',
+    complaint.status || '',
+    complaint.address || '',
+    formatDate(complaint.createdAt),
+  ]
 }
 
 const allCategories = [
@@ -46,30 +75,29 @@ const allCategories = [
 
 const allDepartments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
 
-const csvHeaders = [
-  'Complaint ID',
-  'Date',
-  'Title',
-  'Category',
-  'Department',
-  'Status',
-  'Address',
-  'Assigned Worker Name',
-  'Assigned Worker Phone',
-]
+function HighlightMatch({ text, query }) {
+  if (!text) return null
+  if (!query?.trim()) return text
 
-function toCsvRow(c) {
-  return [
-    getDisplayId(c),
-    c.createdAt?.toDate ? formatDateStamp(c.createdAt.toDate()) : '',
-    c.title,
-    c.category,
-    c.department,
-    c.status,
-    c.address,
-    c.assignedWorker?.name,
-    c.assignedWorker?.phone,
-  ]
+  const escapedQuery = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const parts = String(text).split(new RegExp(`(${escapedQuery})`, 'gi'))
+
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.toLowerCase() === query.trim().toLowerCase() ? (
+          <mark
+            key={index}
+            className="rounded bg-yellow-200 text-gray-900 dark:bg-yellow-700 dark:text-white"
+          >
+            {part}
+          </mark>
+        ) : (
+          part
+        )
+      )}
+    </>
+  )
 }
 
 export function AdminReportsPage() {
@@ -77,16 +105,38 @@ export function AdminReportsPage() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [pageIndex, setPageIndex] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [exportingCsv, setExportingCsv] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [showSuggestions, setShowSuggestions] = useState(false)
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim())
+    }, 200)
+
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
   const [statusFilter, setStatusFilter] = useState('all')
   const [slaFilter, setSlaFilter] = useState('all')
+  const [showUrgentOnly, setShowUrgentOnly] = useState(false)
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [exportingPdf, setExportingPdf] = useState(false)
   const [selectedIds, setSelectedIds] = useState([])
   const selectAllRef = useRef(null)
   const { user } = useAuth()
   const [userCache, setUserCache] = useState({})
   const cacheRef = useRef({})
+  // pageCursorsRef.current[n] is the startAfter() cursor used to load page n (page 0 has none).
+  const pageCursorsRef = useRef([null])
+  // Last displayed document of the page currently on screen; becomes the next page's cursor.
+  const lastCursorRef = useRef(null)
   const navigate = useNavigate()
 
   const fetchUsers = async (list) => {
@@ -111,66 +161,168 @@ export function AdminReportsPage() {
       cacheRef.current = cache
       setUserCache({ ...cache })
     }
+    return cache
+  }
+
+  // Server-side filters. Changing any of them (via changeFilter -> resetPagination)
+  // returns to page 1 and drops every stored cursor, so a cursor that belongs to an
+  // old filter is never reused.
+  const serverFilters = {
+    status: statusFilter,
+    department: departmentFilter,
+    category: categoryFilter,
+    dateFrom,
+    dateTo,
+  }
+
+  const resetPagination = () => {
+    pageCursorsRef.current = [null]
+    lastCursorRef.current = null
+    setPageIndex(0)
+    setHasMore(false)
+    setSelectedIds([])
+  }
+
+  const changeFilter = (setter) => (value) => {
+    setter(value)
+    resetPagination()
   }
 
   useEffect(() => {
+    // `cancelled` is flipped by the cleanup, so a response for a previous filter/page
+    // can never overwrite the results of a newer one.
+    let cancelled = false
     setLoading(true)
     setLoadError(false)
-    const q = query(collection(db, 'issues'), orderBy('createdAt', 'desc'))
-    const unsub = onSnapshot(
-      q,
-      { includeMetadataChanges: true },
-      async (snapshot) => {
-        if (isUnconfirmedEmpty(snapshot)) {
+    const unsub = subscribeToReportsPage(
+      {
+        status: statusFilter,
+        department: departmentFilter,
+        category: categoryFilter,
+        dateFrom,
+        dateTo,
+        cursor: pageCursorsRef.current[pageIndex] ?? null,
+      },
+      {
+        onPage: ({ docs, cursor, hasMore: more }) => {
+          if (cancelled) return
+          lastCursorRef.current = cursor
+          setComplaints(docs)
+          setHasMore(more)
+          setLoadError(false)
+          setLoading(false)
+          fetchUsers(docs)
+        },
+        onOfflineEmpty: () => {
+          if (cancelled) return
           if (!navigator.onLine) {
             setLoadError(true)
             setLoading(false)
           }
-          return
-        }
-        const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-        setComplaints(list)
-        setLoadError(false)
-        setLoading(false)
-        fetchUsers(list)
-      },
-      (err) => {
-        console.error('AdminReports Firestore error:', err)
-        setLoadError(true)
-        setLoading(false)
+        },
+        onError: (err) => {
+          if (cancelled) return
+          console.error('AdminReports Firestore error:', err)
+          setLoadError(true)
+          setLoading(false)
+        },
       }
     )
-    return unsub
-  }, [reloadKey])
-
-  const filtered = complaints.filter((c) => {
-    if (statusFilter !== 'all') {
-      const val = statusFilter === 'in-progress' ? 'in progress' : statusFilter
-      if (c.status?.toLowerCase() !== val) return false
+    return () => {
+      cancelled = true
+      unsub()
     }
+    // fetchUsers only touches refs/state setters, so it is intentionally not a dependency.
+  }, [statusFilter, departmentFilter, categoryFilter, dateFrom, dateTo, pageIndex, reloadKey])
+
+  const handleNextPage = () => {
+    if (loading || !hasMore || !lastCursorRef.current) return
+    pageCursorsRef.current = [...pageCursorsRef.current.slice(0, pageIndex + 1), lastCursorRef.current]
+    setSelectedIds([])
+    setPageIndex(pageIndex + 1)
+  }
+
+  const handlePreviousPage = () => {
+    if (loading || pageIndex === 0) return
+    setSelectedIds([])
+    setPageIndex(pageIndex - 1)
+  }
+
+  // Search, SLA, and Urgent filters cannot be expressed as Firestore constraints,
+  // so they narrow the rows of the loaded page client-side.
+  const matchesClientFilters = (c, users) => {
     if (slaFilter === 'breached' && !isSlaBreached(c)) return false
-    if (departmentFilter !== 'all' && c.department !== departmentFilter) return false
-    if (categoryFilter !== 'all' && c.category !== categoryFilter) return false
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      const user = userCache[c.reportedBy]
-      if (
-        !(c.complaintId || '').toLowerCase().includes(q) &&
-        !c.title?.toLowerCase().includes(q) &&
-        !c.category?.toLowerCase().includes(q) &&
-        !c.address?.toLowerCase().includes(q) &&
-        !(user?.name || '').toLowerCase().includes(q) &&
-        !(user?.email || '').toLowerCase().includes(q)
-      )
-        return false
+    if (showUrgentOnly) {
+      const targetDate = getSlaTargetDate(c.createdAt, c.category, c.department)
+      if (!targetDate) return false
+      const remainingMs = targetDate.getTime() - Date.now()
+      if (remainingMs > 2 * 60 * 60 * 1000) return false
     }
-    return true
-  })
+    return matchesComplaintSearch(c, debouncedSearch, users[c.reportedBy])
+  }
 
-  const handleExport = () => {
-    const csv = toCsv(csvHeaders, filtered.map(toCsvRow))
-    downloadCsv(`civic-reports-${formatDateStamp(new Date())}.csv`, csv)
-    toast.success(`Exported ${filtered.length} report${filtered.length === 1 ? '' : 's'}`)
+  const filtered = complaints.filter((c) => matchesClientFilters(c, userCache))
+
+  // Exports cover every report matching the filters, not just the visible page.
+  const collectExportRows = async () => {
+    const { docs, truncated } = await fetchAllReportsForExport(serverFilters)
+    const users = debouncedSearch ? await fetchUsers(docs) : userCache
+    if (truncated) {
+      toast(`Export limited to the ${docs.length} most recent matching reports.`)
+    }
+    return docs.filter((c) => matchesClientFilters(c, users))
+  }
+
+  const handleExport = async () => {
+    setExportingCsv(true)
+    try {
+      const rows = await collectExportRows()
+      if (rows.length === 0) {
+        toast('No reports match the current filters')
+        return
+      }
+      const csv = toCsv(csvHeaders, rows.map(toCsvRow))
+      downloadCsv(`civic-reports-${formatDateStamp(new Date())}.csv`, csv)
+      toast.success(`Exported ${rows.length} report${rows.length === 1 ? '' : 's'}`)
+    } catch (err) {
+      console.error('CSV export failed:', err)
+      toast.error('Could not export reports. Please try again.')
+    } finally {
+      setExportingCsv(false)
+    }
+  }
+
+  const handleExportPdf = async () => {
+    setExportingPdf(true)
+    try {
+      // Let the spinner paint before the synchronous PDF build starts, and only load jsPDF when it is needed.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const rows = await collectExportRows()
+      if (rows.length === 0) {
+        toast('No reports match the current filters')
+        return
+      }
+      const { downloadComplaintsPdf } = await import('@/utils/pdfReport')
+      downloadComplaintsPdf({
+        complaints: rows,
+        filters: {
+          status: statusFilter,
+          department: departmentFilter,
+          category: categoryFilter,
+          sla: slaFilter,
+          search: debouncedSearch,
+          dateFrom,
+          dateTo,
+        },
+        now: new Date(),
+      })
+      toast.success(`Exported ${rows.length} report${rows.length === 1 ? '' : 's'} to PDF`)
+    } catch (err) {
+      console.error('PDF export failed:', err)
+      toast.error('Could not generate the PDF. Please try again.')
+    } finally {
+      setExportingPdf(false)
+    }
   }
 
   const isAllSelected = filtered.length > 0 && filtered.every((c) => selectedIds.includes(c.id))
@@ -202,30 +354,124 @@ export function AdminReportsPage() {
     )
   }
 
+  const suggestions = searchQuery.trim()
+    ? complaints
+        .filter((c) => {
+          const q = searchQuery.trim().toLowerCase()
+
+          return (
+            getDisplayId(c).toLowerCase().includes(q) ||
+            (c.title || '').toLowerCase().includes(q) ||
+            (c.category || '').toLowerCase().includes(q)
+          )
+        })
+        .slice(0, 5)
+    : []
+
   return (
     <div>
       <PageHeader
         title="Manage Reports"
         description="Review and manage all citizen reports"
         actions={
-          <Button variant="outline" onClick={handleExport} disabled={loading || filtered.length === 0}>
-            <Download />
-            Export to CSV
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={handleExport}
+              disabled={loading || complaints.length === 0 || exportingCsv || exportingPdf}
+              aria-busy={exportingCsv}
+            >
+              {exportingCsv ? <LoaderCircle className="animate-spin" /> : <Download />}
+              Export to CSV
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleExportPdf}
+              disabled={loading || complaints.length === 0 || exportingPdf || exportingCsv}
+              aria-busy={exportingPdf}
+            >
+              {exportingPdf ? <LoaderCircle className="animate-spin" /> : <FileText />}
+              {exportingPdf ? 'Generating PDF...' : 'Export PDF'}
+            </Button>
+          </div>
         }
+      />
+      <SlaEscalationBanner
+        complaints={complaints}
+        onShowUrgentTickets={() => setShowUrgentOnly(true)}
       />
 
       <div className="flex flex-wrap gap-3 mb-6">
         <div className="relative flex-1 min-w-[200px] max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+
           <Input
-            className="pl-9"
-            placeholder="Search by ID, title, name, email, category, address..."
+            className="pl-9 pr-9"
+            placeholder="Search by tracking ID, title, or category..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            role="combobox"
+            aria-label="Search complaints"
+            aria-expanded={showSuggestions && suggestions.length > 0}
+            aria-autocomplete="list"
+            onFocus={() => setShowSuggestions(true)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value)
+              setShowSuggestions(true)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setShowSuggestions(false)
+              if (e.key === 'Enter') setShowSuggestions(false)
+            }}
           />
+
+          {searchQuery && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setSearchQuery('')
+                setDebouncedSearch('')
+                setShowSuggestions(false)
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+
+          {showSuggestions && searchQuery.trim() && suggestions.length > 0 && (
+            <div
+              role="listbox"
+              className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900"
+            >
+              {suggestions.map((complaint) => (
+                <button
+                  key={complaint.id}
+                  type="button"
+                  role="option"
+                  aria-selected="false"
+                  className="flex w-full flex-col items-start gap-1 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-800"
+                  onClick={() => {
+                    setSearchQuery(getDisplayId(complaint))
+                    setShowSuggestions(false)
+                  }}
+                >
+                  <span className="text-xs font-semibold text-primary-600">
+                    <HighlightMatch text={getDisplayId(complaint)} query={searchQuery} />
+                  </span>
+                  <span className="text-sm text-gray-800 dark:text-gray-200">
+                    <HighlightMatch text={complaint.title} query={searchQuery} />
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    <HighlightMatch text={complaint.category} query={searchQuery} />
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+
+        <Select value={statusFilter} onValueChange={changeFilter(setStatusFilter)}>
           <SelectTrigger className="w-36">
             <SelectValue placeholder="All Status" />
           </SelectTrigger>
@@ -236,20 +482,28 @@ export function AdminReportsPage() {
             <SelectItem value="resolved">Resolved</SelectItem>
             <SelectItem value="rejected">Rejected</SelectItem>
             <SelectItem value="reopened">Reopened</SelectItem>
+            <SelectItem value="merged - duplicate">Merged - Duplicate</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+
+        <Select value={departmentFilter} onValueChange={changeFilter(setDepartmentFilter)}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="All Departments" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Departments</SelectItem>
             {allDepartments.map((d) => (
-              <SelectItem key={d} value={d}>{d}</SelectItem>
+              <SelectItem key={d} value={d}>
+                <div className="flex items-center gap-1.5">
+                  <DepartmentCrest department={d} variant="avatar" size="xs" />
+                  <span>{d}</span>
+                </div>
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+
+        <Select value={categoryFilter} onValueChange={changeFilter(setCategoryFilter)}>
           <SelectTrigger className="w-48">
             <SelectValue placeholder="All Categories" />
           </SelectTrigger>
@@ -260,6 +514,24 @@ export function AdminReportsPage() {
             ))}
           </SelectContent>
         </Select>
+
+        <Input
+          type="date"
+          className="w-40"
+          aria-label="From date"
+          value={dateFrom}
+          max={dateTo || undefined}
+          onChange={(e) => changeFilter(setDateFrom)(e.target.value)}
+        />
+        <Input
+          type="date"
+          className="w-40"
+          aria-label="To date"
+          value={dateTo}
+          min={dateFrom || undefined}
+          onChange={(e) => changeFilter(setDateTo)(e.target.value)}
+        />
+
         <Select value={slaFilter} onValueChange={setSlaFilter}>
           <SelectTrigger className="w-36">
             <SelectValue placeholder="All SLA" />
@@ -269,6 +541,19 @@ export function AdminReportsPage() {
             <SelectItem value="breached">Breached SLA</SelectItem>
           </SelectContent>
         </Select>
+
+        {showUrgentOnly && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowUrgentOnly(false)}
+            className="gap-1.5"
+          >
+            Urgent Only (≤2h)
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
 
       {!loadError && !loading && filtered.length > 0 && (
@@ -305,7 +590,7 @@ export function AdminReportsPage() {
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Flag className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
             <p className="text-sm font-medium text-gray-900 dark:text-white">
-              {searchQuery || statusFilter !== 'all' || departmentFilter !== 'all' || categoryFilter !== 'all' || slaFilter !== 'all'
+              {searchQuery || statusFilter !== 'all' || departmentFilter !== 'all' || categoryFilter !== 'all' || slaFilter !== 'all' || showUrgentOnly || dateFrom || dateTo
                 ? 'No matching reports found'
                 : 'No reports found'}
             </p>
@@ -330,7 +615,7 @@ export function AdminReportsPage() {
                 onClick={() => navigate(`/admin/reports/${complaint.id}`)}
               >
                 <CardContent className="p-5">
-                  <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="flex flex-wrap items-start gap-2 mb-3">
                     <div className="flex items-start gap-2.5 min-w-0 flex-1">
                       <input
                         type="checkbox"
@@ -342,24 +627,34 @@ export function AdminReportsPage() {
                       />
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-mono text-primary-600 dark:text-primary-400 font-semibold mb-1">
-                          {getDisplayId(complaint)}
+                          <HighlightMatch
+                            text={getDisplayId(complaint)}
+                            query={debouncedSearch}
+                          />
                         </p>
                         <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">
-                          {complaint.title}
+                          <HighlightMatch text={complaint.title} query={debouncedSearch} />
                         </h3>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-1.5 shrink-0 justify-end">
-                      <SlaBadge complaint={complaint} />
-                      <Badge variant={statusVariant[complaint.status] || 'default'} className="capitalize">
+                    <div className="flex flex-wrap items-center gap-1.5 justify-end">
+                      <SlaBadge complaint={complaint} className="whitespace-nowrap" />
+                      <Badge variant={statusVariant[complaint.status] || 'default'} className="capitalize whitespace-nowrap">
                         {complaint.status}
                       </Badge>
                     </div>
                   </div>
-                  <div className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="space-y-2 text-xs text-gray-500 dark:text-gray-400">
                     <p><span className="font-medium text-gray-700 dark:text-gray-300">Reported By:</span> {user?.name || 'Unknown User'}</p>
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                      <DepartmentCrest department={complaint.department} category={complaint.category} size="xs" />
+                      {complaint.category && <CategoryAvatar category={complaint.category} size="xs" />}
+                    </div>
                     <p><span className="font-medium text-gray-700 dark:text-gray-300">Department:</span> {complaint.department || 'Not assigned'}</p>
-                    <p><span className="font-medium text-gray-700 dark:text-gray-300">Category:</span> {complaint.category || '-'}</p>
+                    <p><span className="font-medium text-gray-700 dark:text-gray-300">Category:</span> <HighlightMatch
+                      text={complaint.category || '-'}
+                      query={debouncedSearch}
+                    /></p>
                     <p className="truncate"><span className="font-medium text-gray-700 dark:text-gray-300">Address:</span> {complaint.address}</p>
                     <p><span className="font-medium text-gray-700 dark:text-gray-300">Date:</span> {formatDate(complaint.createdAt) || '-'}</p>
                   </div>
@@ -370,11 +665,47 @@ export function AdminReportsPage() {
         </div>
       )}
 
+      {!loadError && (pageIndex > 0 || hasMore || complaints.length > 0) && (
+        <nav
+          aria-label="Reports pagination"
+          className="mt-6 flex flex-wrap items-center justify-between gap-3"
+        >
+          <p className="text-xs text-gray-500 dark:text-gray-400" aria-live="polite">
+            Page {pageIndex + 1}
+            {!loading && ` · ${complaints.length} report${complaints.length === 1 ? '' : 's'}`}
+            {(debouncedSearch || slaFilter !== 'all' || showUrgentOnly) &&
+              ' · search and SLA filters apply to this page only'}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePreviousPage}
+              disabled={loading || pageIndex === 0}
+              aria-label="Previous page"
+            >
+              <ChevronLeft />
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNextPage}
+              disabled={loading || !hasMore}
+              aria-label="Next page"
+            >
+              Next
+              <ChevronRight />
+            </Button>
+          </div>
+        </nav>
+      )}
+
       <BulkActionsToolbar
         selectedIds={selectedIds}
         complaints={complaints}
         onClearSelection={() => setSelectedIds([])}
-        onSuccess={() => setSelectedIds([])}
+        onSelectionChange={setSelectedIds}
         actorUid={user?.uid}
       />
     </div>

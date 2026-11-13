@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react'
+import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
 import { useNavigate } from 'react-router-dom'
-import { Bell, BellRing, CheckCircle2, AlertCircle } from 'lucide-react'
-import { collection, query, where, onSnapshot, doc, writeBatch, getDocs, limit } from 'firebase/firestore'
+import { BellRing, CheckCircle2, AlertCircle } from 'lucide-react'
+import { collection, query, where, onSnapshot, doc, writeBatch } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { getPushPermissionStatus, requestPushPermission } from '@/firebase/notifications'
-import { formatRelativeTime } from '@/utils/relativeTime'
+import { EmptyState } from '@/components/common/EmptyState'
 import toast from 'react-hot-toast'
 
 function sortByCreatedDesc(list) {
@@ -22,6 +23,7 @@ const icons = {
   new_complaint: '🔔',
   status_update: '✅',
   department_assigned: '🏢',
+  complaint_merged: '🔀',
 }
 
 export function NotificationCenter({ className = '' }) {
@@ -69,20 +71,20 @@ export function NotificationCenter({ className = '' }) {
     if (!n.issueId) return
 
     try {
-      const q = query(
-        collection(db, 'issues'),
-        where('complaintId', '==', n.issueId),
-        limit(1)
+      const documentId = await resolveCitizenComplaintDocumentId(
+        n.issueId,
+        user?.uid,
       )
-      const snap = await getDocs(q)
-      if (!snap.empty) {
-        navigate(`/complaints/${snap.docs[0].id}`)
+
+      if (!documentId) {
+        toast.error('Complaint not found or you do not have access.')
         return
       }
-      navigate(`/complaints/${n.issueId}`)
+
+      navigate(`/complaints/${documentId}`)
     } catch (err) {
       console.error('Error navigating to complaint:', err)
-      navigate(`/complaints/${n.issueId}`)
+      toast.error('Unable to open complaint. Please try again.')
     }
   }
 
@@ -180,15 +182,11 @@ export function NotificationCenter({ className = '' }) {
           </CardContent>
         </Card>
       ) : notifications.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16">
-            <Bell className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
-            <p className="text-sm font-medium text-gray-900 dark:text-white">No notifications yet</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              You will receive notifications when your complaints are updated.
-            </p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          variant="notifications"
+          heading="You're All Caught Up!"
+          description="You don't have any notifications right now. We'll let you know when there are updates."
+        />
       ) : (
         <div className="space-y-3">
           {notifications.map((n) => (

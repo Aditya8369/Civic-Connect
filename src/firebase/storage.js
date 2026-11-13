@@ -1,5 +1,5 @@
 
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { storage } from './services'
 
 export const MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024 // 5MB
@@ -300,4 +300,47 @@ export async function uploadComplaintAudio(
     durationSeconds,
     contentType: mimeType,
   }
+}
+
+/**
+ * Deletes a file from Firebase Cloud Storage by its path.
+ * Safe against errors (logs and continues).
+ *
+ * @param {string} storagePath - The storage path to delete (e.g. complaint-photos/...)
+ * @param {object} [customStorage] - Optional storage instance for testing
+ * @returns {Promise<boolean>} True if deleted, false if file was not found or deletion failed
+ */
+export async function deleteStorageFile(storagePath, customStorage = storage) {
+  if (!storagePath) return false
+  try {
+    const storageRef = ref(customStorage, storagePath)
+    await deleteObject(storageRef)
+    return true
+  } catch (err) {
+    if (
+      import.meta.env.DEV &&
+      import.meta.env.MODE !== 'test' &&
+      import.meta.env.VITE_USE_EMULATORS !== 'true'
+    ) {
+      console.warn(`Failed to delete storage file at ${storagePath}:`, err)
+    }
+    return false
+  }
+}
+
+/**
+ * Cleans up multiple uploaded complaint evidence files from storage.
+ *
+ * @param {Array<string | { path: string }>} uploads - Array of storage paths or upload result objects
+ * @param {object} [customStorage] - Optional storage instance
+ * @returns {Promise<PromiseSettledResult<boolean>[]>}
+ */
+export async function deleteComplaintEvidence(uploads = [], customStorage = storage) {
+  if (!Array.isArray(uploads) || uploads.length === 0) return []
+  return Promise.allSettled(
+    uploads.map((item) => {
+      const path = typeof item === 'string' ? item : item?.path
+      return deleteStorageFile(path, customStorage)
+    })
+  )
 }

@@ -2,11 +2,11 @@ import { saveOfflineComplaint } from '@/utils/offlineQueue'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { MapPin, Crosshair, Send, AlertTriangle, ExternalLink, ThumbsUp, Check, Loader2, Clock, Camera, Trash2 } from 'lucide-react'
+import { MapPin, Send, AlertTriangle, ExternalLink, ThumbsUp, Check, Loader2, Clock, Camera, Trash2 } from 'lucide-react'
 import {
   collection,
   doc,
-  writeBatch,
+  runTransaction,
   serverTimestamp,
   query,
   where,
@@ -14,13 +14,14 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { endorseComplaint } from '@/firebase/endorseComplaint'
-import { generateComplaintId, getDisplayId } from '@/firebase/complaintId'
+import { allocateComplaintId, getDisplayId } from '@/firebase/complaintId'
 import { addNotificationToBatch } from '@/firebase/notifications'
 import { addComplaintEventToBatch } from '@/firebase/complaintEvents'
 import {
   validateComplaintPhoto,
   uploadComplaintPhoto,
   uploadComplaintAudio,
+  deleteComplaintEvidence,
 } from '@/firebase/storage'
 import VoiceRecorder from '@/components/citizen/VoiceRecorder'
 import { useAuth } from '@/hooks/useAuth'
@@ -30,8 +31,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { findNearbyComplaints, parseCoordinates } from '@/utils/geo'
+import { ComplaintLocationMap } from '@/components/common/ComplaintLocationMap'
 import toast from 'react-hot-toast'
 
 const categories = [
@@ -49,6 +52,7 @@ const statusVariant = {
   Resolved: 'success',
   'In Progress': 'warning',
   Pending: 'destructive',
+  'Merged - Duplicate': 'secondary',
 }
 
 const COOLDOWN_SECONDS = 60
@@ -98,7 +102,6 @@ export function ReportPage() {
   const [address, setAddress] = useState('')
   const [latitude, setLatitude] = useState('')
   const [longitude, setLongitude] = useState('')
-  const [locating, setLocating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const isSubmittingRef = useRef(false)
   const [cooldownRemaining, setCooldownRemaining] = useState(() => getRemainingCooldown(user?.uid))
@@ -255,28 +258,6 @@ export function ReportPage() {
     return () => clearTimeout(timer)
   }, [category, latitude, longitude, checkDuplicates])
 
-  const getCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported by your browser')
-      return
-    }
-    setLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const latStr = position.coords.latitude.toFixed(6)
-        const lngStr = position.coords.longitude.toFixed(6)
-        setLatitude(latStr)
-        setLongitude(lngStr)
-        setLocating(false)
-        toast.success('Location retrieved')
-        checkDuplicates(category, latStr, lngStr)
-      },
-      () => {
-        setLocating(false)
-        toast.error('Could not retrieve location. Please enter coordinates manually.')
-      }
-    )
-  }
 
   const handleEndorse = async (complaint) => {
     if (!user) {
@@ -360,6 +341,16 @@ export function ReportPage() {
     try {
       // Save complaint locally when the device is offline.
       if (!navigator.onLine) {
+        if (photoFile) {
+          const photoValidation = validateComplaintPhoto(photoFile)
+          if (!photoValidation.valid) {
+            toast.error(photoValidation.error)
+            isSubmittingRef.current = false
+            setSubmitting(false)
+            return
+          }
+        }
+
         await saveOfflineComplaint({
           title,
           description,
@@ -368,6 +359,7 @@ export function ReportPage() {
           latitude: latitude ? parseFloat(latitude) : null,
           longitude: longitude ? parseFloat(longitude) : null,
           userId: user.uid,
+          photoFile: photoFile || null,
         })
 
         recordSubmissionTimestamp(user.uid, Date.now())
@@ -384,22 +376,55 @@ export function ReportPage() {
         return
       }
 
-      // Generate the public complaint ID before uploading any evidence.
-      const complaintId = await generateComplaintId()
+      // Pre-allocate the Firestore document reference so its ID can be used as the
+      // storage attachment directory. This avoids prematurely allocating or burning
+      // a sequential municipal complaintId before evidence uploads succeed.
+      const issueRef = doc(collection(db, 'issues'))
+      const attachmentId = issueRef.id
 
-      // Upload optional photo and voice evidence without changing the existing photo helpers.
-      const [photoUpload, audioUpload] = await Promise.all([
-        photoFile
-          ? uploadComplaintPhoto(photoFile, complaintId)
-          : Promise.resolve(null),
-        voiceNote?.blob
-          ? uploadComplaintAudio(
+      // Track uploaded artifacts so any partial upload failure can clean them up immediately,
+      // preventing orphaned storage files.
+      const uploadedArtifacts = []
+      let photoUpload = null
+      let audioUpload = null
+
+      try {
+        const uploadPromises = []
+        if (photoFile) {
+          uploadPromises.push(
+            uploadComplaintPhoto(photoFile, attachmentId).then((res) => {
+              if (res) {
+                photoUpload = res
+                if (res.path) uploadedArtifacts.push(res.path)
+              }
+              return res
+            })
+          )
+        }
+
+        if (voiceNote?.blob) {
+          uploadPromises.push(
+            uploadComplaintAudio(
               voiceNote.blob,
-              complaintId,
+              attachmentId,
               voiceNote.durationSeconds
-            )
-          : Promise.resolve(null),
-      ])
+            ).then((res) => {
+              if (res) {
+                audioUpload = res
+                if (res.path) uploadedArtifacts.push(res.path)
+              }
+              return res
+            })
+          )
+        }
+
+        await Promise.all(uploadPromises)
+      } catch (uploadError) {
+        if (uploadedArtifacts.length > 0) {
+          await deleteComplaintEvidence(uploadedArtifacts)
+        }
+        throw uploadError
+      }
 
       const imageUrl = photoUpload?.downloadUrl || null
       const photos = photoUpload ? [photoUpload] : []
@@ -413,45 +438,57 @@ export function ReportPage() {
           }
         : null
 
-      // Complaint and admin notification commit together, so a failed notification
-      // can't leave behind a saved complaint that the citizen then re-submits.
-      const batch = writeBatch(db)
-      const issueRef = doc(collection(db, 'issues'))
-      batch.set(issueRef, {
-        complaintId,
-        title,
-        description,
-        category,
-        address,
-        latitude: latitude ? parseFloat(latitude) : null,
-        longitude: longitude ? parseFloat(longitude) : null,
-        status: 'Pending',
-        department: '',
-        reportedBy: user.uid,
-        imageUrl,
-        photos,
-        audioNote,
-        endorsedBy: [],
-        endorsementCount: 0,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      })
-      addComplaintEventToBatch(batch, issueRef.id, {
-        actorUid: user.uid,
-        action: 'Complaint submitted',
-        previousStatus: null,
-        newStatus: 'Pending',
-        remarks: description || 'Complaint submitted',
-      })
-      addNotificationToBatch(batch, {
-        recipientRole: 'admin',
-        senderUid: user.uid,
-        issueId: complaintId,
-        type: 'new_complaint',
-        title: 'New Complaint Submitted',
-        message: 'A citizen has submitted a new complaint.',
-      })
-      await batch.commit()
+      // Allocate the municipal ticket ID atomically inside the transaction.
+      // If the commit fails, the counter write is rolled back and uploaded
+      // storage artifacts are cleaned up so no orphan files or ticket gaps remain.
+      let complaintId = null
+      try {
+        await runTransaction(db, async (transaction) => {
+          complaintId = await allocateComplaintId(transaction)
+
+          transaction.set(issueRef, {
+            complaintId,
+            title,
+            description,
+            category,
+            address,
+            latitude: latitude ? parseFloat(latitude) : null,
+            longitude: longitude ? parseFloat(longitude) : null,
+            status: 'Pending',
+            department: '',
+            reportedBy: user.uid,
+            imageUrl,
+            photos,
+            audioNote,
+            endorsedBy: [],
+            endorsementCount: 0,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          })
+
+          addComplaintEventToBatch(transaction, issueRef.id, {
+            actorUid: user.uid,
+            action: 'Complaint submitted',
+            previousStatus: null,
+            newStatus: 'Pending',
+            remarks: description || 'Complaint submitted',
+          })
+
+          addNotificationToBatch(transaction, {
+            recipientRole: 'admin',
+            senderUid: user.uid,
+            issueId: complaintId,
+            type: 'new_complaint',
+            title: 'New Complaint Submitted',
+            message: 'A citizen has submitted a new complaint.',
+          })
+        })
+      } catch (commitError) {
+        if (uploadedArtifacts.length > 0) {
+          await deleteComplaintEvidence(uploadedArtifacts)
+        }
+        throw commitError
+      }
 
       // Record successful submission timestamp for rate-limiting cooldown
       recordSubmissionTimestamp(user?.uid, Date.now())
@@ -459,8 +496,13 @@ export function ReportPage() {
       isSubmittingRef.current = false
       setSubmitting(false)
 
-      toast.success('Complaint submitted successfully!')
-      navigate('/my-reports')
+      navigate('/complaint-confirmation', {
+        state: {
+          complaintId,
+          issueId: issueRef.id,
+          title,
+        },
+      })
     } catch (err) {
       console.error('Complaint submission failed:', err)
       toast.error(err?.message || 'Failed to submit complaint. Please try again.')
@@ -504,7 +546,12 @@ export function ReportPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((cat) => (
-                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      <SelectItem key={cat} value={cat}>
+                        <div className="flex items-center gap-2">
+                          <CategoryAvatar category={cat} size="xs" showLabel={false} />
+                          <span>{cat}</span>
+                        </div>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -596,6 +643,23 @@ export function ReportPage() {
               </div>
 
               <div className="space-y-2">
+                <Label>Pin complaint location</Label>
+                <ComplaintLocationMap
+                  latitude={latitude}
+                  longitude={longitude}
+                  address={address}
+                  selectable
+                  onLocationSelect={({ latitude: nextLatitude, longitude: nextLongitude, address: nextAddress }) => {
+                    setLatitude(nextLatitude)
+                    setLongitude(nextLongitude)
+                    if (nextAddress) setAddress(nextAddress)
+                    setHasAcknowledgedDuplicate(false)
+                    checkDuplicates(category, nextLatitude, nextLongitude)
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="address">Address *</Label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -638,19 +702,7 @@ export function ReportPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={getCurrentLocation}
-                  disabled={locating}
-                >
-                  <Crosshair className={`h-4 w-4 ${locating ? 'animate-spin' : ''}`} />
-                  {locating ? 'Getting location...' : 'Use Current Location'}
-                </Button>
-
+              <div className="flex items-center justify-end">
                 {checkingDuplicates && (
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-primary-500" />
@@ -710,6 +762,12 @@ export function ReportPage() {
                                     >
                                       {match.status}
                                     </Badge>
+                                    <DepartmentCrest
+                                      department={match.department}
+                                      category={match.category || category}
+                                      size="xs"
+                                      variant="chip"
+                                    />
                                     <span className="inline-flex items-center rounded-md bg-amber-100 dark:bg-amber-950/50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
                                       {match.distanceMeters}m away
                                     </span>
