@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, MapPin, CalendarDays, FileText, ClipboardCheck, AlertTriangle, Camera, ZoomIn, ZoomOut, ExternalLink, GitMerge } from 'lucide-react'
-import { doc, collection, onSnapshot, serverTimestamp, query, where, getDocs, limit } from 'firebase/firestore'
+import { ArrowLeft, MapPin, CalendarDays, FileText, ClipboardCheck, AlertTriangle, Camera, ZoomIn, ZoomOut, ExternalLink, GitMerge, Printer } from 'lucide-react'
+import { doc, getDoc, collection, onSnapshot, serverTimestamp, query, where, getDocs, limit } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
 import { ResolutionFeedback } from '@/components/citizen/ResolutionFeedback'
+import { MilestoneCelebrationBanner } from '@/components/citizen/MilestoneCelebrationBanner'
+import { PrintableGrievanceReceipt } from '@/components/citizen/PrintableGrievanceReceipt'
+import { ComplaintLocationMap } from '@/components/common/ComplaintLocationMap'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -36,6 +39,22 @@ const statusVariant = {
 }
 
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+async function resolveCitizenComplaintDocumentId(idOrTrackingCode) {
+  if (!idOrTrackingCode) return idOrTrackingCode
+  const directSnap = await getDoc(doc(db, 'issues', idOrTrackingCode))
+  if (directSnap.exists()) return directSnap.id
+
+  const q = query(
+    collection(db, 'issues'),
+    where('complaintId', '==', idOrTrackingCode),
+    limit(1)
+  )
+  const querySnap = await getDocs(q)
+  if (!querySnap.empty) return querySnap.docs[0].id
+
+  return idOrTrackingCode
+}
 
 function canReopenComplaint(complaint) {
   const resolvedAt = complaint.resolvedAt?.toDate?.()
@@ -95,24 +114,6 @@ export function ComplaintDetailsPage() {
   const [zoomOpen, setZoomOpen] = useState(false)
   const [zoomScale, setZoomScale] = useState(1)
   const transitionPending = useRef(false)
-useEffect(() => {
-  let cancelled = false
-  let unsubEvents
-  let unsubComplaint
-
-  setLoading(true)
-  setNotFound(false)
-  setLoadError(false)
-  setComplaint(null)
-  setEvents([])
-
-  const loadComplaint = async () => {
-    try {
-      const documentId = await resolveCitizenComplaintDocumentId(
-        id,
-        user?.uid,
-      )
-      if (cancelled) return
 
   useEffect(() => {
     if (!complaint?.reportedBy) return
@@ -143,118 +144,86 @@ useEffect(() => {
   }
 
   useEffect(() => {
-    const unsubEvents = onSnapshot(
-      collection(db, `issues/${id}/events`),
-      (snap) => {
-        if (snap?.docs) {
-          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-          setEvents(sortEvents(list))
-        }
-      },
-      (error) => {
-        console.error('ComplaintDetails events Firestore error:', error)
-      }
-    )
+    let cancelled = false
+    let unsubEvents
+    let unsubComplaint
 
-    const unsubComplaint = onSnapshot(
-      doc(db, 'issues', id),
-      (snap) => {
-        if (snap.exists()) {
-          setComplaint({ id: snap.id, ...snap.data() })
-          setLoading(false)
-        } else {
-          const q = query(
-            collection(db, 'issues'),
-            where('complaintId', '==', id),
-            limit(1)
-          )
-          getDocs(q)
-            .then((querySnap) => {
-              if (!querySnap.empty) {
-                navigate(`/complaints/${querySnap.docs[0].id}`, { replace: true })
-              } else {
-                setNotFound(true)
-                setLoading(false)
-              }
-            })
-            .catch(() => {
+    setLoading(true)
+    setNotFound(false)
+    setLoadError(false)
+    setComplaint(null)
+    setEvents([])
+
+    const loadComplaint = async () => {
+      try {
+        const documentId = await resolveCitizenComplaintDocumentId(id)
+        if (cancelled) return
+
+        // Replace public tracking IDs with the actual Firestore document ID.
+        if (documentId !== id) {
+          navigate(`/complaints/${documentId}`, { replace: true })
+          return
+        }
+
+        // Start the events listener only after resolving the document ID.
+        unsubEvents = onSnapshot(
+          collection(db, `issues/${documentId}/events`),
+          (snap) => {
+            if (cancelled) return
+
+            if (snap?.docs) {
+              const list = snap.docs.map((d) => ({
+                id: d.id,
+                ...d.data(),
+              }))
+              setEvents(sortEvents(list))
+            }
+          },
+          (error) => {
+            console.error('ComplaintDetails events Firestore error:', error)
+          },
+        )
+
+        // Listen to the verified complaint document.
+        unsubComplaint = onSnapshot(
+          doc(db, 'issues', documentId),
+          (snap) => {
+            if (cancelled) return
+
+            if (snap.exists()) {
+              setComplaint({ id: snap.id, ...snap.data() })
+              setNotFound(false)
+            } else {
               setNotFound(true)
-              setLoading(false)
-            })
-        }
-      },
-      (error) => {
-        console.error('ComplaintDetails Firestore error:', error)
-        setNotFound(true)
+            }
+
+            setLoading(false)
+          },
+          (error) => {
+            if (cancelled) return
+
+            console.error('ComplaintDetails Firestore error:', error)
+            setLoadError(true)
+            setLoading(false)
+          },
+        )
+      } catch (error) {
+        if (cancelled) return
+
+        console.error('Error loading complaint:', error)
+        setLoadError(true)
         setLoading(false)
-        return
       }
-
-      // Replace public tracking IDs with the actual Firestore document ID.
-      if (documentId !== id) {
-        navigate(`/complaints/${documentId}`, { replace: true })
-        return
-      }
-
-      // Start the events listener only after resolving the document ID.
-      unsubEvents = onSnapshot(
-        collection(db, `issues/${documentId}/events`),
-        (snap) => {
-          if (cancelled) return
-
-          if (snap?.docs) {
-            const list = snap.docs.map((d) => ({
-              id: d.id,
-              ...d.data(),
-            }))
-            setEvents(sortEvents(list))
-          }
-        },
-        (error) => {
-          console.error('ComplaintDetails events Firestore error:', error)
-        },
-      )
-
-      // Listen to the verified complaint document.
-      unsubComplaint = onSnapshot(
-        doc(db, 'issues', documentId),
-        (snap) => {
-          if (cancelled) return
-
-          if (snap.exists()) {
-            setComplaint({ id: snap.id, ...snap.data() })
-            setNotFound(false)
-          } else {
-            setNotFound(true)
-          }
-
-          setLoading(false)
-        },
-        (error) => {
-          if (cancelled) return
-
-          console.error('ComplaintDetails Firestore error:', error)
-          setLoadError(true)
-          setLoading(false)
-        },
-      )
-    } catch (error) {
-      if (cancelled) return
-
-      console.error('Error loading complaint:', error)
-      setLoadError(true)
-      setLoading(false)
     }
-  }
 
-  loadComplaint()
+    loadComplaint()
 
-  return () => {
-    cancelled = true
-    unsubEvents?.()
-    unsubComplaint?.()
-  }
-}, [id, navigate, user?.uid])
+    return () => {
+      cancelled = true
+      unsubEvents?.()
+      unsubComplaint?.()
+    }
+  }, [id, navigate, user?.uid])
 
   if (loading) {
     return (
@@ -263,27 +232,29 @@ useEffect(() => {
       </div>
     )
   }
-if (loadError) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20">
-      <AlertTriangle className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
-      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-        Unable to load complaint
-      </h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-        Please check your connection and try again.
-      </p>
-      <Button
-        variant="outline"
-        size="sm"
-        className="mt-4"
-        onClick={() => window.location.reload()}
-      >
-        Try Again
-      </Button>
-    </div>
-  )
-}
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <AlertTriangle className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          Unable to load complaint
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          Please check your connection and try again.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-4"
+          onClick={() => window.location.reload()}
+        >
+          Try Again
+        </Button>
+      </div>
+    )
+  }
+
   if (notFound || !complaint) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
@@ -302,6 +273,10 @@ if (loadError) {
   const canReopen = canReopenComplaint(complaint)
   const initialPhoto = complaint.imageUrl || complaint.photos?.[0]
   const resolutionPhoto = getResolutionPhoto(complaint)
+  const isMergedViewer =
+    complaint.status !== 'Merged - Duplicate' &&
+    Array.isArray(complaint.mergedFromUids) &&
+    complaint.mergedFromUids.includes(user?.uid)
 
   const timelineEvents = (events && events.length > 0)
     ? events.map((evt) => ({

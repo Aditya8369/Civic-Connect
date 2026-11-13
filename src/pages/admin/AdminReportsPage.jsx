@@ -40,6 +40,28 @@ function formatDate(ts) {
   return ts.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+const csvHeaders = [
+  'Tracking ID',
+  'Title',
+  'Category',
+  'Department',
+  'Status',
+  'Address',
+  'Created Date',
+]
+
+function toCsvRow(complaint) {
+  return [
+    getDisplayId(complaint),
+    complaint.title || '',
+    complaint.category || '',
+    complaint.department || 'Not assigned',
+    complaint.status || '',
+    complaint.address || '',
+    formatDate(complaint.createdAt),
+  ]
+}
+
 const allCategories = [
   'Potholes & Road Damage',
   'Streetlight Issues',
@@ -519,6 +541,19 @@ export function AdminReportsPage() {
             <SelectItem value="breached">Breached SLA</SelectItem>
           </SelectContent>
         </Select>
+
+        {showUrgentOnly && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowUrgentOnly(false)}
+            className="gap-1.5"
+          >
+            Urgent Only (≤2h)
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
 
       {!loadError && !loading && filtered.length > 0 && (
