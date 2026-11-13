@@ -9,6 +9,7 @@ import {
   addDoc,
   serverTimestamp,
   orderBy,
+  limit,
 } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { useAuth } from '@/contexts/AuthContext'
@@ -41,7 +42,7 @@ export default function CommunityFeed() {
   // 1. Fetch live active complaints from Firestore
   useEffect(() => {
     setLoading(true)
-    const issuesRef = collection(db, 'issues')
+    const issuesRef = query(collection(db, 'issues'), orderBy('createdAt', 'desc'), limit(50))
     
     // Live stream active issues
     const unsubscribe = onSnapshot(
