@@ -20,5 +20,11 @@ if (import.meta.env.VITE_USE_EMULATORS === 'true') {
 }
 
 export { auth, db, storage }
-export { validateComplaintPhoto, uploadComplaintPhoto } from './storage'
+export {
+  validateComplaintPhoto,
+  uploadComplaintPhoto,
+  uploadComplaintAudio,
+  deleteStorageFile,
+  deleteComplaintEvidence,
+} from './storage'
 export default app
