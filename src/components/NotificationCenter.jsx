@@ -11,17 +11,6 @@ import { getPushPermissionStatus, requestPushPermission } from '@/firebase/notif
 import { EmptyState } from '@/components/common/EmptyState'
 import toast from 'react-hot-toast'
 
-function formatTime(ts) {
-  if (!ts?.toDate) return ''
-  const d = ts.toDate()
-  const now = new Date()
-  const diff = now - d
-  if (diff < 60000) return 'Just now'
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
 function sortByCreatedDesc(list) {
   return [...list].sort((a, b) => {
     const ta = a.createdAt?.toDate?.()?.getTime() || 0
@@ -217,7 +206,7 @@ export function NotificationCenter({ className = '' }) {
                     {n.title}
                   </p>
                   <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0 whitespace-nowrap">
-                    {formatTime(n.createdAt)}
+                    {formatRelativeTime(n.createdAt)}
                   </span>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{n.message}</p>

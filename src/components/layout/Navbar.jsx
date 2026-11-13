@@ -6,6 +6,7 @@ import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { useSpotlightSearch } from '@/contexts/SpotlightContext'
 import { ThemeToggle } from '@/components/common/ThemeToggle'
+import { NotificationDropdown } from '@/components/notifications/NotificationDropdown'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {

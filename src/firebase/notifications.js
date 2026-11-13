@@ -1,4 +1,4 @@
-import { collection, addDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { collection, addDoc, doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore'
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging'
 import app, { db } from './services'
 import firebaseConfig from './config'
@@ -32,6 +32,29 @@ export async function createNotification(fields) {
 // Queues the notification on an existing writeBatch so it commits atomically with the caller's other writes.
 export function addNotificationToBatch(batch, fields, customDb = db) {
   batch.set(doc(collection(customDb, 'notifications')), buildNotification(fields))
+}
+
+export async function markNotificationAsRead(notificationId, read = true, customDb = db) {
+  if (!notificationId) return
+  await updateDoc(doc(customDb, 'notifications', notificationId), { read })
+}
+
+export async function markAllNotificationsAsRead(notificationIds, customDb = db) {
+  if (!Array.isArray(notificationIds) || notificationIds.length === 0) return
+  try {
+    const batch = writeBatch(customDb)
+    notificationIds.forEach((id) => {
+      batch.update(doc(customDb, 'notifications', id), { read: true })
+    })
+    await batch.commit()
+  } catch (err) {
+    console.warn('Batch mark all read failed, attempting individual updates:', err)
+    await Promise.allSettled(
+      notificationIds.map((id) =>
+        updateDoc(doc(customDb, 'notifications', id), { read: true })
+      )
+    )
+  }
 }
 
 let messagingPromise = null
