@@ -44,6 +44,27 @@ service cloud.firestore {
     }
 
     match /issues/{issueId} {
+      function isResolutionFeedback() {
+        let feedback = request.resource.data.get('feedback', {});
+        let allowedTags = ['Quick response', 'Courteous staff', 'Clean finish'];
+        let attachment = feedback.get('attachment', null);
+        return resource.data.status == 'Resolved' &&
+               resource.data.get('feedback', null) == null &&
+               request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['feedback', 'updatedAt']) &&
+               feedback.keys().hasOnly(['rating', 'tags', 'comment', 'attachment', 'submittedAt']) &&
+               feedback.rating is int && feedback.rating >= 1 && feedback.rating <= 5 &&
+               feedback.tags is list && feedback.tags.hasOnly(allowedTags) &&
+               feedback.tags.size() == feedback.tags.toSet().size() &&
+               feedback.comment is string && feedback.comment.size() <= 1000 &&
+               feedback.submittedAt == request.time && request.resource.data.updatedAt == request.time &&
+               (attachment == null ||
+                 (attachment.keys().hasOnly(['kind', 'path']) &&
+                  attachment.kind in ['photo', 'voice'] &&
+                  attachment.path is string &&
+                  attachment.path.matches('resolution-feedback/' + request.auth.uid + '/' + issueId + '/[0-9a-f-]{36}')));
+      }
+
       function isCitizenAppeal() {
         let resolvedAt = resource.data.get('resolvedAt', null);
         let reason = request.resource.data.get('reopenReason', null);
@@ -103,14 +124,13 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() &&
                     request.resource.data.reportedBy == request.auth.uid &&
-                    request.resource.data.status == 'Pending';
-      allow update: if (isAuthenticated() && (
-                      (resource.data.reportedBy == request.auth.uid &&
+                    request.resource.data.status == 'Pending' &&
+                    !request.resource.data.keys().hasAny(['feedback']);
+      allow update: if (isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                         ((resource.data.status == 'Pending' &&
-                          request.resource.data.status == 'Pending') || isCitizenAppeal())) ||
-                      isCitizenUpvote() ||
-                      isCitizenEndorsement()
-                    )) || isAdmin();
+                          request.resource.data.status == 'Pending' &&
+                          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['feedback'])) ||
+                         isCitizenAppeal() || isResolutionFeedback())) || isAdmin();
       allow delete: if isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                     resource.data.status == 'Pending';
 
