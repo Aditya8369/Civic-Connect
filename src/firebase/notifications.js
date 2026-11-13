@@ -41,11 +41,20 @@ export async function markNotificationAsRead(notificationId, read = true, custom
 
 export async function markAllNotificationsAsRead(notificationIds, customDb = db) {
   if (!Array.isArray(notificationIds) || notificationIds.length === 0) return
-  const batch = writeBatch(customDb)
-  notificationIds.forEach((id) => {
-    batch.update(doc(customDb, 'notifications', id), { read: true })
-  })
-  await batch.commit()
+  try {
+    const batch = writeBatch(customDb)
+    notificationIds.forEach((id) => {
+      batch.update(doc(customDb, 'notifications', id), { read: true })
+    })
+    await batch.commit()
+  } catch (err) {
+    console.warn('Batch mark all read failed, attempting individual updates:', err)
+    await Promise.allSettled(
+      notificationIds.map((id) =>
+        updateDoc(doc(customDb, 'notifications', id), { read: true })
+      )
+    )
+  }
 }
 
 let messagingPromise = null

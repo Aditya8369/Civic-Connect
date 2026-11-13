@@ -85,6 +85,16 @@ export function Navbar({ onMenuClick }) {
     navigate(user?.role === 'admin' ? '/admin/notifications' : '/notifications')
   }
 
+  const handleOptimisticMarkAllAsRead = () => {
+    setRecentNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+  }
+
+  const handleOptimisticToggleRead = (id, newStatus) => {
+    setRecentNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: newStatus } : n))
+    )
+  }
+
   const handleNotificationItemClick = (n) => {
     if (!n.issueId) {
       handleBellClick()
@@ -128,6 +138,8 @@ export function Navbar({ onMenuClick }) {
         notifications={recentNotifications}
         onNotificationClick={handleNotificationItemClick}
         onViewAll={handleBellClick}
+        onMarkAllAsRead={handleOptimisticMarkAllAsRead}
+        onToggleRead={handleOptimisticToggleRead}
         permissionStatus={permissionStatus}
         onRequestPush={handleEnablePush}
         requestingPush={requestingPush}

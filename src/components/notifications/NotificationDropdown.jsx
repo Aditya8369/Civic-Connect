@@ -71,6 +71,8 @@ export function NotificationDropdown({
   notifications = [],
   onNotificationClick,
   onViewAll,
+  onMarkAllAsRead,
+  onToggleRead,
   permissionStatus,
   onRequestPush,
   requestingPush = false,
@@ -83,7 +85,7 @@ export function NotificationDropdown({
   const [localNotifications, setLocalNotifications] = useState(notifications)
   const [isUpdating, setIsUpdating] = useState(false)
 
-  // Sync external notifications when passed, preserving optimistic read overrides if pending
+  // Sync external notifications when passed
   useEffect(() => {
     setLocalNotifications(notifications)
   }, [notifications])
@@ -107,15 +109,24 @@ export function NotificationDropdown({
   }, [localNotifications, activeTab])
 
   // 1-Click "Mark all as read" with immediate optimistic UI update
-  const handleMarkAllAsRead = async () => {
+  const handleMarkAllAsRead = async (e) => {
+    e?.preventDefault?.()
+    e?.stopPropagation?.()
+
+    if (isUpdating) return
+
     const unreadItems = localNotifications.filter((n) => !n.read)
-    if (unreadItems.length === 0 || isUpdating) return
+    if (unreadItems.length === 0) {
+      toast('All notifications are already marked as read', { id: 'mark-all-read', icon: '✅' })
+      return
+    }
 
     const previousState = [...localNotifications]
     const unreadIds = unreadItems.map((n) => n.id)
 
     // Immediate optimistic UI update
     setLocalNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+    onMarkAllAsRead?.()
     setIsUpdating(true)
 
     try {
@@ -133,7 +144,8 @@ export function NotificationDropdown({
 
   // Interactive toggle mark-as-read for single item with immediate optimistic UI update
   const handleToggleRead = async (notification, e) => {
-    e?.stopPropagation()
+    e?.preventDefault?.()
+    e?.stopPropagation?.()
     const targetId = notification.id
     const targetStatus = !notification.read
 
@@ -143,6 +155,7 @@ export function NotificationDropdown({
     setLocalNotifications((prev) =>
       prev.map((n) => (n.id === targetId ? { ...n, read: targetStatus } : n))
     )
+    onToggleRead?.(targetId, targetStatus)
 
     try {
       await markNotificationAsRead(targetId, targetStatus)
@@ -216,9 +229,10 @@ export function NotificationDropdown({
             <Button
               variant="ghost"
               size="sm"
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={handleMarkAllAsRead}
-              disabled={unreadCount === 0 || isUpdating}
-              className="text-xs h-7 px-2 text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 disabled:opacity-40 transition-colors"
+              disabled={isUpdating}
+              className="text-xs h-7 px-2 text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 disabled:opacity-40 transition-colors cursor-pointer"
             >
               <CheckCheck className="h-3.5 w-3.5 mr-1" />
               Mark all as read
@@ -239,8 +253,12 @@ export function NotificationDropdown({
                   key={tab.id}
                   role="tab"
                   aria-selected={isSelected}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-all duration-150 active:scale-95 ${
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setActiveTab(tab.id)
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-all duration-150 active:scale-95 cursor-pointer ${
                     isSelected
                       ? 'bg-gray-900 text-white shadow-xs dark:bg-gray-100 dark:text-gray-900'
                       : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/60'
@@ -278,6 +296,7 @@ export function NotificationDropdown({
                 </p>
                 <Button
                   size="sm"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={onRequestPush}
                   disabled={requestingPush}
                   className="mt-2 h-7 text-[11px] w-full"
@@ -314,6 +333,7 @@ export function NotificationDropdown({
               return (
                 <div
                   key={n.id}
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => handleItemClick(n)}
                   role="button"
                   tabIndex={0}
@@ -367,6 +387,7 @@ export function NotificationDropdown({
                     type="button"
                     title={n.read ? 'Mark as unread' : 'Mark as read'}
                     aria-label={n.read ? 'Mark as unread' : 'Mark as read'}
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => handleToggleRead(n, e)}
                     className="shrink-0 p-1 rounded-full text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-950/40 transition-transform active:scale-90"
                   >
@@ -390,6 +411,7 @@ export function NotificationDropdown({
           <Button
             variant="ghost"
             size="sm"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={onViewAll}
             className="text-xs w-full text-gray-600 dark:text-gray-300 h-7 hover:text-primary-600 dark:hover:text-primary-400"
           >
