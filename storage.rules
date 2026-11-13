@@ -1,0 +1,36 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Complaint photo attachments
+    match /complaint-photos/{complaintId}/{fileName} {
+      allow read: if request.auth != null;
+
+      allow create, update: if request.auth != null
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|jpg|png)');
+
+      allow delete: if request.auth != null;
+    }
+
+    // Complaint voice recordings
+    match /complaint-audio/{complaintId}/{fileName} {
+      allow read: if request.auth != null;
+
+      allow create, update: if request.auth != null
+        && request.resource.size > 0
+        && request.resource.contentType.matches(
+          'audio/(webm|ogg|mp4|wav|x-wav|mpeg|aac)'
+        );
+
+      allow delete: if request.auth != null;
+    }
+
+    // Deny access to every other storage path
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

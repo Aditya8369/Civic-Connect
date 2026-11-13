@@ -33,3 +33,7 @@ dist-ssr
 
 # Lighthouse CI reports
 .lighthouseci/
+
+# Firebase credentials and safe environment template
+serviceAccountKey.json
+!.env.example
