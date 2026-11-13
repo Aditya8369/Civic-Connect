@@ -179,3 +179,89 @@ Every contribution, whether it's a bug fix, a new feature, documentation improve
 We appreciate your time and effort in building a more transparent and connected civic ecosystem.
 
 **Happy Coding! 🚀**
+
+---
+
+## Firebase Emulator Setup
+
+Civic-Connect uses the Firebase Emulator Suite for local development and testing. This allows contributors to work with Authentication, Firestore, Cloud Functions, and Cloud Storage without accessing production Firebase services.
+
+### Prerequisites
+
+- Node.js 22
+- Java Development Kit (JDK) 21
+- npm
+
+### 1. Install Dependencies
+
+From the project root, run:
+
+```bash
+npm install
+```
+
+The postinstall script automatically creates a local `.env` file from `.env.example` if one does not already exist.
+
+Ensure that `VITE_USE_EMULATORS=true` is set in your `.env` file.
+
+### 2. Start Firebase Emulators
+
+Open a terminal in the project root and run:
+
+```bash
+npm run emulators:start
+```
+
+The following services will be available:
+
+| Service | Local URL |
+|---|---|
+| Emulator UI | http://127.0.0.1:4000 |
+| Authentication | http://127.0.0.1:9099 |
+| Firestore | http://127.0.0.1:8080 |
+| Cloud Functions | http://127.0.0.1:5001 |
+| Cloud Storage | http://127.0.0.1:9199 |
+
+Keep this terminal running while using the emulators.
+
+### 3. Seed Demo Data
+
+Open a second terminal in the project root and run:
+
+```bash
+npm run emulators:seed
+```
+
+This command creates three demo Authentication accounts, ten municipal complaints, complaint timeline events, and notifications in the local emulators.
+
+The seed script only permits demo Firebase project IDs and local emulator hosts.
+
+### 4. Run the Application
+
+Open another terminal and run:
+
+```bash
+npm run dev
+```
+
+Open http://localhost:5173 in your browser.
+
+### 5. Default Test Credentials
+
+All demo accounts use the following password:
+
+`CivicConnect123!`
+
+| Role | Email |
+|---|---|
+| Admin | admin@civicconnect.dev |
+| Department Officer | officer@civicconnect.dev |
+| Citizen | citizen@civicconnect.dev |
+
+These credentials are intended for local emulator testing only. Never use them in a production environment.
+
+### 6. Stop the Emulators
+
+Press `Ctrl + C` in the terminal running the Firebase Emulator Suite.
+
+**Important:** Do not commit your local `.env` file, private credentials, or production service account keys.

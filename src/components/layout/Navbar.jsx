@@ -38,6 +38,7 @@ const icons = {
 export function Navbar({ onMenuClick }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const { openSearch } = useSpotlightSearch()
 
   const [unreadCount, setUnreadCount] = useState(0)
   const [recentNotifications, setRecentNotifications] = useState([])

@@ -14,6 +14,13 @@ jobs:
     name: Lint, Build & Lighthouse CI
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      VITE_FIREBASE_API_KEY: AIzaSyA00000000000000000000000000000000
+      VITE_FIREBASE_AUTH_DOMAIN: localhost
+      VITE_FIREBASE_PROJECT_ID: civicconnect-ci
+      VITE_FIREBASE_STORAGE_BUCKET: civicconnect-ci.appspot.com
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
+      VITE_FIREBASE_APP_ID: "1:000000000000:web:0000000000000000000000"
 
     steps:
       - uses: actions/checkout@v4
@@ -34,13 +41,6 @@ jobs:
 
       - name: Build application
         run: npm run build
-        env:
-          VITE_FIREBASE_API_KEY: ci-placeholder
-          VITE_FIREBASE_AUTH_DOMAIN: localhost
-          VITE_FIREBASE_PROJECT_ID: civicconnect-ci
-          VITE_FIREBASE_STORAGE_BUCKET: civicconnect-ci.appspot.com
-          VITE_FIREBASE_MESSAGING_SENDER_ID: "000000000000"
-          VITE_FIREBASE_APP_ID: "1:000000000000:web:0000000000000000000000"
 
       - name: Report bundle size
         run: npm run report:bundle-size
