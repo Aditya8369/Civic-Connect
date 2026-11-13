@@ -175,6 +175,39 @@ service cloud.firestore {
     match /counters/{counterId} {
       allow read, write: if isAuthenticated();
     }
+
+    match /leaderboard/{userId} {
+      function isValidLeaderboardEntry() {
+        let data = request.resource.data;
+        let allowedKeys = [
+          'uid', 'name', 'displayName', 'monthlyScore',
+          'allTimeScore', 'badgesCount', 'reportsCount', 'level', 'updatedAt'
+        ];
+        return data.keys().hasOnly(allowedKeys) &&
+               data.uid == userId &&
+               data.get('name', '') is string &&
+               data.get('name', '').size() <= 100 &&
+               data.get('displayName', '') is string &&
+               data.get('displayName', '').size() <= 100 &&
+               data.get('monthlyScore', 0) is number &&
+               data.get('monthlyScore', 0) >= 0 &&
+               data.get('allTimeScore', 0) is number &&
+               data.get('allTimeScore', 0) >= 0 &&
+               data.get('badgesCount', 0) is number &&
+               data.get('badgesCount', 0) >= 0 &&
+               data.get('reportsCount', 0) is number &&
+               data.get('reportsCount', 0) >= 0 &&
+               data.get('level', 1) is number &&
+               data.get('level', 1) >= 1 &&
+               data.get('updatedAt', null) == request.time;
+      }
+
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() &&
+                            (request.auth.uid == userId || isAdmin()) &&
+                            isValidLeaderboardEntry();
+      allow delete: if isAdmin();
+    }
   }
 }
 
