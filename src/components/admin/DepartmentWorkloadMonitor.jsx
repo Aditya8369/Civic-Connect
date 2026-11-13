@@ -2,8 +2,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DEPARTMENT_WORKLOAD_THRESHOLD, getDepartmentWorkload } from '@/utils/departmentWorkload'
 
-export function DepartmentWorkloadMonitor({ complaints = [], loading = false }) {
-  const workload = getDepartmentWorkload(complaints)
+// `workload` (rows of { department, count, isOverCapacity }) can be supplied precomputed,
+// e.g. from server-side counts; otherwise it is derived from `complaints`.
+export function DepartmentWorkloadMonitor({ complaints = [], workload: providedWorkload, loading = false }) {
+  const workload = providedWorkload ?? getDepartmentWorkload(complaints)
   const maxCount = Math.max(...workload.map(({ count }) => count), 1)
 
   return (
