@@ -61,21 +61,82 @@ service cloud.firestore {
                request.resource.data.get('updatedAt', null) == request.time;
       }
 
-      allow read: if isAuthenticated() &&
-                  (resource.data.reportedBy == request.auth.uid || isAdmin());
+      function isCitizenUpvote() {
+        let diff = request.resource.data.diff(resource.data);
+        let currentCount = resource.data.get('upvotesCount', 0);
+        let newCount = request.resource.data.get('upvotesCount', 0);
+        let prevUpvotedBy = resource.data.get('upvotedBy', []);
+        let nextUpvotedBy = request.resource.data.get('upvotedBy', []);
+
+        return diff.affectedKeys().hasOnly(['upvotedBy', 'upvotesCount', 'updatedAt']) &&
+               request.resource.data.reportedBy == resource.data.reportedBy &&
+               request.resource.data.status == resource.data.status &&
+               newCount is int && newCount >= 0 &&
+               (
+                 // Adding an upvote:
+                 (newCount == currentCount + 1 &&
+                  !(request.auth.uid in prevUpvotedBy) &&
+                  request.auth.uid in nextUpvotedBy) ||
+                 // Removing an upvote:
+                 (newCount == (currentCount > 0 ? currentCount - 1 : 0) &&
+                  request.auth.uid in prevUpvotedBy &&
+                  !(request.auth.uid in nextUpvotedBy))
+               );
+      }
+
+      function isCitizenEndorsement() {
+        let diff = request.resource.data.diff(resource.data);
+        let currentCount = resource.data.get('endorsementCount', 0);
+        let newCount = request.resource.data.get('endorsementCount', 0);
+        let prevEndorsedBy = resource.data.get('endorsedBy', []);
+        let nextEndorsedBy = request.resource.data.get('endorsedBy', []);
+
+        return diff.affectedKeys().hasOnly(['endorsedBy', 'endorsementCount', 'updatedAt']) &&
+               request.resource.data.reportedBy == resource.data.reportedBy &&
+               request.resource.data.status == resource.data.status &&
+               newCount is int && newCount >= 0 &&
+               newCount == currentCount + 1 &&
+               !(request.auth.uid in prevEndorsedBy) &&
+               request.auth.uid in nextEndorsedBy;
+      }
+
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated() &&
                     request.resource.data.reportedBy == request.auth.uid &&
                     request.resource.data.status == 'Pending';
-      allow update: if (isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
+      allow update: if (isAuthenticated() && (
+                      (resource.data.reportedBy == request.auth.uid &&
                         ((resource.data.status == 'Pending' &&
-                          request.resource.data.status == 'Pending') || isCitizenAppeal())) || isAdmin();
+                          request.resource.data.status == 'Pending') || isCitizenAppeal())) ||
+                      isCitizenUpvote() ||
+                      isCitizenEndorsement()
+                    )) || isAdmin();
       allow delete: if isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                     resource.data.status == 'Pending';
 
+      // Community discussion comments sub-collection
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() &&
+                      request.resource.data.authorId == request.auth.uid &&
+                      request.resource.data.text is string &&
+                      request.resource.data.text.size() > 0 &&
+                      request.resource.data.text.size() <= 1000 &&
+                      request.resource.data.createdAt == request.time;
+        allow update: if isAuthenticated() &&
+                      resource.data.authorId == request.auth.uid &&
+                      request.resource.data.authorId == resource.data.authorId &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'updatedAt']) &&
+                      request.resource.data.text is string &&
+                      request.resource.data.text.size() > 0 &&
+                      request.resource.data.text.size() <= 1000;
+        allow delete: if isAuthenticated() &&
+                      (resource.data.authorId == request.auth.uid || isAdmin());
+      }
+
       // Immutable event audit trail sub-collection
       match /events/{eventId} {
-        allow read: if isAuthenticated() &&
-                    (get(/databases/$(database)/documents/issues/$(issueId)).data.reportedBy == request.auth.uid || isAdmin());
+        allow read: if isAuthenticated();
         allow create: if isAuthenticated();
         allow update, delete: if false;
       }
