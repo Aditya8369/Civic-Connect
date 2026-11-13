@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest'
 import { AdminComplaintDetailsPage } from '@/pages/admin/AdminComplaintDetailsPage'
 import { ComplaintDetailsPage } from '@/pages/citizen/ComplaintDetailsPage'
@@ -40,7 +41,7 @@ vi.mock('react-router-dom', () => ({
 }))
 
 vi.mock('@/hooks/useAuth', () => ({
-  useAuth: () => ({ user: { uid: 'admin-1' } }),
+  useAuth: () => ({ user: runtime.auth?.currentUser || { uid: 'admin-1' } }),
 }))
 
 vi.mock('@/firebase/services', () => ({
@@ -276,3 +277,25 @@ it('citizen view displays consolidated banner when ticket is Merged - Duplicate'
   expect(treeText).toContain('Consolidated with ticket')
   expect(treeText).toContain('CMP-2026-0001')
 })
+
+it('citizen view displays primary consolidated ticket banner when viewer is a consolidated reporter', () => {
+  runtime.auth.currentUser = { uid: 'citizen-child' }
+  const instance = mount(ComplaintDetailsPage)
+  runtime.listeners.at(-1)({
+    id: 'ticket-parent',
+    exists: () => true,
+    data: () => ({
+      ...runtime.candidates[0],
+      reportedBy: 'citizen-parent',
+      mergedReporters: ['citizen-child'],
+      mergedChildIds: ['ticket-child'],
+      mergedChildComplaintIds: ['CMP-2026-0002'],
+    }),
+  })
+
+  const tree = instance.render()
+  const treeText = text(tree)
+  expect(treeText).toContain('Primary Consolidated Ticket')
+  expect(treeText).toContain('Your reported issue was consolidated into this primary grievance.')
+})
+

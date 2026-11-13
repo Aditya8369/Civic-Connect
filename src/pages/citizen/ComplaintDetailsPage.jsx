@@ -171,7 +171,14 @@ export function ComplaintDetailsPage() {
 
   const lastUpdated = complaint.updatedAt?.toDate?.() || complaint.createdAt?.toDate?.()
   const slaTarget = getSlaTargetDate(complaint.createdAt, complaint.category, complaint.department)
-  const canReopen = canReopenComplaint(complaint)
+  const isOwner = Boolean(user?.uid && complaint?.reportedBy === user?.uid)
+  const isMergedViewer = Boolean(
+    user?.uid &&
+    !isOwner &&
+    Array.isArray(complaint?.mergedReporters) &&
+    complaint.mergedReporters.includes(user?.uid)
+  )
+  const canReopen = isOwner && canReopenComplaint(complaint)
 
   const timelineEvents = (events && events.length > 0)
     ? events.map((evt) => ({
@@ -316,6 +323,19 @@ export function ComplaintDetailsPage() {
                         </div>
                         <p className="mt-1 text-xs text-purple-700 dark:text-purple-300">
                           This issue was merged with an existing report and is being resolved jointly.
+                        </p>
+                      </div>
+                    )}
+                    {isMergedViewer && (
+                      <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm dark:border-purple-900/50 dark:bg-purple-900/20">
+                        <div className="flex items-center gap-2">
+                          <GitMerge className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                          <span className="font-medium text-purple-900 dark:text-purple-200">
+                            Primary Consolidated Ticket
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-purple-700 dark:text-purple-300">
+                          Your reported issue was consolidated into this primary grievance. Updates and resolution progress on this ticket apply jointly to all merged reports.
                         </p>
                       </div>
                     )}
