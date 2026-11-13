@@ -5,9 +5,12 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import { SpotlightProvider } from '@/contexts/SpotlightContext'
 import { AppRoutes } from '@/routes/AppRoutes'
 import { Toaster } from 'react-hot-toast'
+import KeyboardShortcutsModal from '@/components/common/KeyboardShortcutsModal'
+
 
 import OfflineBanner from '@/components/common/OfflineBanner'
 import OfflineSyncManager from '@/components/common/OfflineSyncManager'
+
 
 function App() {
   return (
@@ -18,6 +21,7 @@ function App() {
             <SpotlightProvider>
               <OfflineBanner />
               <OfflineSyncManager />
+              <KeyboardShortcutsModal />
 
               <AppRoutes />
 
