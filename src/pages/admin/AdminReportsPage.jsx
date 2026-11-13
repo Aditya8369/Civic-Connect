@@ -21,8 +21,9 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SlaBadge } from '@/components/common/SlaBadge'
+import { SlaEscalationBanner } from '@/components/admin/SlaEscalationBanner'
 import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
-import { isSlaBreached } from '@/utils/sla'
+import { getSlaTargetDate, isSlaBreached } from '@/utils/sla'
 import { BulkActionsToolbar } from '@/components/admin/BulkActionsToolbar'
 
 const statusVariant = {
@@ -52,7 +53,6 @@ const allCategories = [
 
 const allDepartments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
 
-
 function HighlightMatch({ text, query }) {
   if (!text) return null
   if (!query?.trim()) return text
@@ -77,6 +77,7 @@ function HighlightMatch({ text, query }) {
     </>
   )
 }
+
 export function AdminReportsPage() {
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
@@ -87,17 +88,19 @@ export function AdminReportsPage() {
   const [exportingCsv, setExportingCsv] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-const [showSuggestions, setShowSuggestions] = useState(false)
+  const [showSuggestions, setShowSuggestions] = useState(false)
 
-useEffect(() => {
-  const timer = setTimeout(() => {
-    setDebouncedSearch(searchQuery.trim())
-  }, 200)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim())
+    }, 200)
 
-  return () => clearTimeout(timer)
-}, [searchQuery])
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
   const [statusFilter, setStatusFilter] = useState('all')
   const [slaFilter, setSlaFilter] = useState('all')
+  const [showUrgentOnly, setShowUrgentOnly] = useState(false)
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
@@ -223,10 +226,16 @@ useEffect(() => {
     setPageIndex(pageIndex - 1)
   }
 
-  // Search and SLA cannot be expressed as Firestore constraints (substring match across
-  // fields / a computed deadline), so they narrow the rows of the loaded page client-side.
+  // Search, SLA, and Urgent filters cannot be expressed as Firestore constraints,
+  // so they narrow the rows of the loaded page client-side.
   const matchesClientFilters = (c, users) => {
     if (slaFilter === 'breached' && !isSlaBreached(c)) return false
+    if (showUrgentOnly) {
+      const targetDate = getSlaTargetDate(c.createdAt, c.category, c.department)
+      if (!targetDate) return false
+      const remainingMs = targetDate.getTime() - Date.now()
+      if (remainingMs > 2 * 60 * 60 * 1000) return false
+    }
     return matchesComplaintSearch(c, debouncedSearch, users[c.reportedBy])
   }
 
@@ -322,19 +331,21 @@ useEffect(() => {
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
     )
   }
-const suggestions = searchQuery.trim()
-  ? complaints
-      .filter((c) => {
-        const q = searchQuery.trim().toLowerCase()
 
-        return (
-          getDisplayId(c).toLowerCase().includes(q) ||
-          (c.title || '').toLowerCase().includes(q) ||
-          (c.category || '').toLowerCase().includes(q)
-        )
-      })
-      .slice(0, 5)
-  : []
+  const suggestions = searchQuery.trim()
+    ? complaints
+        .filter((c) => {
+          const q = searchQuery.trim().toLowerCase()
+
+          return (
+            getDisplayId(c).toLowerCase().includes(q) ||
+            (c.title || '').toLowerCase().includes(q) ||
+            (c.category || '').toLowerCase().includes(q)
+          )
+        })
+        .slice(0, 5)
+    : []
+
   return (
     <div>
       <PageHeader
@@ -362,6 +373,10 @@ const suggestions = searchQuery.trim()
             </Button>
           </div>
         }
+      />
+      <SlaEscalationBanner
+        complaints={complaints}
+        onShowUrgentTickets={() => setShowUrgentOnly(true)}
       />
 
       <div className="flex flex-wrap gap-3 mb-6">
@@ -540,7 +555,7 @@ const suggestions = searchQuery.trim()
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Flag className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
             <p className="text-sm font-medium text-gray-900 dark:text-white">
-              {searchQuery || statusFilter !== 'all' || departmentFilter !== 'all' || categoryFilter !== 'all' || slaFilter !== 'all' || dateFrom || dateTo
+              {searchQuery || statusFilter !== 'all' || departmentFilter !== 'all' || categoryFilter !== 'all' || slaFilter !== 'all' || showUrgentOnly || dateFrom || dateTo
                 ? 'No matching reports found'
                 : 'No reports found'}
             </p>
@@ -578,9 +593,9 @@ const suggestions = searchQuery.trim()
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-mono text-primary-600 dark:text-primary-400 font-semibold mb-1">
                           <HighlightMatch
-                         text={getDisplayId(complaint)}
-                                    query={debouncedSearch}
-                                />
+                            text={getDisplayId(complaint)}
+                            query={debouncedSearch}
+                          />
                         </p>
                         <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">
                           <HighlightMatch text={complaint.title} query={debouncedSearch} />
@@ -623,7 +638,7 @@ const suggestions = searchQuery.trim()
           <p className="text-xs text-gray-500 dark:text-gray-400" aria-live="polite">
             Page {pageIndex + 1}
             {!loading && ` · ${complaints.length} report${complaints.length === 1 ? '' : 's'}`}
-            {(debouncedSearch || slaFilter !== 'all') &&
+            {(debouncedSearch || slaFilter !== 'all' || showUrgentOnly) &&
               ' · search and SLA filters apply to this page only'}
           </p>
           <div className="flex items-center gap-2">
