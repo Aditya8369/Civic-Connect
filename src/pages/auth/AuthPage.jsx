@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Flag, Eye, EyeOff, Loader2 } from 'lucide-react'
@@ -8,6 +8,10 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { useAuth } from '@/hooks/useAuth'
 import toast from 'react-hot-toast'
+import {
+  recordLoginFailure,
+  resetLoginProtection,
+} from '@/utils/loginProtection'
 
 export function AuthPage() {
   const { login, register, resetPassword } = useAuth()
@@ -21,10 +25,21 @@ export function AuthPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [failedAttempts, setFailedAttempts] = useState(0)
+  const [retrySeconds, setRetrySeconds] = useState(0)
+
+  useEffect(() => {
+    if (retrySeconds <= 0) return undefined
+    const timer = window.setTimeout(() => {
+      setRetrySeconds((remaining) => Math.max(0, remaining - 1))
+    }, 1_000)
+    return () => window.clearTimeout(timer)
+  }, [retrySeconds])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (submitting) return
+    if (mode === 'signin' && retrySeconds > 0) return
 
     if (mode === 'reset') {
       if (!email.trim()) {
@@ -72,6 +87,10 @@ export function AuthPage() {
     try {
       if (mode === 'signin') {
         const user = await login(email, password)
+        // A successful Firebase authentication clears the local failure history.
+        const resetState = resetLoginProtection()
+        setFailedAttempts(resetState.failedAttempts)
+        setRetrySeconds(resetState.retryDelayMs / 1_000)
         if (role === 'citizen' && user.role !== 'citizen') {
           toast.error('This account is not registered as a Citizen.')
           setSubmitting(false)
@@ -89,6 +108,11 @@ export function AuthPage() {
       }
     } catch (err) {
       if (err.code === 'auth/session-changed') return
+      if (mode === 'signin') {
+        const next = recordLoginFailure({ failedAttempts })
+        setFailedAttempts(next.failedAttempts)
+        setRetrySeconds(Math.ceil(next.retryDelayMs / 1_000))
+      }
       const msg =
         err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential'
           ? 'Invalid email or password'
@@ -282,7 +306,31 @@ export function AuthPage() {
                 </div>
               )}
 
-              <Button type="submit" className="w-full gap-2 h-11" disabled={submitting}>
+              {mode === 'signin' && failedAttempts >= 5 && (
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+                >
+                  <p className="font-semibold">Sign-in protection is active</p>
+                  <p className="mt-1">
+                    We detected {failedAttempts} unsuccessful sign-in attempts. For your security,
+                    please verify your credentials and wait for the retry timer before trying again.
+                  </p>
+                </div>
+              )}
+
+              {mode === 'signin' && retrySeconds > 0 && (
+                <p role="status" aria-live="polite" className="text-center text-sm text-amber-700 dark:text-amber-300">
+                  Please wait {retrySeconds}s before trying to sign in again.
+                </p>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full gap-2 h-11"
+                disabled={submitting || (mode === 'signin' && retrySeconds > 0)}
+              >
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
                 {mode === 'signin'
                   ? 'Sign In'
