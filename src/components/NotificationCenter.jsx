@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { getPushPermissionStatus, requestPushPermission } from '@/firebase/notifications'
+import { formatRelativeTime } from '@/utils/relativeTime'
 import { EmptyState } from '@/components/common/EmptyState'
 import toast from 'react-hot-toast'
 

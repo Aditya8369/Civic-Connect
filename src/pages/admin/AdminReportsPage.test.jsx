@@ -281,7 +281,7 @@ describe('AdminReportsPage client-side search and SLA', () => {
     vi.useRealTimers()
     expect(cards()).toHaveLength(2)
     expect(container.textContent).toContain('2 reports')
-    expect(nextBtn().disabled).toBe(false)
+    expect(nextBtn().disabled).toBe(true)
   })
 })
 

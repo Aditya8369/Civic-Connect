@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, MapPin, CalendarDays, FileText, ClipboardCheck, AlertTriangle, Camera, ZoomIn, ZoomOut, ExternalLink, GitMerge, Printer } from 'lucide-react'
-import { doc, getDoc, collection, onSnapshot, serverTimestamp, query, where, getDocs, limit } from 'firebase/firestore'
+import { doc, getDoc, collection, onSnapshot, serverTimestamp } from 'firebase/firestore'
+import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
@@ -39,22 +40,6 @@ const statusVariant = {
 }
 
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
-
-async function resolveCitizenComplaintDocumentId(idOrTrackingCode) {
-  if (!idOrTrackingCode) return idOrTrackingCode
-  const directSnap = await getDoc(doc(db, 'issues', idOrTrackingCode))
-  if (directSnap.exists()) return directSnap.id
-
-  const q = query(
-    collection(db, 'issues'),
-    where('complaintId', '==', idOrTrackingCode),
-    limit(1)
-  )
-  const querySnap = await getDocs(q)
-  if (!querySnap.empty) return querySnap.docs[0].id
-
-  return idOrTrackingCode
-}
 
 function canReopenComplaint(complaint) {
   const resolvedAt = complaint.resolvedAt?.toDate?.()
@@ -156,8 +141,14 @@ export function ComplaintDetailsPage() {
 
     const loadComplaint = async () => {
       try {
-        const documentId = await resolveCitizenComplaintDocumentId(id)
+        const documentId = await resolveCitizenComplaintDocumentId(id, user?.uid)
         if (cancelled) return
+
+        if (!documentId) {
+          setNotFound(true)
+          setLoading(false)
+          return
+        }
 
         // Replace public tracking IDs with the actual Firestore document ID.
         if (documentId !== id) {

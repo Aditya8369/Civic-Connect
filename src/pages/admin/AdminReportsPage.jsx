@@ -198,14 +198,15 @@ export function AdminReportsPage() {
     setLoadError(false)
     setPageIndex(0)
 
-    fetchAllReportsForSearch(serverFilters)
+    Promise.resolve(fetchAllReportsForSearch(serverFilters))
       .then(async (docs) => {
         if (cancelled) return
-        setComplaints(docs)
+        const safeDocs = Array.isArray(docs) ? docs : []
+        setComplaints(safeDocs)
         setHasMore(false)
         setLoadError(false)
         setLoading(false)
-        await fetchUsers(docs)
+        await fetchUsers(safeDocs)
       })
       .catch((err) => {
         if (cancelled) return
