@@ -1,3 +1,4 @@
+ feat/municipal-accessibility-themes
 
 import { useState, useEffect } from 'react'
 import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
@@ -31,7 +32,8 @@ function sortByCreatedDesc(list) {
     return tb - ta
   })
 }
-
+
+
 
 const icons = {
   new_complaint: '🔔',
@@ -287,3 +289,327 @@ export function NotificationCenter({ className = '' }) {
 export default NotificationCenter
 
 
+
+import { useState, useEffect } from 'react'
+import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
+import { useNavigate } from 'react-router-dom'
+import { BellRing, CheckCircle2, AlertCircle } from 'lucide-react'
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  doc,
+  writeBatch,
+} from 'firebase/firestore'
+import { db } from '@/firebase/services'
+import { useAuth } from '@/hooks/useAuth'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import {
+  getPushPermissionStatus,
+  requestPushPermission,
+} from '@/firebase/notifications'
+import { EmptyState } from '@/components/common/EmptyState'
+import toast from 'react-hot-toast'
+import { useLanguage } from '@/contexts/LanguageContext'
+
+function sortByCreatedDesc(list) {
+  return [...list].sort((a, b) => {
+    const ta = a.createdAt?.toDate?.()?.getTime() || 0
+    const tb = b.createdAt?.toDate?.()?.getTime() || 0
+    return tb - ta
+  })
+}
+
+function formatRelativeTime(timestamp, language) {
+  if (!timestamp?.toDate) return ''
+
+  const date = timestamp.toDate()
+  const seconds = Math.round((date.getTime() - Date.now()) / 1000)
+
+  const formatter = new Intl.RelativeTimeFormat(
+    language === 'hi' ? 'hi-IN' : 'en',
+    { numeric: 'auto' }
+  )
+
+  if (Math.abs(seconds) < 60) {
+    return formatter.format(seconds, 'second')
+  }
+
+  const minutes = Math.round(seconds / 60)
+  if (Math.abs(minutes) < 60) {
+    return formatter.format(minutes, 'minute')
+  }
+
+  const hours = Math.round(minutes / 60)
+  if (Math.abs(hours) < 24) {
+    return formatter.format(hours, 'hour')
+  }
+
+  const days = Math.round(hours / 24)
+  if (Math.abs(days) < 30) {
+    return formatter.format(days, 'day')
+  }
+
+  const months = Math.round(days / 30)
+  if (Math.abs(months) < 12) {
+    return formatter.format(months, 'month')
+  }
+
+  return formatter.format(Math.round(days / 365), 'year')
+}
+
+const icons = {
+  new_complaint: '🔔',
+  status_update: '✅',
+  department_assigned: '🏢',
+  complaint_merged: '🔀',
+}
+
+export function NotificationCenter({ className = '' }) {
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const { t, language } = useLanguage()
+
+  const [notifications, setNotifications] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [permissionStatus, setPermissionStatus] = useState(() =>
+    getPushPermissionStatus()
+  )
+  const [requestingPush, setRequestingPush] = useState(false)
+
+  const [dismissBanner, setDismissBanner] = useState(() => {
+    try {
+      return localStorage.getItem('civic_push_prompt_dismissed') === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  const handleEnablePush = async () => {
+    setRequestingPush(true)
+
+    try {
+      const res = await requestPushPermission(user?.uid)
+      setPermissionStatus(res.status)
+
+      if (res.status === 'granted') {
+        toast.success(t('notificationPushEnabled'))
+      } else if (res.status === 'denied') {
+        toast(t('notificationPushNotEnabled'), { icon: 'ℹ️' })
+      }
+    } catch (err) {
+      console.error('Error enabling push notifications:', err)
+      toast.error(t('notificationPushError'))
+    } finally {
+      setRequestingPush(false)
+    }
+  }
+
+  const handleDismissBanner = () => {
+    setDismissBanner(true)
+
+    try {
+      localStorage.setItem('civic_push_prompt_dismissed', 'true')
+    } catch {
+      // Ignore local storage error
+    }
+  }
+
+  const handleNotificationClick = async (n) => {
+    if (!n.issueId) return
+
+    try {
+      const documentId = await resolveCitizenComplaintDocumentId(
+        n.issueId,
+        user?.uid
+      )
+
+      if (!documentId) {
+        toast.error(t('notificationComplaintNotFound'))
+        return
+      }
+
+      navigate(`/complaints/${documentId}`)
+    } catch (err) {
+      console.error('Error navigating to complaint:', err)
+      toast.error(t('notificationComplaintOpenError'))
+    }
+  }
+
+  useEffect(() => {
+    if (!user) {
+      setLoading(false)
+      return
+    }
+
+    const q = query(
+      collection(db, 'notifications'),
+      where('recipientUid', '==', user.uid)
+    )
+
+    const unsub = onSnapshot(
+      q,
+      (snapshot) => {
+        const list = snapshot.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        }))
+
+        setNotifications(sortByCreatedDesc(list))
+        setLoading(false)
+
+        const unread = list.filter((n) => !n.read)
+
+        if (unread.length > 0) {
+          const batch = writeBatch(db)
+
+          unread.forEach((n) => {
+            batch.update(doc(db, 'notifications', n.id), {
+              read: true,
+            })
+          })
+
+          batch.commit().catch((err) =>
+            console.error('batch commit error:', err)
+          )
+        }
+      },
+      (error) => {
+        console.error('CitizenNotifications Firestore error:', error)
+        setLoading(false)
+      }
+    )
+
+    return unsub
+  }, [user])
+
+  return (
+    <div className={className}>
+      {permissionStatus === 'default' && !dismissBanner && (
+        <Card className="mb-6 border-primary-200 bg-primary-50/40 dark:border-primary-900/50 dark:bg-primary-950/20">
+          <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-primary-100 p-2 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300 shrink-0">
+                <BellRing className="h-5 w-5" />
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {t('notificationEnableBrowserPush')}
+                </p>
+
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                  {t('notificationPushDescription')}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+              <Button
+                size="sm"
+                onClick={handleEnablePush}
+                disabled={requestingPush}
+                className="h-8 text-xs"
+              >
+                {requestingPush
+                  ? t('notificationEnabling')
+                  : t('notificationEnable')}
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDismissBanner}
+                className="h-8 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                {t('notificationNotNow')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {permissionStatus === 'denied' && (
+        <div className="mb-6 flex items-center gap-2.5 rounded-lg border border-amber-200 bg-amber-50/50 px-3.5 py-2.5 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+          <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+
+          <span>{t('notificationPermissionBlocked')}</span>
+        </div>
+      )}
+
+      {permissionStatus === 'granted' && (
+        <div className="mb-6 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50/40 px-3.5 py-2 text-xs text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <span>{t('notificationPushActive')}</span>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <Card>
+          <CardContent className="flex items-center justify-center py-16">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent" />
+          </CardContent>
+        </Card>
+      ) : notifications.length === 0 ? (
+        <EmptyState
+          variant="notifications"
+          heading={t('notificationAllCaughtUp')}
+          description={t('notificationEmptyDescription')}
+        />
+      ) : (
+        <div className="space-y-3">
+          {notifications.map((n) => (
+            <div
+              key={n.id}
+              onClick={() => handleNotificationClick(n)}
+              className={`flex items-start gap-4 p-4 rounded-xl border transition-colors cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
+                !n.read
+                  ? 'bg-primary-50/50 dark:bg-primary-900/10 border-primary-200 dark:border-primary-800'
+                  : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800'
+              }`}
+            >
+              <span className="text-xl shrink-0 mt-0.5">
+                {icons[n.type] || '🔔'}
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <p
+                    className={`text-sm font-medium ${
+                      !n.read
+                        ? 'text-gray-900 dark:text-white'
+                        : 'text-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    {n.title}
+                  </p>
+
+                  <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0 whitespace-nowrap">
+                    {formatRelativeTime(n.createdAt, language)}
+                  </span>
+                </div>
+
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {n.message}
+                </p>
+
+                {n.issueId && (
+                  <p className="text-xs font-mono text-primary-600 dark:text-primary-400 mt-1">
+                    {n.issueId}
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default NotificationCenter
+ main

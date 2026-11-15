@@ -1,4 +1,3 @@
-
 import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
 import { useState, useEffect, useRef } from 'react'
 import { Menu, Bell, BellRing, Search } from 'lucide-react'
@@ -7,7 +6,6 @@ import { db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { useSpotlightSearch } from '@/contexts/SpotlightContext'
 import { ThemeToggle } from '@/components/common/ThemeToggle'
-import { NotificationDropdown } from '@/components/notifications/NotificationDropdown'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { useLanguage } from '@/contexts/LanguageContext'
@@ -191,7 +189,7 @@ export function Navbar({ onMenuClick }) {
     try {
       const documentId = await resolveCitizenComplaintDocumentId(
         notification.issueId,
-        user?.uid,
+        user?.uid
       )
 
       if (!documentId) {
@@ -306,6 +304,7 @@ export function Navbar({ onMenuClick }) {
         </button>
       </div>
 
+      {/* Notifications Dropdown */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -315,7 +314,6 @@ export function Navbar({ onMenuClick }) {
             aria-label={t('viewNotifications')}
           >
             <Bell className="h-5 w-5" />
-
             {unreadCount > 0 && (
               <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
                 {unreadCount > 9 ? '9+' : unreadCount}
@@ -436,6 +434,7 @@ export function Navbar({ onMenuClick }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* User Account Dropdown */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -443,9 +442,7 @@ export function Navbar({ onMenuClick }) {
             className="relative h-9 w-9 rounded-full p-0"
           >
             <Avatar className="h-9 w-9">
-              <AvatarFallback className="bg-primary-100 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
-                {initials}
-              </AvatarFallback>
+              <AvatarFallback>{initials}</AvatarFallback>
             </Avatar>
           </Button>
         </DropdownMenuTrigger>
@@ -474,9 +471,7 @@ export function Navbar({ onMenuClick }) {
           </DropdownMenuItem>
 
           {user?.role === 'admin' && (
-            <DropdownMenuItem
-              onClick={() => navigate('/admin/settings')}
-            >
+            <DropdownMenuItem onClick={() => navigate('/admin/settings')}>
               {t('settings')}
             </DropdownMenuItem>
           )}

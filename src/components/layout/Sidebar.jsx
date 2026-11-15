@@ -12,6 +12,7 @@ import {
   Settings,
   Flag,
   HelpCircle,
+  Megaphone,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/hooks/useAuth'

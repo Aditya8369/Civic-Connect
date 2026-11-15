@@ -32,6 +32,8 @@ vi.mock('@/utils/offlineQueue', () => ({
     if (runtime.cleanupError) throw runtime.cleanupError
     runtime.pending.delete(id)
   },
+  markComplaintSyncing: async () => true,
+  markComplaintPending: async () => true,
 }))
 vi.mock('firebase/firestore', () => ({
   doc: (ref, ...parts) => parts.length ? parts.join('/') : `${ref}/${++runtime.id}`,
@@ -226,3 +228,41 @@ it('preserves the queue item if the sign-in session changes before a transaction
   expect(runtime.store.read(receipt)).toBeUndefined()
   expect(runtime.pending.size).toBe(1)
 })
+
+it('uses Web Locks to prevent redundant multi-tab storage uploads and concurrent sync runs', async () => {
+  let activeLock = false
+  const requestMock = vi.fn(async (lockName, options, callback) => {
+    if (activeLock) {
+      // Simulate Web Locks { ifAvailable: true } returning null when lock is held by another tab
+      return await callback(null)
+    }
+    activeLock = true
+    try {
+      return await callback({ name: lockName })
+    } finally {
+      activeLock = false
+    }
+  })
+
+  vi.stubGlobal('navigator', {
+    onLine: true,
+    locks: { request: requestMock },
+  })
+
+  const photoFile = new File(['png-bytes'], 'concurrent-proof.png', { type: 'image/png' })
+  const photoEntry = { ...entry, photoFile, photoName: 'concurrent-proof.png', photoType: 'image/png' }
+  runtime.pending = new Map([[entry.localId, photoEntry]])
+
+  // Tab 1 and Tab 2 trigger sync concurrently upon network restoration
+  const tab1 = useOfflineSync()
+  const tab2 = useOfflineSync()
+
+  await Promise.all([tab1.syncComplaints(), tab2.syncComplaints()])
+
+  // Exactly one upload occurred, executed by the leader tab that acquired the lock
+  expect(runtime.uploadCalls).toHaveLength(1)
+  expect(runtime.uploadCalls[0].file.name).toBe('concurrent-proof.png')
+  expect(runtime.store.read(counter)).toEqual({ lastNumber: 1 })
+  expect(runtime.pending.size).toBe(0)
+})
+
