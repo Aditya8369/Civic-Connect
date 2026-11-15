@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export function getResolutionPhoto(complaint) {
   const photos =
@@ -27,6 +27,26 @@ export default function ResolutionProofSlider({
   onImageClick,
 }) {
   const [splitPosition, setSplitPosition] = useState(50)
+  const rangeRef = useRef(null)
+
+  // React's synthetic change event is skipped when a test or another script
+  // assigns `input.value` directly (the value tracker sees no change). Listening
+  // natively keeps the preview in sync in that case as well.
+  useEffect(() => {
+    const input = rangeRef.current
+    if (!input) return undefined
+
+    const handleNativeChange = (event) => {
+      setSplitPosition(Number(event.target.value))
+    }
+
+    input.addEventListener('input', handleNativeChange)
+    input.addEventListener('change', handleNativeChange)
+    return () => {
+      input.removeEventListener('input', handleNativeChange)
+      input.removeEventListener('change', handleNativeChange)
+    }
+  }, [beforePhoto, afterPhoto])
 
   if (!beforePhoto && !afterPhoto) return null
 
@@ -83,6 +103,7 @@ export default function ResolutionProofSlider({
         </span>
       </div>
       <input
+        ref={rangeRef}
         type="range"
         min="0"
         max="100"

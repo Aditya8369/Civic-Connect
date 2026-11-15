@@ -7,29 +7,43 @@ import { LanguageProvider } from '@/contexts/LanguageContext'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-const mocks = vi.hoisted(() => ({
-  onSnapshot: vi.fn(),
-  getDoc: vi.fn(),
-  getDocs: vi.fn(),
-  exportComplaintsToCSV: vi.fn(),
-  toast: { success: vi.fn(), error: vi.fn() },
-}))
+const mocks = vi.hoisted(() => {
+  const toast = vi.fn()
+  toast.success = vi.fn()
+  toast.error = vi.fn()
+
+  return {
+    subscribeToReportsPage: vi.fn(),
+    fetchAllReportsForExport: vi.fn(),
+    fetchAllReportsForSearch: vi.fn(),
+    toCsv: vi.fn(() => 'csv-content'),
+    downloadCsv: vi.fn(),
+    formatDateStamp: vi.fn(() => '2026-11-13'),
+    getDoc: vi.fn(),
+    toast,
+  }
+})
 
 vi.mock('@/firebase/services', () => ({ db: {} }))
 vi.mock('firebase/firestore', () => ({
-  collection: vi.fn(() => 'issues-collection'),
-  query: vi.fn((...args) => args),
-  orderBy: vi.fn(),
-  onSnapshot: mocks.onSnapshot,
   doc: vi.fn(),
   getDoc: mocks.getDoc,
-  getDocs: mocks.getDocs,
 }))
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }))
-vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { uid: 'admin-1' } }) }))
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({ user: { uid: 'admin-1' } }),
+}))
 vi.mock('react-hot-toast', () => ({ default: mocks.toast }))
-vi.mock('@/utils/csvExporter', () => ({
-  exportComplaintsToCSV: mocks.exportComplaintsToCSV,
+vi.mock('@/firebase/adminReportsQuery', () => ({
+  subscribeToReportsPage: mocks.subscribeToReportsPage,
+  fetchAllReportsForExport: mocks.fetchAllReportsForExport,
+  fetchAllReportsForSearch: mocks.fetchAllReportsForSearch,
+  REPORTS_PAGE_SIZE: 10,
+}))
+vi.mock('@/utils/csv', () => ({
+  toCsv: mocks.toCsv,
+  downloadCsv: mocks.downloadCsv,
+  formatDateStamp: mocks.formatDateStamp,
 }))
 vi.mock('@/components/admin/BulkActionsToolbar', () => ({
   BulkActionsToolbar: () => null,
@@ -39,7 +53,7 @@ import { AdminReportsPage } from './AdminReportsPage'
 
 const ts = (d) => ({ toDate: () => d })
 
-const DOCS = [
+const PAGE_DOCS = [
   {
     id: 'a',
     complaintId: 'CMP-2026-0001',
@@ -60,6 +74,10 @@ const DOCS = [
     address: 'Park St',
     createdAt: ts(new Date(2026, 9, 10, 10)),
   },
+]
+
+const EXPORT_DOCS = [
+  ...PAGE_DOCS,
   {
     id: 'c',
     complaintId: 'CMP-2026-0003',
@@ -72,26 +90,10 @@ const DOCS = [
   },
 ]
 
-function snapshotOf(docs) {
-  return {
-    empty: docs.length === 0,
-    metadata: { fromCache: false },
-    docs: docs.map(({ id, ...data }) => ({
-      id,
-      data: () => data,
-    })),
-  }
-}
-
 let container
 let root
 
-async function renderPage(docs = DOCS) {
-  mocks.onSnapshot.mockImplementation((_q, _opts, onNext) => {
-    onNext(snapshotOf(docs))
-    return () => {}
-  })
-
+async function renderPage() {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -106,36 +108,46 @@ async function renderPage(docs = DOCS) {
 }
 
 const exportButton = () =>
-  [...container.querySelectorAll('button')].find((b) =>
-    b.textContent.includes('Export CSV')
+  [...container.querySelectorAll('button')].find((button) =>
+    button.textContent.includes('Export to CSV')
   )
 
-async function setInput(el, value) {
+async function setInput(element, value) {
   const setter = Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
     'value'
   ).set
-
   await act(async () => {
-    setter.call(el, value)
-    el.dispatchEvent(new Event('input', { bubbles: true }))
+    setter.call(element, value)
+    element.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
 
-const exportedIds = () =>
-  mocks.exportComplaintsToCSV.mock.calls.at(-1)[0].map((c) => c.id)
+const exportedRows = () => mocks.toCsv.mock.calls.at(-1)?.[1]
 
 describe('AdminReportsPage - CSV export', () => {
   beforeEach(() => {
     localStorage.setItem('civic-connect-language', 'en')
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    mocks.exportComplaintsToCSV.mockReturnValue(0)
-    mocks.onSnapshot.mockReset()
-    mocks.getDocs.mockReset()
-    mocks.getDoc.mockReset()
-    mocks.toast.success.mockReset()
-    mocks.toast.error.mockReset()
-    mocks.exportComplaintsToCSV.mockClear()
+    vi.clearAllMocks()
+
+    mocks.subscribeToReportsPage.mockImplementation((_filters, handlers) => {
+      handlers.onPage({
+        docs: PAGE_DOCS,
+        cursor: { id: 'b' },
+        hasMore: false,
+      })
+      return vi.fn()
+    })
+    mocks.fetchAllReportsForExport.mockResolvedValue({
+      docs: EXPORT_DOCS,
+      truncated: false,
+    })
+    mocks.fetchAllReportsForSearch.mockResolvedValue(PAGE_DOCS)
+    mocks.getDoc.mockResolvedValue({
+      exists: () => false,
+      data: () => ({}),
+    })
   })
 
   afterEach(async () => {
@@ -148,42 +160,72 @@ describe('AdminReportsPage - CSV export', () => {
     vi.useRealTimers()
   })
 
-  it('exports every complaint when no filter is applied, without extra Firestore reads', async () => {
-    mocks.exportComplaintsToCSV.mockImplementation((list) => list.length)
+  it('loads the first page with the default server filters', async () => {
     await renderPage()
 
-    expect(mocks.onSnapshot).toHaveBeenCalledTimes(1)
+    expect(mocks.subscribeToReportsPage).toHaveBeenCalledWith(
+      {
+        status: 'all',
+        department: 'all',
+        category: 'all',
+        dateFrom: '',
+        dateTo: '',
+        cursor: null,
+      },
+      expect.any(Object)
+    )
+    expect(exportButton().disabled).toBe(false)
+  })
+
+  it('exports every matching report with the shared CSV helpers', async () => {
+    await renderPage()
 
     await act(async () => exportButton().click())
 
-    expect(exportedIds()).toEqual(['a', 'b', 'c'])
+    expect(mocks.fetchAllReportsForExport).toHaveBeenCalledWith({
+      status: 'all',
+      department: 'all',
+      category: 'all',
+      dateFrom: '',
+      dateTo: '',
+    })
+    expect(mocks.toCsv).toHaveBeenCalledTimes(1)
+
+    const [headers, rows] = mocks.toCsv.mock.calls[0]
+
+    expect(headers).toContain('Tracking ID')
+    expect(headers).toContain('Category')
+    expect(headers).toContain('Department')
+    expect(rows).toHaveLength(3)
+    expect(rows[0][0]).toBe('CMP-2026-0001')
+    expect(mocks.downloadCsv).toHaveBeenCalledWith(
+      'civic-reports-2026-11-13.csv',
+      'csv-content'
+    )
     expect(mocks.toast.success).toHaveBeenCalledWith('Exported 3 reports')
-    expect(mocks.onSnapshot).toHaveBeenCalledTimes(1)
-    expect(mocks.getDocs).not.toHaveBeenCalled()
   })
 
-  it('exports only the complaints matching the search filter', async () => {
-    mocks.exportComplaintsToCSV.mockImplementation((list) => list.length)
+  it('applies the search client-side to the exported rows', async () => {
     await renderPage()
 
     await setInput(
       container.querySelector('input[aria-label="Search complaints"]'),
       'pothole'
     )
-
     await act(async () => {
       vi.advanceTimersByTime(250)
     })
 
     await act(async () => exportButton().click())
 
-    expect(exportedIds()).toEqual(['a', 'c'])
+    expect(exportedRows().map((row) => row[0])).toEqual([
+      'CMP-2026-0001',
+      'CMP-2026-0003',
+    ])
     expect(mocks.toast.success).toHaveBeenCalledWith('Exported 2 reports')
-    expect(mocks.onSnapshot).toHaveBeenCalledTimes(1)
   })
 
-  it('exports only the complaints inside the date range', async () => {
-    mocks.exportComplaintsToCSV.mockImplementation((list) => list.length)
+  it('passes the date range to the export query', async () => {
     await renderPage()
 
     await setInput(
@@ -194,100 +236,49 @@ describe('AdminReportsPage - CSV export', () => {
       container.querySelector('input[aria-label="To date"]'),
       '2026-10-31'
     )
+    await act(async () => exportButton().click())
+
+    expect(mocks.fetchAllReportsForExport).toHaveBeenCalledWith({
+      status: 'all',
+      department: 'all',
+      category: 'all',
+      dateFrom: '2026-10-05',
+      dateTo: '2026-10-31',
+    })
+  })
+
+  it('reports when no reports match the filters', async () => {
+    mocks.fetchAllReportsForExport.mockResolvedValue({
+      docs: [],
+      truncated: false,
+    })
+    await renderPage()
 
     await act(async () => exportButton().click())
 
-    expect(exportedIds()).toEqual(['b'])
-    expect(mocks.toast.success).toHaveBeenCalledWith('Exported 1 report')
+    expect(mocks.toast).toHaveBeenCalledWith(
+      'No reports match the current filters'
+    )
+    expect(mocks.toCsv).not.toHaveBeenCalled()
+    expect(mocks.downloadCsv).not.toHaveBeenCalled()
   })
 
-  it('combines filters (search + date range)', async () => {
-    mocks.exportComplaintsToCSV.mockImplementation((list) => list.length)
+  it('disables the button while the first page is still loading', async () => {
+    mocks.subscribeToReportsPage.mockImplementation(() => vi.fn())
     await renderPage()
-
-    await setInput(
-      container.querySelector('input[aria-label="Search complaints"]'),
-      'pothole'
-    )
-
-    await act(async () => {
-      vi.advanceTimersByTime(250)
-    })
-
-    await setInput(
-      container.querySelector('input[aria-label="From date"]'),
-      '2026-11-01'
-    )
-
-    await act(async () => exportButton().click())
-
-    expect(exportedIds()).toEqual(['c'])
-  })
-
-  it('has an accessible name that contains the visible label and reports the count', async () => {
-    await renderPage()
-
-    const label = exportButton().getAttribute('aria-label')
-
-    expect(label).toContain('Export CSV')
-    expect(label).toContain('3 filtered reports')
-  })
-
-  it('disables the button when no complaints match the filters', async () => {
-    await renderPage()
-
-    await setInput(
-      container.querySelector('input[aria-label="Search complaints"]'),
-      'zzz-no-match'
-    )
-
-    await act(async () => {
-      vi.advanceTimersByTime(250)
-    })
-
-    expect(exportButton().disabled).toBe(true)
-    expect(exportButton().getAttribute('aria-label')).toContain(
-      '0 filtered reports'
-    )
-
-    await act(async () => exportButton().click())
-
-    expect(mocks.exportComplaintsToCSV).not.toHaveBeenCalled()
-  })
-
-  it('disables the button while complaints are still loading', async () => {
-    mocks.onSnapshot.mockImplementation(() => () => {})
-
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
-
-    await act(async () => {
-      root.render(
-        <LanguageProvider>
-          <AdminReportsPage />
-        </LanguageProvider>
-      )
-    })
 
     expect(exportButton().disabled).toBe(true)
   })
 
   it('shows an error toast when the export throws', async () => {
-    const consoleError = vi
-      .spyOn(console, 'error')
-      .mockImplementation(() => {})
-
-    mocks.exportComplaintsToCSV.mockImplementation(() => {
-      throw new Error('blob failed')
-    })
-
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.fetchAllReportsForExport.mockRejectedValue(new Error('blob failed'))
     await renderPage()
 
     await act(async () => exportButton().click())
 
     expect(mocks.toast.error).toHaveBeenCalledWith(
-      'Could not generate the CSV. Please try again.'
+      'Could not export reports. Please try again.'
     )
     expect(mocks.toast.success).not.toHaveBeenCalled()
 

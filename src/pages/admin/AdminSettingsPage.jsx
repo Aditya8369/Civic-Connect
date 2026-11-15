@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react'
-import { Save, Shield, Bell, Globe, Loader2 } from 'lucide-react'
+import { Save, Shield, Bell, Globe, Loader2, MessageSquareText, Pencil, Trash2, Plus, X } from 'lucide-react'
 import {
   doc,
   getDoc,
@@ -31,6 +31,13 @@ import {
   saveNotificationPreferences,
 } from '@/firebase/notificationPreferences'
 import { initializeNotificationAudio } from '@/utils/notificationAudio'
+import {
+  RESOLUTION_TEMPLATE_BODY_MAX_LENGTH,
+  RESOLUTION_TEMPLATE_TITLE_MAX_LENGTH,
+  createResolutionTemplateId,
+  loadResolutionTemplates,
+  saveResolutionTemplates,
+} from '@/firebase/resolutionTemplates'
 import toast from 'react-hot-toast'
 
 function PreferenceSwitch({
@@ -91,6 +98,14 @@ export function AdminSettingsPage() {
   })
   const [preferencesLoading, setPreferencesLoading] = useState(true)
 
+  const [resolutionTemplates, setResolutionTemplates] = useState([])
+  const [templatesLoading, setTemplatesLoading] = useState(true)
+  const [templateSaving, setTemplateSaving] = useState(false)
+  const [templateTitle, setTemplateTitle] = useState('')
+  const [templateBody, setTemplateBody] = useState('')
+  const [editingTemplateId, setEditingTemplateId] = useState(null)
+  const [templateError, setTemplateError] = useState('')
+
   // Load general platform settings.
   useEffect(() => {
     let cancelled = false
@@ -117,6 +132,23 @@ export function AdminSettingsPage() {
       cancelled = true
     }
   }, [t])
+
+  // Load canned resolution templates used by municipal officers.
+  useEffect(() => {
+    let cancelled = false
+
+    loadResolutionTemplates()
+      .then((templates) => {
+        if (!cancelled) setResolutionTemplates(templates)
+      })
+      .finally(() => {
+        if (!cancelled) setTemplatesLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Load notification preferences for the signed-in administrator.
   useEffect(() => {
@@ -268,6 +300,100 @@ export function AdminSettingsPage() {
     }
   }
 
+  const resetTemplateForm = () => {
+    setTemplateTitle('')
+    setTemplateBody('')
+    setEditingTemplateId(null)
+    setTemplateError('')
+  }
+
+  const persistResolutionTemplates = async (nextTemplates) => {
+    setTemplateSaving(true)
+    try {
+      const saved = await saveResolutionTemplates(nextTemplates, user?.uid)
+      setResolutionTemplates(saved)
+      return true
+    } catch (error) {
+      console.error('Resolution template save error:', error)
+      toast.error('Could not save resolution templates')
+      return false
+    } finally {
+      setTemplateSaving(false)
+    }
+  }
+
+  const handleTemplateSubmit = async (event) => {
+    event.preventDefault()
+    if (templateSaving) return
+
+    const title = templateTitle.trim()
+    const body = templateBody.trim()
+
+    if (!title) {
+      setTemplateError('Please enter a template title')
+      return
+    }
+    if (!body) {
+      setTemplateError('Please enter the resolution message')
+      return
+    }
+
+    const nextTemplates = editingTemplateId
+      ? resolutionTemplates.map((template) =>
+          template.id === editingTemplateId
+            ? { ...template, title, body }
+            : template
+        )
+      : [
+          ...resolutionTemplates,
+          {
+            id: createResolutionTemplateId(
+              title,
+              resolutionTemplates.map((template) => template.id)
+            ),
+            title,
+            body,
+          },
+        ]
+
+    const saved = await persistResolutionTemplates(nextTemplates)
+    if (!saved) return
+
+    toast.success(
+      editingTemplateId
+        ? 'Resolution template updated'
+        : 'Resolution template added'
+    )
+    resetTemplateForm()
+  }
+
+  const handleEditTemplate = (template) => {
+    setEditingTemplateId(template.id)
+    setTemplateTitle(template.title)
+    setTemplateBody(template.body)
+    setTemplateError('')
+  }
+
+  const handleDeleteTemplate = async (template) => {
+    if (templateSaving) return
+
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.confirm === 'function' &&
+      !window.confirm(`Delete the "${template.title}" resolution template?`)
+    ) {
+      return
+    }
+
+    const saved = await persistResolutionTemplates(
+      resolutionTemplates.filter((item) => item.id !== template.id)
+    )
+    if (!saved) return
+
+    if (editingTemplateId === template.id) resetTemplateForm()
+    toast.success('Resolution template deleted')
+  }
+
   return (
     <div>
       <PageHeader
@@ -359,6 +485,155 @@ export function AdminSettingsPage() {
                     <Save className="h-4 w-4" />
                   )}
                   {saving ? t('saving') : t('adminSaveSettings')}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-900/30">
+                <MessageSquareText className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <CardTitle>Resolution Templates</CardTitle>
+                <CardDescription>
+                  Create canned responses for officers to use when closing complaints
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent className="space-y-5">
+            {templatesLoading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading resolution templates...
+              </div>
+            ) : resolutionTemplates.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                No templates yet. Add your first canned response below.
+              </div>
+            ) : (
+              <div className="space-y-2" aria-label="Resolution templates">
+                {resolutionTemplates.map((template) => (
+                  <div
+                    key={template.id}
+                    className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                          {template.title}
+                        </p>
+                        <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                          {template.body}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Edit ${template.title}`}
+                          onClick={() => handleEditTemplate(template)}
+                          disabled={templateSaving}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Delete ${template.title}`}
+                          onClick={() => handleDeleteTemplate(template)}
+                          disabled={templateSaving}
+                          className="text-red-600 hover:text-red-700 dark:text-red-400"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <form onSubmit={handleTemplateSubmit} className="space-y-3 border-t border-gray-100 pt-4 dark:border-gray-800">
+              <div className="space-y-2">
+                <Label htmlFor="resolution-template-title">
+                  {editingTemplateId ? 'Edit template title' : 'Template title'}
+                </Label>
+                <Input
+                  id="resolution-template-title"
+                  value={templateTitle}
+                  maxLength={RESOLUTION_TEMPLATE_TITLE_MAX_LENGTH}
+                  onChange={(event) => {
+                    setTemplateTitle(event.target.value)
+                    setTemplateError('')
+                  }}
+                  placeholder="e.g. Pothole filled"
+                  disabled={templateSaving}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="resolution-template-body">
+                  Resolution message
+                </Label>
+                <textarea
+                  id="resolution-template-body"
+                  rows={3}
+                  value={templateBody}
+                  maxLength={RESOLUTION_TEMPLATE_BODY_MAX_LENGTH}
+                  onChange={(event) => {
+                    setTemplateBody(event.target.value)
+                    setTemplateError('')
+                  }}
+                  placeholder="Describe the completed work for citizens..."
+                  disabled={templateSaving}
+                  className="flex w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
+                />
+              </div>
+
+              {templateError && (
+                <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                  {templateError}
+                </p>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-2">
+                {editingTemplateId && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={resetTemplateForm}
+                    disabled={templateSaving}
+                    className="gap-1.5"
+                  >
+                    <X className="h-4 w-4" />
+                    Cancel
+                  </Button>
+                )}
+                <Button
+                  type="submit"
+                  disabled={templateSaving || templatesLoading}
+                  className="gap-1.5"
+                >
+                  {templateSaving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : editingTemplateId ? (
+                    <Save className="h-4 w-4" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                  {templateSaving
+                    ? 'Saving...'
+                    : editingTemplateId
+                      ? 'Save Changes'
+                      : 'Add Template'}
                 </Button>
               </div>
             </form>

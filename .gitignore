@@ -37,3 +37,4 @@ dist-ssr
 # Firebase credentials and safe environment template
 serviceAccountKey.json
 !.env.example
+.npm-cache/

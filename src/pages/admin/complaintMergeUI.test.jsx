@@ -297,9 +297,13 @@ it('citizen view displays consolidated banner when ticket is Merged - Duplicate'
   expect(treeText).toContain('CMP-2026-0001')
 })
 
-it('citizen view displays primary consolidated ticket banner when viewer is a consolidated reporter', () => {
+it('citizen view displays primary consolidated ticket banner when viewer is a consolidated reporter', async () => {
   runtime.auth.currentUser = { uid: 'citizen-child' }
   const instance = mount(ComplaintDetailsPage)
+
+  await Promise.resolve()
+  await Promise.resolve()
+
   runtime.listeners.at(-1)({
     id: 'ticket-parent',
     exists: () => true,

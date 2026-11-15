@@ -40,8 +40,21 @@ vi.mock('firebase/firestore', () => ({
   where: vi.fn(),
   limit: vi.fn(),
   getDocs: vi.fn(() => Promise.resolve({ empty: true, docs: [] })),
-  getDoc: vi.fn(() =>
-    Promise.resolve({
+  getDoc: vi.fn((ref) => {
+    // The complaint reference is resolved before the page subscribes.
+    if (typeof ref === 'string' && ref.startsWith('issues/')) {
+      if (!mockComplaintData) {
+        return Promise.resolve({ exists: () => false })
+      }
+
+      return Promise.resolve({
+        id: 'cmp-101',
+        exists: () => true,
+        data: () => ({ ...mockComplaintData, reportedBy: 'citizen-1' }),
+      })
+    }
+
+    return Promise.resolve({
       exists: () => true,
       data: () => ({
         name: 'Priya Sharma',
@@ -50,7 +63,7 @@ vi.mock('firebase/firestore', () => ({
         address: '12th Main Road, Koramangala',
       }),
     })
-  ),
+  }),
   onSnapshot: vi.fn((ref, callback) => {
     // If it's the events subcollection
     if (typeof ref === 'string' && ref.includes('events')) {
