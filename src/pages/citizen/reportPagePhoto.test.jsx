@@ -167,4 +167,78 @@ describe('Issue #27 Photo Evidence Attachment Specifications', () => {
       expect(normalizePhotoFile(null)).toBeNull()
     })
   })
+
+  describe('Issue #212 Offline voice-note evidence preservation and synchronization', () => {
+    it('preserves audioBlob, duration, and MIME type when normalizing offline voice notes', async () => {
+      const { normalizeAudioBlob } = await import('@/firebase/offlineComplaintSync')
+      const audioBlob = new Blob(['sample-voice-bytes'], { type: 'audio/webm' })
+
+      const offlinePayload = {
+        title: 'Broken water pipe',
+        description: 'Water leaking onto sidewalk',
+        category: 'Water',
+        address: '123 Main St',
+        userId: 'citizen-212',
+        audioBlob,
+        audioDuration: 18,
+        audioMimeType: 'audio/webm',
+      }
+
+      expect(offlinePayload.audioBlob).toBe(audioBlob)
+      expect(offlinePayload.audioDuration).toBe(18)
+      expect(offlinePayload.audioMimeType).toBe('audio/webm')
+
+      const normalized = normalizeAudioBlob(offlinePayload)
+      expect(normalized).toBe(audioBlob)
+      expect(normalized.type).toBe('audio/webm')
+    })
+
+    it('reconstructs Blob with preserved MIME type when deserialized from voiceNote property', async () => {
+      const { normalizeAudioBlob } = await import('@/firebase/offlineComplaintSync')
+      const rawBlob = new Blob(['audio-data'], { type: 'audio/ogg' })
+
+      const offlinePayload = {
+        title: 'Fallen tree branch',
+        voiceNote: {
+          blob: rawBlob,
+          durationSeconds: 12,
+          contentType: 'audio/ogg',
+        },
+      }
+
+      const normalized = normalizeAudioBlob(offlinePayload)
+      expect(normalized).toBeDefined()
+      expect(normalized.type).toBe('audio/ogg')
+    })
+
+    it('returns null from normalizeAudioBlob when complaint has no voice note', async () => {
+      const { normalizeAudioBlob } = await import('@/firebase/offlineComplaintSync')
+      expect(normalizeAudioBlob({ title: 'No audio' })).toBeNull()
+      expect(normalizeAudioBlob(null)).toBeNull()
+      expect(normalizeAudioBlob(undefined)).toBeNull()
+    })
+
+    it('preserves both photoFile and audioBlob in the same complaint', async () => {
+      const { normalizePhotoFile, normalizeAudioBlob } = await import('@/firebase/offlineComplaintSync')
+      const photoFile = new File(['image-bytes'], 'pothole.jpg', { type: 'image/jpeg' })
+      const audioBlob = new Blob(['voice-bytes'], { type: 'audio/webm' })
+
+      const dualPayload = {
+        title: 'Severe road hazard',
+        photoFile,
+        photoName: 'pothole.jpg',
+        photoType: 'image/jpeg',
+        audioBlob,
+        audioDuration: 25,
+        audioMimeType: 'audio/webm',
+      }
+
+      const normPhoto = normalizePhotoFile(dualPayload)
+      const normAudio = normalizeAudioBlob(dualPayload)
+
+      expect(normPhoto.name).toBe('pothole.jpg')
+      expect(normPhoto.type).toBe('image/jpeg')
+      expect(normAudio.type).toBe('audio/webm')
+    })
+  })
 })
