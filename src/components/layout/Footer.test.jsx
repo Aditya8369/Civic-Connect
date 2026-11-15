@@ -1,3 +1,4 @@
+
 // @vitest-environment jsdom
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -8,6 +9,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Footer } from './Footer'
 import { BackToTop } from '@/components/common/BackToTop'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 import {
   DEFAULT_OFFICE_HOURS,
   MUNICIPAL_SLA_SUMMARY,
@@ -19,6 +21,8 @@ describe('Footer Component', () => {
   let root
 
   beforeEach(() => {
+    localStorage.setItem('civic-connect-language', 'en')
+
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -36,9 +40,11 @@ describe('Footer Component', () => {
   const renderFooter = (props = {}) => {
     act(() => {
       root.render(
-        <MemoryRouter>
-          <Footer {...props} />
-        </MemoryRouter>
+        <LanguageProvider>
+          <MemoryRouter>
+            <Footer {...props} />
+          </MemoryRouter>
+        </LanguageProvider>
       )
     })
   }
@@ -61,7 +67,6 @@ describe('Footer Component', () => {
       expect(headings).toContain('Zonal Office Hours')
       expect(headings).toContain('Legal & Citizen Charter')
 
-      // Column 1 branding header
       expect(container.textContent).toContain('CivicConnect')
       expect(container.textContent).toContain('Municipal Grievance Portal')
     })
@@ -92,7 +97,6 @@ describe('Footer Component', () => {
       const links = Array.from(container.querySelectorAll('a'))
       const hrefs = links.map((a) => a.getAttribute('href'))
 
-      // Valid project routes verified against AppRoutes.jsx
       expect(hrefs).toContain('/report')
       expect(hrefs).toContain('/my-reports')
       expect(hrefs).toContain('/dashboard')
@@ -261,6 +265,8 @@ describe('BackToTop Component', () => {
   let root
 
   beforeEach(() => {
+    localStorage.setItem('civic-connect-language', 'en')
+
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -279,7 +285,11 @@ describe('BackToTop Component', () => {
 
   it('is visually hidden with opacity-0 when near the top of the page', () => {
     act(() => {
-      root.render(<BackToTop threshold={300} />)
+      root.render(
+        <LanguageProvider>
+          <BackToTop threshold={300} />
+        </LanguageProvider>
+      )
     })
 
     const button = container.querySelector('button[aria-label="Back to top"]')
@@ -293,13 +303,16 @@ describe('BackToTop Component', () => {
 
   it('becomes visible when window scrolls past the threshold', () => {
     act(() => {
-      root.render(<BackToTop threshold={300} />)
+      root.render(
+        <LanguageProvider>
+          <BackToTop threshold={300} />
+        </LanguageProvider>
+      )
     })
 
     const button = container.querySelector('button[aria-label="Back to top"]')
     expect(button.getAttribute('data-visible')).toBe('false')
 
-    // Simulate scroll past 300px
     window.scrollY = 450
     act(() => {
       window.dispatchEvent(new Event('scroll'))
@@ -314,7 +327,11 @@ describe('BackToTop Component', () => {
 
   it('hides again when scrolling back up near the top', () => {
     act(() => {
-      root.render(<BackToTop threshold={300} />)
+      root.render(
+        <LanguageProvider>
+          <BackToTop threshold={300} />
+        </LanguageProvider>
+      )
     })
 
     const button = container.querySelector('button[aria-label="Back to top"]')
@@ -348,7 +365,11 @@ describe('BackToTop Component', () => {
     }))
 
     act(() => {
-      root.render(<BackToTop threshold={100} />)
+      root.render(
+        <LanguageProvider>
+          <BackToTop threshold={100} />
+        </LanguageProvider>
+      )
     })
 
     window.scrollY = 250
@@ -380,7 +401,11 @@ describe('BackToTop Component', () => {
     }))
 
     act(() => {
-      root.render(<BackToTop threshold={100} />)
+      root.render(
+        <LanguageProvider>
+          <BackToTop threshold={100} />
+        </LanguageProvider>
+      )
     })
 
     window.scrollY = 350
@@ -400,7 +425,11 @@ describe('BackToTop Component', () => {
     const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener')
 
     act(() => {
-      root.render(<BackToTop threshold={200} />)
+      root.render(
+        <LanguageProvider>
+          <BackToTop threshold={200} />
+        </LanguageProvider>
+      )
     })
 
     act(() => {
@@ -416,7 +445,11 @@ describe('BackToTop Component', () => {
 
   it('has accessible title and label', () => {
     act(() => {
-      root.render(<BackToTop />)
+      root.render(
+        <LanguageProvider>
+          <BackToTop />
+        </LanguageProvider>
+      )
     })
 
     const button = container.querySelector('button')

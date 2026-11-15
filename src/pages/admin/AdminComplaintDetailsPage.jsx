@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
@@ -17,9 +18,22 @@ import {
   GitMerge,
   Search,
 } from 'lucide-react'
-import { doc, onSnapshot, updateDoc, serverTimestamp, getDoc, collection, getDocs, query, orderBy, limit, where } from 'firebase/firestore'
+import {
+  doc,
+  onSnapshot,
+  updateDoc,
+  serverTimestamp,
+  getDoc,
+  collection,
+  getDocs,
+  query,
+  orderBy,
+  limit,
+  where,
+} from 'firebase/firestore'
 import { auth, db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
+import { useLanguage } from '@/contexts/LanguageContext'
 import { logComplaintEvent } from '@/firebase/complaintEvents'
 import { getDisplayId, ensureComplaintId } from '@/firebase/complaintId'
 import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
@@ -27,7 +41,13 @@ import { assignComplaintDepartment } from '@/firebase/complaintDepartment'
 import { mergeComplaints } from '@/firebase/complaintMerge'
 import { loadResolutionTemplates } from '@/firebase/resolutionTemplates'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { SlaBadge, SlaCountdown } from '@/components/common/SlaBadge'
 import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
@@ -35,7 +55,13 @@ import { ResolutionTemplateSelector } from '@/components/admin/ResolutionTemplat
 import { getSlaTargetDate } from '@/utils/sla'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { normalizePhone } from '@/utils/phone'
 import {
   Dialog,
@@ -59,6 +85,15 @@ const statusVariant = {
   'Merged - Duplicate': 'secondary',
 }
 
+const statusTranslationKeys = {
+  Resolved: 'statusResolved',
+  'In Progress': 'statusInProgress',
+  Pending: 'statusPending',
+  Rejected: 'statusRejected',
+  Reopened: 'statusReopened',
+  'Merged - Duplicate': 'statusMerged',
+}
+
 const nextStatus = {
   Pending: 'In Progress',
   'In Progress': 'Resolved',
@@ -67,14 +102,28 @@ const nextStatus = {
   Rejected: null,
 }
 
-const departments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
+const departments = [
+  'Roads',
+  'Sanitation',
+  'Electricity',
+  'Water',
+  'Public Safety',
+]
 
-const ratingLabels = {
-  1: 'Poor',
-  2: 'Fair',
-  3: 'Good',
-  4: 'Very Good',
-  5: 'Excellent',
+const departmentTranslationKeys = {
+  Roads: 'departmentRoads',
+  Sanitation: 'departmentSanitation',
+  Electricity: 'departmentElectricity',
+  Water: 'departmentWater',
+  'Public Safety': 'departmentPublicSafety',
+}
+
+const ratingTranslationKeys = {
+  1: 'ratingPoor',
+  2: 'ratingFair',
+  3: 'ratingGood',
+  4: 'ratingVeryGood',
+  5: 'ratingExcellent',
 }
 
 function canRejectComplaint(complaint) {
@@ -84,13 +133,42 @@ function canRejectComplaint(complaint) {
 function canMergeComplaint(complaint) {
   return ['Pending', 'In Progress', 'Reopened'].includes(complaint?.status)
 }
+
+
+function EvidenceImage({ src, alt, onClick, className = '' }) {
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={`absolute inset-0 h-full w-full object-cover ${
+        onClick ? 'cursor-pointer' : ''
+      } ${className}`}
+      onClick={onClick}
+    />
+  )
+}
+
 
 export function AdminComplaintDetailsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { t, language } = useLanguage()
+
+  const locale = language === 'hi' ? 'hi-IN' : 'en-US'
+
+  const translateStatus = (status) =>
+    statusTranslationKeys[status]
+      ? t(statusTranslationKeys[status])
+      : status
+
+  const translateDepartment = (department) =>
+    departmentTranslationKeys[department]
+      ? t(departmentTranslationKeys[department])
+      : department
 
   const { user: authUser } = useAuth()
   const actorUid = authUser?.uid || auth?.currentUser?.uid || null
+
   const [complaint, setComplaint] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -132,6 +210,7 @@ export function AdminComplaintDetailsPage() {
       doc(db, 'issues', id),
       (snap) => {
         if (!active) return
+
         if (snap.exists()) {
           const data = { id: snap.id, ...snap.data() }
 
@@ -142,15 +221,19 @@ export function AdminComplaintDetailsPage() {
             data.complaintId = committedId
           } else if (!attempted) {
             attempted = true
+
             ensureComplaintId(id)
               .then((cid) => {
                 if (!active) return
+
                 committedId = cid
+
                 setComplaint((current) =>
                   current?.id === id && !current.complaintId
                     ? { ...current, complaintId: cid }
                     : current
                 )
+
                 setBackfillError(false)
               })
               .catch((err) => {
@@ -161,15 +244,18 @@ export function AdminComplaintDetailsPage() {
           }
 
           setComplaint(data)
+
           if (!isDirty.current) {
             setResolutionNotes(data.resolutionNotes || '')
           }
+
           setLoading(false)
 
           if (data.reportedBy) {
             getDoc(doc(db, 'users', data.reportedBy))
               .then((userSnap) => {
                 if (!active) return
+
                 setCitizen(
                   userSnap.exists()
                     ? userSnap.data()
@@ -187,11 +273,16 @@ export function AdminComplaintDetailsPage() {
             where('complaintId', '==', id),
             limit(1)
           )
+
           getDocs(q)
             .then((querySnap) => {
               if (!active) return
+
               if (querySnap && !querySnap.empty) {
-                navigate(`/admin/reports/${querySnap.docs[0].id}`, { replace: true })
+                navigate(
+                  `/admin/reports/${querySnap.docs[0].id}`,
+                  { replace: true }
+                )
               } else {
                 setNotFound(true)
                 setLoading(false)
@@ -232,16 +323,21 @@ export function AdminComplaintDetailsPage() {
 
   const handleStatusUpdate = async () => {
     const next = nextStatus[complaint.status]
+
     if (!next || saving || transitionPending.current) return
+
     transitionPending.current = true
     setSaving(true)
+
     try {
       await commitComplaintTransition(
         id,
         complaint.status,
         {
           status: next,
-          ...(next === 'Resolved' && { resolvedAt: serverTimestamp() }),
+          ...(next === 'Resolved' && {
+            resolvedAt: serverTimestamp(),
+          }),
           updatedAt: serverTimestamp(),
         },
         (current) =>
@@ -268,9 +364,15 @@ export function AdminComplaintDetailsPage() {
           remarks: `Status updated to ${next}`,
         })
       )
-      toast.success(`Status updated to "${next}"`)
+
+      toast.success(
+        t('adminStatusUpdated').replace(
+          '{status}',
+          translateStatus(next)
+        )
+      )
     } catch (err) {
-      toast.error('Failed to update status')
+      toast.error(t('adminStatusUpdateFailed'))
       console.error(err)
     } finally {
       transitionPending.current = false
@@ -280,19 +382,22 @@ export function AdminComplaintDetailsPage() {
 
   const handleReject = async () => {
     if (saving || transitionPending.current) return
+
     if (!canRejectComplaint(complaint)) {
-      toast.error('This complaint can no longer be rejected')
+      toast.error(t('adminComplaintCannotBeRejected'))
       return
     }
 
     const reason = rejectReason.trim()
+
     if (!reason) {
-      toast.error('Please enter a rejection reason')
+      toast.error(t('adminEnterRejectionReason'))
       return
     }
 
     transitionPending.current = true
     setSaving(true)
+
     try {
       await commitComplaintTransition(
         id,
@@ -323,11 +428,12 @@ export function AdminComplaintDetailsPage() {
           remarks: reason,
         })
       )
-      toast.success('Complaint rejected')
+
+      toast.success(t('adminComplaintRejected'))
       setRejectOpen(false)
       setRejectReason('')
     } catch (err) {
-      toast.error('Failed to reject complaint')
+      toast.error(t('adminRejectFailed'))
       console.error(err)
     } finally {
       transitionPending.current = false
@@ -337,13 +443,27 @@ export function AdminComplaintDetailsPage() {
 
   const handleDepartmentChange = async (val) => {
     if (saving || transitionPending.current) return
+
     transitionPending.current = true
     setSaving(true)
+
     try {
-      const changed = await assignComplaintDepartment(id, val, actorUid)
-      if (changed) toast.success(`Department assigned: ${val}`)
+      const changed = await assignComplaintDepartment(
+        id,
+        val,
+        actorUid
+      )
+
+      if (changed) {
+        toast.success(
+          t('adminDepartmentAssigned').replace(
+            '{department}',
+            translateDepartment(val)
+          )
+        )
+      }
     } catch (err) {
-      toast.error('Failed to assign department')
+      toast.error(t('adminDepartmentAssignFailed'))
       console.error(err)
     } finally {
       transitionPending.current = false
@@ -364,11 +484,13 @@ export function AdminComplaintDetailsPage() {
 
   const handleSaveNotes = async () => {
     setSaving(true)
+
     try {
       await updateDoc(doc(db, 'issues', id), {
         resolutionNotes,
         updatedAt: serverTimestamp(),
       })
+
       await logComplaintEvent(id, {
         actorUid,
         action: 'Resolution notes updated',
@@ -376,10 +498,11 @@ export function AdminComplaintDetailsPage() {
         newStatus: complaint.status,
         remarks: resolutionNotes,
       })
+
       isDirty.current = false
-      toast.success('Resolution notes saved')
+      toast.success(t('adminResolutionNotesSaved'))
     } catch (err) {
-      toast.error('Failed to save resolution notes')
+      toast.error(t('adminResolutionNotesFailed'))
       console.error(err)
     } finally {
       setSaving(false)
@@ -391,16 +514,32 @@ export function AdminComplaintDetailsPage() {
     setSearchQuery('')
     setMergeOpen(true)
     setLoadingCandidates(true)
+
     try {
-      const q = query(collection(db, 'issues'), orderBy('createdAt', 'desc'), limit(50))
+      const q = query(
+        collection(db, 'issues'),
+        orderBy('createdAt', 'desc'),
+        limit(50)
+      )
+
       const snap = await getDocs(q)
+
       const list = (snap?.docs || [])
-        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
-        .filter((c) => c.id !== id && c.status !== 'Merged - Duplicate' && c.status !== 'Rejected')
+        .map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }))
+        .filter(
+          (c) =>
+            c.id !== id &&
+            c.status !== 'Merged - Duplicate' &&
+            c.status !== 'Rejected'
+        )
+
       setCandidateComplaints(list)
     } catch (err) {
       console.error('Failed to load candidate complaints:', err)
-      toast.error('Failed to load eligible complaints')
+      toast.error(t('adminEligibleComplaintsLoadFailed'))
     } finally {
       setLoadingCandidates(false)
     }
@@ -408,10 +547,12 @@ export function AdminComplaintDetailsPage() {
 
   const handleConfirmMerge = async () => {
     if (!selectedParentId) {
-      toast.error('Please select a parent complaint to merge into')
+      toast.error(t('adminSelectParentComplaint'))
       return
     }
+
     setMerging(true)
+
     try {
       const result = await mergeComplaints({
         childId: id,
@@ -419,11 +560,18 @@ export function AdminComplaintDetailsPage() {
         actorUid,
         expectedChildStatus: complaint.status,
       })
-      toast.success(`Complaint merged into ${result.parentComplaintId}`)
+
+      toast.success(
+        t('adminComplaintMerged').replace(
+          '{id}',
+          result.parentComplaintId
+        )
+      )
+
       setMergeOpen(false)
     } catch (err) {
       console.error('Merge error:', err)
-      toast.error(err.message || 'Failed to merge complaint')
+      toast.error(err.message || t('adminMergeFailed'))
     } finally {
       setMerging(false)
     }
@@ -431,7 +579,9 @@ export function AdminComplaintDetailsPage() {
 
   const filteredCandidates = candidateComplaints.filter((c) => {
     if (!searchQuery.trim()) return true
+
     const q = searchQuery.toLowerCase()
+
     return (
       (c.complaintId || '').toLowerCase().includes(q) ||
       (c.id || '').toLowerCase().includes(q) ||
@@ -443,26 +593,41 @@ export function AdminComplaintDetailsPage() {
 
   useEffect(() => {
     const qTrim = searchQuery.trim()
+
     if (!qTrim || !mergeOpen) return
 
     const timer = setTimeout(async () => {
       try {
         const qUpper = qTrim.toUpperCase()
+
         const qByCid = query(
           collection(db, 'issues'),
           where('complaintId', '==', qUpper),
           limit(5)
         )
+
         const snap = await getDocs(qByCid)
+
         if (snap?.docs?.length) {
           const found = snap.docs
             .map((d) => ({ id: d.id, ...d.data() }))
-            .filter((c) => c.id !== id && c.status !== 'Merged - Duplicate' && c.status !== 'Rejected')
+            .filter(
+              (c) =>
+                c.id !== id &&
+                c.status !== 'Merged - Duplicate' &&
+                c.status !== 'Rejected'
+            )
+
           if (found.length > 0) {
             setCandidateComplaints((prev) => {
               const existingIds = new Set(prev.map((p) => p.id))
-              const newItems = found.filter((f) => !existingIds.has(f.id))
-              return newItems.length > 0 ? [...prev, ...newItems] : prev
+              const newItems = found.filter(
+                (f) => !existingIds.has(f.id)
+              )
+
+              return newItems.length > 0
+                ? [...prev, ...newItems]
+                : prev
             })
           }
         }
@@ -486,20 +651,27 @@ export function AdminComplaintDetailsPage() {
     const phone = normalizePhone(workerPhone)
 
     if (!name) {
-      setWorkerError('Please enter the worker name')
+      setWorkerError(t('adminEnterWorkerName'))
       return
     }
+
     if (!phone) {
-      setWorkerError('Please enter a 10-digit phone number (optionally with +91)')
+      setWorkerError(t('adminEnterValidWorkerPhone'))
       return
     }
 
     setSavingWorker(true)
+
     try {
       await updateDoc(doc(db, 'issues', id), {
-        assignedWorker: { name, phone, assignedAt: serverTimestamp() },
+        assignedWorker: {
+          name,
+          phone,
+          assignedAt: serverTimestamp(),
+        },
         updatedAt: serverTimestamp(),
       })
+
       await logComplaintEvent(id, {
         actorUid,
         action: 'Field worker designated',
@@ -507,10 +679,14 @@ export function AdminComplaintDetailsPage() {
         newStatus: complaint.status,
         remarks: `Assigned to ${name} (${phone})`,
       })
-      toast.success(`Worker assigned: ${name}`)
+
+      toast.success(
+        t('adminWorkerAssigned').replace('{name}', name)
+      )
+
       setWorkerDialogOpen(false)
     } catch (err) {
-      toast.error('Failed to assign worker')
+      toast.error(t('adminWorkerAssignFailed'))
       console.error(err)
     } finally {
       setSavingWorker(false)
@@ -519,7 +695,11 @@ export function AdminComplaintDetailsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
+      <div
+        className="flex items-center justify-center py-20"
+        role="status"
+        aria-label={t('loadingComplaintDetails')}
+      >
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent" />
       </div>
     )
@@ -528,21 +708,47 @@ export function AdminComplaintDetailsPage() {
   if (notFound || !complaint) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
-        <p className="text-lg font-semibold text-gray-900 dark:text-white">Complaint not found</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          This complaint does not exist or has been removed.
+        <p className="text-lg font-semibold text-gray-900 dark:text-white">
+          {t('adminComplaintNotFound')}
         </p>
-        <Button variant="outline" size="sm" className="mt-4" onClick={() => navigate('/admin/reports')}>
-          Back to Reports
+
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {t('adminComplaintRemovedDescription')}
+        </p>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-4"
+          onClick={() => navigate('/admin/reports')}
+        >
+          {t('backToReports')}
         </Button>
       </div>
     )
   }
 
   const canReject = canRejectComplaint(complaint)
-  const slaTarget = getSlaTargetDate(complaint.createdAt, complaint.category, complaint.department)
+  const slaTarget = getSlaTargetDate(
+    complaint.createdAt,
+    complaint.category,
+    complaint.department
+  )
   const initialPhoto = complaint.imageUrl || complaint.photos?.[0]
   const resolutionPhoto = getResolutionPhoto(complaint)
+
+  const formatDate = (timestamp) =>
+    timestamp?.toDate?.().toLocaleDateString(locale) || '-'
+
+  const formatSlaDate = () =>
+    slaTarget
+      ? slaTarget.toLocaleDateString(locale, {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      : '-'
 
   return (
     <div>
@@ -550,54 +756,81 @@ export function AdminComplaintDetailsPage() {
         variant="ghost"
         size="sm"
         onClick={() => navigate('/admin/reports')}
-        className="gap-2 mb-6 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+        className="mb-6 gap-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
       >
-        <ArrowLeft className="h-4 w-4" /> Back to Reports
+        <ArrowLeft className="h-4 w-4" />
+        {t('backToReports')}
       </Button>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 space-y-6">
+        <div className="space-y-6 lg:col-span-2">
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-start justify-between gap-4 mb-4">
+              <div className="mb-4 flex items-start justify-between gap-4">
                 <div>
-                  <div className="flex flex-wrap items-center gap-2 mb-1">
-                    <span className="text-xs font-mono text-primary-600 dark:text-primary-400 font-semibold">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs font-semibold text-primary-600 dark:text-primary-400">
                       {getDisplayId(complaint)}
                     </span>
-                    <Badge variant={statusVariant[complaint.status] || 'default'} className="capitalize">
-                      {complaint.status}
+
+                    <Badge
+                      variant={
+                        statusVariant[complaint.status] || 'default'
+                      }
+                      className="capitalize"
+                    >
+                      {translateStatus(complaint.status)}
                     </Badge>
+
                     <SlaBadge complaint={complaint} />
                   </div>
-                  <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-1">
+
+                  <h1 className="mt-1 text-xl font-bold text-gray-900 dark:text-white">
                     {complaint.title}
                   </h1>
+
                   {complaint.status === 'Merged - Duplicate' && (
                     <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm dark:border-purple-900/50 dark:bg-purple-900/20">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <GitMerge className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                          <GitMerge className="h-4 w-4 shrink-0 text-purple-600 dark:text-purple-400" />
                           <span className="font-medium text-purple-900 dark:text-purple-200">
-                            Merged into parent ticket: <span className="font-mono font-semibold">{complaint.mergedInto || 'CMP-XXXX-XXXX'}</span>
+                            {t('adminMergedIntoParent')}:{' '}
+                            <span className="font-mono font-semibold">
+                              {complaint.mergedInto || 'CMP-XXXX-XXXX'}
+                            </span>
                           </span>
                         </div>
-                        {(complaint.mergedIntoId || complaint.mergedInto) && (
+
+                        {(complaint.mergedIntoId ||
+                          complaint.mergedInto) && (
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 text-xs gap-1 border-purple-300 dark:border-purple-800 text-purple-700 dark:text-purple-300"
-                            onClick={() => navigate(`/admin/reports/${complaint.mergedIntoId || complaint.mergedInto}`)}
+                            className="h-7 gap-1 border-purple-300 text-xs text-purple-700 dark:border-purple-800 dark:text-purple-300"
+                            onClick={() =>
+                              navigate(
+                                `/admin/reports/${
+                                  complaint.mergedIntoId ||
+                                  complaint.mergedInto
+                                }`
+                              )
+                            }
                           >
-                            <ExternalLink className="h-3 w-3" /> View Parent Ticket
+                            <ExternalLink className="h-3 w-3" />
+                            {t('viewParentTicket')}
                           </Button>
                         )}
                       </div>
                     </div>
                   )}
+
                   {backfillError && (
-                    <div role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
-                      Could not assign a ticket ID.{' '}
+                    <div
+                      role="alert"
+                      className="mt-2 text-sm text-red-600 dark:text-red-400"
+                    >
+                      {t('adminTicketIdAssignmentFailed')}{' '}
                       <Button
                         variant="outline"
                         size="sm"
@@ -606,13 +839,13 @@ export function AdminComplaintDetailsPage() {
                           setBackfillRetry((value) => value + 1)
                         }}
                       >
-                        Retry ticket ID
+                        {t('retryTicketId')}
                       </Button>
                     </div>
                   )}
                 </div>
 
-                <div className="flex gap-2 shrink-0">
+                <div className="flex shrink-0 gap-2">
                   {canReject && (
                     <Button
                       variant="outline"
@@ -620,9 +853,10 @@ export function AdminComplaintDetailsPage() {
                       onClick={() => setRejectOpen(true)}
                       disabled={saving || merging}
                     >
-                      Reject
+                      {t('reject')}
                     </Button>
                   )}
+
                   {canMergeComplaint(complaint) && (
                     <Button
                       variant="outline"
@@ -632,9 +866,10 @@ export function AdminComplaintDetailsPage() {
                       className="gap-1.5"
                     >
                       <GitMerge className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-                      Merge into Parent Complaint
+                      {t('mergeIntoParentComplaint')}
                     </Button>
                   )}
+
                   {nextStatus[complaint.status] && (
                     <Button
                       onClick={handleStatusUpdate}
@@ -642,53 +877,72 @@ export function AdminComplaintDetailsPage() {
                       size="sm"
                       className="gap-2"
                     >
-                      {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                      Mark {nextStatus[complaint.status]}
+                      {saving && (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      )}
+                      {t('markStatus').replace(
+                        '{status}',
+                        translateStatus(nextStatus[complaint.status])
+                      )}
                     </Button>
                   )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 py-4 border-y border-gray-100 dark:border-gray-800">
+              <div className="grid grid-cols-2 gap-4 border-y border-gray-100 py-4 dark:border-gray-800 sm:grid-cols-5">
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Category</p>
+                  <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
+                    {t('categoryLabel')}
+                  </p>
+
                   {complaint.category ? (
-                    <CategoryAvatar category={complaint.category} size="xs" />
+                    <CategoryAvatar
+                      category={complaint.category}
+                      size="xs"
+                    />
                   ) : (
-                    <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">-</p>
+                    <p className="mt-0.5 text-sm font-medium text-gray-900 dark:text-white">
+                      -
+                    </p>
                   )}
                 </div>
+
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Department</p>
+                  <p className="mb-1 text-xs text-gray-500 dark:text-gray-400">
+                    {t('departmentLabel')}
+                  </p>
+
                   <DepartmentCrest
                     department={complaint.department}
                     category={complaint.category}
                     size="xs"
                   />
                 </div>
+
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Created</p>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">
-                    {complaint.createdAt?.toDate?.().toLocaleDateString() || '-'}
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {t('created')}
+                  </p>
+                  <p className="mt-0.5 text-sm font-medium text-gray-900 dark:text-white">
+                    {formatDate(complaint.createdAt)}
                   </p>
                 </div>
+
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Updated</p>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">
-                    {complaint.updatedAt?.toDate?.().toLocaleDateString() || '-'}
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {t('updated')}
+                  </p>
+                  <p className="mt-0.5 text-sm font-medium text-gray-900 dark:text-white">
+                    {formatDate(complaint.updatedAt)}
                   </p>
                 </div>
+
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">SLA Target</p>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">
-                    {slaTarget
-                      ? slaTarget.toLocaleDateString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })
-                      : '-'}
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {t('slaTarget')}
+                  </p>
+                  <p className="mt-0.5 text-sm font-medium text-gray-900 dark:text-white">
+                    {formatSlaDate()}
                   </p>
                 </div>
               </div>
@@ -696,110 +950,153 @@ export function AdminComplaintDetailsPage() {
               <SlaCountdown complaint={complaint} className="mt-4" />
 
               <div className="mt-4">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+                <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-white">
+                  {t('description')}
+                </h3>
+                <p className="text-sm leading-relaxed text-gray-600 dark:text-gray-400">
                   {complaint.description}
                 </p>
               </div>
 
               {(initialPhoto || resolutionPhoto) && (
-                <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-1.5">
+                <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
+                  <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-900 dark:text-white">
                     <Camera className="h-4 w-4 text-primary-600 dark:text-primary-400" />
-                    Photo Evidence
+                    {t('photoEvidence')}
                   </h3>
-                  <div className="relative group inline-block w-full max-w-xl overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+
+                  <div className="group relative inline-block w-full max-w-xl overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
                     <ResolutionProofSlider
                       beforePhoto={initialPhoto}
                       afterPhoto={resolutionPhoto}
                       onImageClick={() => setZoomOpen(true)}
+                      t={t}
                     />
+
                     <button
                       type="button"
                       onClick={() => setZoomOpen(true)}
-                      className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-medium cursor-pointer"
-                      aria-label="Zoom in on photo evidence"
+                      className="absolute inset-0 flex cursor-pointer items-center justify-center gap-1.5 bg-black/30 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      aria-label={t('zoomInPhotoEvidence')}
                     >
-                      <ZoomIn className="h-4 w-4" /> Click to zoom
+                      <ZoomIn className="h-4 w-4" />
+                      {t('clickToZoom')}
                     </button>
                   </div>
                 </div>
               )}
 
-              {complaint.status === 'Rejected' && complaint.rejectionReason && (
-                <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm dark:bg-red-900/20">
-                  <p className="font-medium text-red-700 dark:text-red-300">Rejection reason</p>
-                  <p className="mt-1 text-gray-700 dark:text-gray-300">{complaint.rejectionReason}</p>
-                </div>
-              )}
+              {complaint.status === 'Rejected' &&
+                complaint.rejectionReason && (
+                  <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm dark:bg-red-900/20">
+                    <p className="font-medium text-red-700 dark:text-red-300">
+                      {t('rejectionReason')}
+                    </p>
+                    <p className="mt-1 text-gray-700 dark:text-gray-300">
+                      {complaint.rejectionReason}
+                    </p>
+                  </div>
+                )}
 
-              {complaint.status === 'Reopened' && complaint.reopenReason && (
-                <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-900/20">
-                  <p className="font-medium text-amber-800 dark:text-amber-300">Citizen feedback (reopened)</p>
-                  <p className="mt-1 text-gray-700 dark:text-gray-300">{complaint.reopenReason}</p>
-                </div>
-              )}
+              {complaint.status === 'Reopened' &&
+                complaint.reopenReason && (
+                  <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-900/20">
+                    <p className="font-medium text-amber-800 dark:text-amber-300">
+                      {t('citizenFeedbackReopened')}
+                    </p>
+                    <p className="mt-1 text-gray-700 dark:text-gray-300">
+                      {complaint.reopenReason}
+                    </p>
+                  </div>
+                )}
 
               <ComplaintAudioPlayer audioNote={complaint.audioNote} />
 
               <div className="mt-4 flex items-start gap-2 text-sm text-gray-500 dark:text-gray-400">
-                <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{complaint.address}</span>
               </div>
             </CardContent>
           </Card>
 
-          {complaint.mergedChildIds && complaint.mergedChildIds.length > 0 && (
-            <Card className="border-purple-200 dark:border-purple-900/50">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2 text-base text-purple-900 dark:text-purple-200">
-                    <GitMerge className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                    Consolidated Duplicate Complaints ({complaint.mergedChildIds.length})
-                  </CardTitle>
-                  <Badge variant="secondary" className="bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">
-                    Primary Ticket
-                  </Badge>
-                </div>
-                <CardDescription>
-                  The following tickets were identified as duplicates and merged into this complaint. Endorsers and tracking have been consolidated.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {complaint.mergedChildIds.map((childId, idx) => {
-                    const cidDisplay = complaint.mergedChildComplaintIds?.[idx] || childId
-                    return (
-                      <div key={childId} className="py-2.5 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="font-mono text-xs text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-800">
-                            {cidDisplay}
-                          </Badge>
-                          <span className="text-xs text-gray-500 dark:text-gray-400">Merged duplicate</span>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs gap-1 text-primary-600 dark:text-primary-400"
-                          onClick={() => navigate(`/admin/reports/${childId}`)}
+          {complaint.mergedChildIds &&
+            complaint.mergedChildIds.length > 0 && (
+              <Card className="border-purple-200 dark:border-purple-900/50">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-base text-purple-900 dark:text-purple-200">
+                      <GitMerge className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                      {t('consolidatedDuplicateComplaints').replace(
+                        '{count}',
+                        String(complaint.mergedChildIds.length)
+                      )}
+                    </CardTitle>
+
+                    <Badge
+                      variant="secondary"
+                      className="bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300"
+                    >
+                      {t('primaryTicket')}
+                    </Badge>
+                  </div>
+
+                  <CardDescription>
+                    {t('consolidatedComplaintsDescription')}
+                  </CardDescription>
+                </CardHeader>
+
+                <CardContent>
+                  <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {complaint.mergedChildIds.map((childId, idx) => {
+                      const cidDisplay =
+                        complaint.mergedChildComplaintIds?.[idx] ||
+                        childId
+
+                      return (
+                        <div
+                          key={childId}
+                          className="flex items-center justify-between py-2.5"
                         >
-                          View <ExternalLink className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    )
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className="border-purple-300 font-mono text-xs text-purple-700 dark:border-purple-800 dark:text-purple-300"
+                            >
+                              {cidDisplay}
+                            </Badge>
+
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              {t('mergedDuplicate')}
+                            </span>
+                          </div>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1 text-xs text-primary-600 dark:text-primary-400"
+                            onClick={() =>
+                              navigate(`/admin/reports/${childId}`)
+                            }
+                          >
+                            {t('view')}
+                            <ExternalLink className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Building2 className="h-5 w-5 text-primary-600 dark:text-primary-400" />
-                Assign Department
+                {t('assignDepartment')}
               </CardTitle>
             </CardHeader>
+
             <CardContent>
               <div className="max-w-xs">
                 <Select
@@ -808,14 +1105,19 @@ export function AdminComplaintDetailsPage() {
                   disabled={saving}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select department" />
+                    <SelectValue placeholder={t('selectDepartment')} />
                   </SelectTrigger>
+
                   <SelectContent>
                     {departments.map((dept) => (
                       <SelectItem key={dept} value={dept}>
                         <div className="flex items-center gap-2">
-                          <DepartmentCrest department={dept} variant="avatar" size="xs" />
-                          <span>{dept}</span>
+                          <DepartmentCrest
+                            department={dept}
+                            variant="avatar"
+                            size="xs"
+                          />
+                          <span>{translateDepartment(dept)}</span>
                         </div>
                       </SelectItem>
                     ))}
@@ -829,9 +1131,10 @@ export function AdminComplaintDetailsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <FileText className="h-5 w-5 text-primary-600 dark:text-primary-400" />
-                Resolution Notes
+                {t('resolutionNotes')}
               </CardTitle>
             </CardHeader>
+
             <CardContent>
               <div className="mb-4">
                 <ResolutionTemplateSelector
@@ -847,17 +1150,23 @@ export function AdminComplaintDetailsPage() {
                   isDirty.current = true
                   setResolutionNotes(e.target.value)
                 }}
-                placeholder="Enter resolution notes..."
+                placeholder={t('enterResolutionNotes')}
                 rows={5}
-                className="flex w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 mb-4"
+                className="mb-4 flex w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
               />
-              <Button onClick={handleSaveNotes} disabled={saving} size="sm" className="gap-2">
+
+              <Button
+                onClick={handleSaveNotes}
+                disabled={saving}
+                size="sm"
+                className="gap-2"
+              >
                 {saving ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                Save Notes
+                {t('saveNotes')}
               </Button>
             </CardContent>
           </Card>
@@ -867,15 +1176,18 @@ export function AdminComplaintDetailsPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
-                    Citizen Feedback
+                    <Star className="h-5 w-5 fill-amber-500 text-amber-500" />
+                    {t('citizenFeedback')}
                   </CardTitle>
-                  <Badge variant="success">Rated</Badge>
+
+                  <Badge variant="success">{t('rated')}</Badge>
                 </div>
+
                 <CardDescription>
-                  Satisfaction rating and feedback submitted by the citizen.
+                  {t('satisfactionRatingDescription')}
                 </CardDescription>
               </CardHeader>
+
               <CardContent className="space-y-3">
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-1">
@@ -884,34 +1196,44 @@ export function AdminComplaintDetailsPage() {
                         key={s}
                         className={`h-5 w-5 ${
                           s <= complaint.feedback.rating
-                            ? 'text-amber-400 fill-amber-400'
+                            ? 'fill-amber-400 text-amber-400'
                             : 'text-gray-300 dark:text-gray-700'
                         }`}
                       />
                     ))}
                   </div>
+
                   <span className="text-sm font-semibold text-gray-900 dark:text-white">
                     {complaint.feedback.rating} / 5
                   </span>
-                  {ratingLabels[complaint.feedback.rating] && (
+
+                  {ratingTranslationKeys[complaint.feedback.rating] && (
                     <span className="text-xs text-gray-500 dark:text-gray-400">
-                      ({ratingLabels[complaint.feedback.rating]})
+                      (
+                      {t(
+                        ratingTranslationKeys[
+                          complaint.feedback.rating
+                        ]
+                      )}
+                      )
                     </span>
                   )}
                 </div>
+
                 {complaint.feedback.comment ? (
-                  <p className="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800">
+                  <p className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-800/50 dark:text-gray-300">
                     "{complaint.feedback.comment}"
                   </p>
                 ) : (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 italic">
-                    No additional comment provided.
+                  <p className="text-xs italic text-gray-400 dark:text-gray-500">
+                    {t('noAdditionalComment')}
                   </p>
                 )}
+
                 {complaint.feedback.submittedAt && (
                   <p className="text-xs text-gray-400 dark:text-gray-500">
-                    Submitted on{' '}
-                    {complaint.feedback.submittedAt.toDate?.().toLocaleDateString() || '-'}
+                    {t('submittedOn')}{' '}
+                    {formatDate(complaint.feedback.submittedAt)}
                   </p>
                 )}
               </CardContent>
@@ -921,12 +1243,13 @@ export function AdminComplaintDetailsPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Star className="h-5 w-5 text-gray-400" />
-                  Citizen Feedback
+                  {t('citizenFeedback')}
                 </CardTitle>
               </CardHeader>
+
               <CardContent>
                 <p className="text-sm text-gray-400 dark:text-gray-500">
-                  Awaiting citizen rating and feedback.
+                  {t('awaitingCitizenFeedback')}
                 </p>
               </CardContent>
             </Card>
@@ -938,18 +1261,24 @@ export function AdminComplaintDetailsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <FileText className="h-5 w-5 text-primary-600 dark:text-primary-400" />
-                Citizen Information
+                {t('citizenInformation')}
               </CardTitle>
             </CardHeader>
+
             <CardContent className="space-y-3 text-sm">
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Name</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {t('name')}
+                </p>
                 <p className="font-medium text-gray-900 dark:text-white">
-                  {citizen?.name || 'Unknown User'}
+                  {citizen?.name || t('unknownUser')}
                 </p>
               </div>
+
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Email</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {t('email')}
+                </p>
                 <p className="font-medium text-gray-900 dark:text-white">
                   {citizen?.email || '-'}
                 </p>
@@ -961,22 +1290,32 @@ export function AdminComplaintDetailsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <HardHat className="h-5 w-5 text-primary-600 dark:text-primary-400" />
-                Field Worker
+                {t('fieldWorker')}
               </CardTitle>
             </CardHeader>
+
             <CardContent className="space-y-3 text-sm">
               {complaint.assignedWorker ? (
                 <>
                   <div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Name</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {t('name')}
+                    </p>
                     <p className="font-medium text-gray-900 dark:text-white">
                       {complaint.assignedWorker.name}
                     </p>
                   </div>
+
                   <div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Contact</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {t('contact')}
+                    </p>
+
                     <a
-                      href={`tel:${complaint.assignedWorker.phone.replace(/\s/g, '')}`}
+                      href={`tel:${complaint.assignedWorker.phone.replace(
+                        /\s/g,
+                        ''
+                      )}`}
                       className="inline-flex items-center gap-1.5 font-medium text-primary-600 hover:underline dark:text-primary-400"
                     >
                       <Phone className="h-3.5 w-3.5" />
@@ -985,10 +1324,20 @@ export function AdminComplaintDetailsPage() {
                   </div>
                 </>
               ) : (
-                <p className="text-gray-500 dark:text-gray-400">No worker assigned yet.</p>
+                <p className="text-gray-500 dark:text-gray-400">
+                  {t('noWorkerAssigned')}
+                </p>
               )}
-              <Button variant="outline" size="sm" className="w-full" onClick={openWorkerDialog}>
-                {complaint.assignedWorker ? 'Change Worker' : 'Assign Worker'}
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={openWorkerDialog}
+              >
+                {complaint.assignedWorker
+                  ? t('changeWorker')
+                  : t('assignWorker')}
               </Button>
             </CardContent>
           </Card>
@@ -997,108 +1346,151 @@ export function AdminComplaintDetailsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <MapPin className="h-5 w-5 text-primary-600 dark:text-primary-400" />
-                Location
+                {t('location')}
               </CardTitle>
             </CardHeader>
+
             <CardContent>
-              <ComplaintLocationMap latitude={complaint.latitude} longitude={complaint.longitude} address={complaint.address} height="240px" />
+              <ComplaintLocationMap
+                latitude={complaint.latitude}
+                longitude={complaint.longitude}
+                address={complaint.address}
+                height="240px"
+              />
             </CardContent>
           </Card>
         </div>
       </div>
 
-      {/* Assign Field Worker Modal */}
-      <Dialog open={workerDialogOpen} onOpenChange={setWorkerDialogOpen}>
+      <Dialog
+        open={workerDialogOpen}
+        onOpenChange={setWorkerDialogOpen}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Assign Field Worker</DialogTitle>
+            <DialogTitle>{t('assignFieldWorker')}</DialogTitle>
             <DialogDescription>
-              Enter the details of the worker responsible for this complaint.
+              {t('workerAssignmentDescription')}
             </DialogDescription>
           </DialogHeader>
+
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="worker-name">Worker Name</Label>
+              <Label htmlFor="worker-name">
+                {t('workerName')}
+              </Label>
+
               <Input
                 id="worker-name"
-                placeholder="e.g. Ramesh Kumar"
+                placeholder={t('workerNamePlaceholder')}
                 value={workerName}
                 onChange={(e) => setWorkerName(e.target.value)}
               />
             </div>
+
             <div className="space-y-2">
-              <Label htmlFor="worker-phone">Contact Number</Label>
+              <Label htmlFor="worker-phone">
+                {t('contactNumber')}
+              </Label>
+
               <Input
                 id="worker-phone"
                 type="tel"
-                placeholder="e.g. +91 9876543210"
+                placeholder={t('workerPhonePlaceholder')}
                 value={workerPhone}
                 onChange={(e) => setWorkerPhone(e.target.value)}
               />
             </div>
+
             {workerError && (
-              <p className="text-sm text-red-600 dark:text-red-400">{workerError}</p>
+              <p className="text-sm text-red-600 dark:text-red-400">
+                {workerError}
+              </p>
             )}
           </div>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setWorkerDialogOpen(false)}>
-              Cancel
+            <Button
+              variant="outline"
+              onClick={() => setWorkerDialogOpen(false)}
+            >
+              {t('cancel')}
             </Button>
-            <Button onClick={handleSaveWorker} disabled={savingWorker}>
-              {savingWorker ? 'Saving...' : 'Save Worker'}
+
+            <Button
+              onClick={handleSaveWorker}
+              disabled={savingWorker}
+            >
+              {savingWorker
+                ? t('saving')
+                : t('saveWorker')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Reject Complaint Modal */}
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject Complaint</DialogTitle>
+            <DialogTitle>{t('rejectComplaint')}</DialogTitle>
             <DialogDescription>
-              A reason is required and will be shown to the citizen.
+              {t('rejectionReasonDescription')}
             </DialogDescription>
           </DialogHeader>
+
           <textarea
             rows={4}
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="e.g. Outside municipal jurisdiction, Duplicate report"
+            placeholder={t('rejectionReasonPlaceholder')}
             className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
           />
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectOpen(false)}>
-              Cancel
+            <Button
+              variant="outline"
+              onClick={() => setRejectOpen(false)}
+            >
+              {t('cancel')}
             </Button>
-            <Button variant="destructive" onClick={handleReject} disabled={saving}>
-              {saving ? 'Rejecting...' : 'Reject'}
+
+            <Button
+              variant="destructive"
+              onClick={handleReject}
+              disabled={saving}
+            >
+              {saving ? t('rejecting') : t('reject')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Merge Complaints Dialog */}
       <Dialog open={mergeOpen} onOpenChange={setMergeOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitMerge className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-              Merge into Parent Complaint
+              {t('mergeIntoParentComplaint')}
             </DialogTitle>
+
             <DialogDescription>
-              Consolidate this ticket ({getDisplayId(complaint)}) into an active primary ticket. Endorsers will be combined and the citizen will be notified.
+              {t('mergeComplaintDescription')
+                .replace('{id}', getDisplayId(complaint))}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="search-parent">Search Target Parent Complaint</Label>
+              <Label htmlFor="search-parent">
+                {t('searchParentComplaint')}
+              </Label>
+
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+
                 <Input
                   id="search-parent"
-                  placeholder="Search by ID (e.g. CMP-2026-0001), title, or location..."
+                  placeholder={t('searchParentPlaceholder')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-9"
@@ -1107,33 +1499,42 @@ export function AdminComplaintDetailsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Select Primary Complaint</Label>
+              <Label>{t('selectPrimaryComplaint')}</Label>
+
               {loadingCandidates ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
                 </div>
               ) : filteredCandidates.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-800 p-6 text-center text-sm text-gray-500">
-                  No eligible parent complaints found.
+                <div className="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500 dark:border-gray-800">
+                  {t('noEligibleParentComplaints')}
                 </div>
               ) : (
-                <div className="max-h-60 overflow-y-auto space-y-2 pr-1 border border-gray-200 dark:border-gray-800 rounded-lg p-2">
+                <div className="max-h-60 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-2 pr-1 dark:border-gray-800">
                   {filteredCandidates.map((candidate) => {
-                    const candidateDisplayId = getDisplayId(candidate)
-                    const isSelected = selectedParentId === candidate.id
+                    const candidateDisplayId =
+                      getDisplayId(candidate)
+                    const isSelected =
+                      selectedParentId === candidate.id
+
                     return (
                       <div
                         key={candidate.id}
                         role="button"
                         tabIndex={0}
-                        onClick={() => setSelectedParentId(candidate.id)}
+                        onClick={() =>
+                          setSelectedParentId(candidate.id)
+                        }
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
+                          if (
+                            e.key === 'Enter' ||
+                            e.key === ' '
+                          ) {
                             e.preventDefault()
                             setSelectedParentId(candidate.id)
                           }
                         }}
-                        className={`p-3 rounded-lg border text-sm cursor-pointer transition-colors ${
+                        className={`cursor-pointer rounded-lg border p-3 text-sm transition-colors ${
                           isSelected
                             ? 'border-purple-600 bg-purple-50 dark:border-purple-500 dark:bg-purple-900/30'
                             : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50'
@@ -1143,14 +1544,23 @@ export function AdminComplaintDetailsPage() {
                           <span className="font-mono text-xs font-semibold text-primary-600 dark:text-primary-400">
                             {candidateDisplayId}
                           </span>
-                          <Badge variant={statusVariant[candidate.status] || 'default'} className="text-[10px]">
-                            {candidate.status}
+
+                          <Badge
+                            variant={
+                              statusVariant[candidate.status] ||
+                              'default'
+                            }
+                            className="text-[10px]"
+                          >
+                            {translateStatus(candidate.status)}
                           </Badge>
                         </div>
-                        <p className="font-medium text-gray-900 dark:text-white mt-1 text-sm line-clamp-1">
+
+                        <p className="mt-1 line-clamp-1 text-sm font-medium text-gray-900 dark:text-white">
                           {candidate.title}
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">
+
+                        <p className="mt-0.5 line-clamp-1 text-xs text-gray-500 dark:text-gray-400">
                           {candidate.address} • {candidate.category}
                         </p>
                       </div>
@@ -1162,28 +1572,36 @@ export function AdminComplaintDetailsPage() {
 
             {selectedParentId && (
               <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
-                This complaint will be marked as <strong>Merged - Duplicate</strong> and its endorsers will be consolidated into the selected primary ticket.
+                {t('mergeConfirmationWarning')}
               </div>
             )}
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setMergeOpen(false)} disabled={merging}>
-              Cancel
+            <Button
+              variant="outline"
+              onClick={() => setMergeOpen(false)}
+              disabled={merging}
+            >
+              {t('cancel')}
             </Button>
+
             <Button
               onClick={handleConfirmMerge}
               disabled={merging || !selectedParentId}
-              className="gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+              className="gap-2 bg-purple-600 text-white hover:bg-purple-700"
             >
-              {merging ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitMerge className="h-4 w-4" />}
-              Confirm Merge
+              {merging ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <GitMerge className="h-4 w-4" />
+              )}
+              {t('confirmMerge')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Photo Evidence Zoom Modal */}
       <Dialog
         open={zoomOpen}
         onOpenChange={(open) => {
@@ -1194,68 +1612,89 @@ export function AdminComplaintDetailsPage() {
         <DialogContent className="max-w-3xl p-4 sm:p-6">
           <DialogHeader className="mb-2">
             <div className="flex items-center justify-between pr-8">
-              <DialogTitle>Photo Evidence</DialogTitle>
+              <DialogTitle>{t('photoEvidence')}</DialogTitle>
+
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700 px-1 py-0.5 text-xs">
+                <div className="flex items-center gap-1 rounded-md border border-gray-200 bg-gray-100 px-1 py-0.5 text-xs dark:border-gray-700 dark:bg-gray-800">
                   <button
                     type="button"
                     disabled={zoomScale <= 0.75}
-                    onClick={() => setZoomScale((s) => Math.max(0.5, s - 0.25))}
-                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-40"
-                    title="Zoom out"
-                    aria-label="Zoom out"
+                    onClick={() =>
+                      setZoomScale((s) =>
+                        Math.max(0.5, s - 0.25)
+                      )
+                    }
+                    className="rounded p-1 hover:bg-gray-200 disabled:opacity-40 dark:hover:bg-gray-700"
+                    title={t('zoomOut')}
+                    aria-label={t('zoomOut')}
                   >
                     <ZoomOut className="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
                   </button>
+
                   <button
                     type="button"
                     onClick={() => setZoomScale(1)}
-                    className="px-1.5 py-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded font-mono text-[11px] text-gray-700 dark:text-gray-300"
-                    title="Reset zoom"
-                    aria-label="Reset zoom"
+                    className="rounded px-1.5 py-0.5 font-mono text-[11px] text-gray-700 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
+                    title={t('resetZoom')}
+                    aria-label={t('resetZoom')}
                   >
                     {Math.round(zoomScale * 100)}%
                   </button>
+
                   <button
                     type="button"
                     disabled={zoomScale >= 3}
-                    onClick={() => setZoomScale((s) => Math.min(3, s + 0.25))}
-                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-40"
-                    title="Zoom in"
-                    aria-label="Zoom in"
+                    onClick={() =>
+                      setZoomScale((s) =>
+                        Math.min(3, s + 0.25)
+                      )
+                    }
+                    className="rounded p-1 hover:bg-gray-200 disabled:opacity-40 dark:hover:bg-gray-700"
+                    title={t('zoomIn')}
+                    aria-label={t('zoomIn')}
                   >
                     <ZoomIn className="h-3.5 w-3.5 text-gray-700 dark:text-gray-300" />
                   </button>
                 </div>
+
                 {(initialPhoto || resolutionPhoto) && (
                   <a
                     href={initialPhoto || resolutionPhoto}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-normal text-primary-600 dark:text-primary-400 hover:underline ml-1"
+                    className="ml-1 inline-flex items-center gap-1 text-xs font-normal text-primary-600 hover:underline dark:text-primary-400"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
-                    Open original
+                    {t('openOriginal')}
                   </a>
                 )}
               </div>
             </div>
+
             <DialogDescription>
-              Visual proof attached to {getDisplayId(complaint)}
+              {t('visualProofAttached').replace(
+                '{id}',
+                getDisplayId(complaint)
+              )}
             </DialogDescription>
           </DialogHeader>
-          <div className="flex items-center justify-center max-h-[70vh] overflow-auto rounded-lg bg-black/5 dark:bg-black/40 p-2">
+
+          <div className="flex max-h-[70vh] items-center justify-center overflow-auto rounded-lg bg-black/5 p-2 dark:bg-black/40">
             <img
               src={initialPhoto || resolutionPhoto}
-              alt="Enlarged complaint evidence"
+              alt={t('enlargedComplaintEvidence')}
               style={{
                 transform: `scale(${zoomScale})`,
                 transformOrigin: 'center center',
               }}
-              className={`max-h-[65vh] w-auto max-w-full object-contain rounded-md transition-transform duration-150 ${
-                zoomScale === 1 ? 'cursor-zoom-in' : 'cursor-zoom-out'
+              className={`max-h-[65vh] w-auto max-w-full rounded-md object-contain transition-transform duration-150 ${
+                zoomScale === 1
+                  ? 'cursor-zoom-in'
+                  : 'cursor-zoom-out'
               }`}
-              onClick={() => setZoomScale((s) => (s === 1 ? 1.75 : 1))}
+              onClick={() =>
+                setZoomScale((s) => (s === 1 ? 1.75 : 1))
+              }
             />
           </div>
         </DialogContent>

@@ -1,3 +1,4 @@
+
 import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
 import { useState, useEffect, useRef } from 'react'
 import { Menu, Bell, BellRing, Search } from 'lucide-react'
@@ -9,6 +10,7 @@ import { ThemeToggle } from '@/components/common/ThemeToggle'
 import { NotificationDropdown } from '@/components/notifications/NotificationDropdown'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import { useLanguage } from '@/contexts/LanguageContext'
 import {
   loadNotificationPreferences,
   saveNotificationPreferences,
@@ -40,6 +42,7 @@ export function Navbar({ onMenuClick }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const { openSearch } = useSpotlightSearch()
+  const { language, setLanguage, t } = useLanguage()
 
   const [unreadCount, setUnreadCount] = useState(0)
   const [recentNotifications, setRecentNotifications] = useState([])
@@ -241,7 +244,7 @@ export function Navbar({ onMenuClick }) {
         size="icon"
         onClick={onMenuClick}
         className="rounded-full lg:hidden"
-        aria-label="Open navigation menu"
+        aria-label={t('openNavigation')}
       >
         <Menu className="h-5 w-5" />
       </Button>
@@ -252,12 +255,17 @@ export function Navbar({ onMenuClick }) {
           type="button"
           onClick={openSearch}
           className="group flex w-full items-center gap-2 rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-1.5 text-xs text-gray-500 transition-all hover:border-gray-300 hover:bg-gray-100 hover:text-gray-900 dark:border-gray-800 dark:bg-gray-900/60 dark:text-gray-400 dark:hover:border-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-100"
-          aria-label="Search reports (Ctrl+K or Cmd+K)"
+          aria-label={t('searchReports')}
         >
           <Search className="h-3.5 w-3.5 text-gray-400 group-hover:text-gray-600 dark:text-gray-500 dark:group-hover:text-gray-300" />
-          <span className="flex-1 text-left truncate">Search reports, wards...</span>
+          <span className="flex-1 text-left truncate">
+            {t('searchReports')}
+          </span>
           <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-mono text-gray-400 shadow-2xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
-            <span className="text-xs">{typeof navigator !== 'undefined' && navigator.platform?.toUpperCase()?.includes('MAC') ? '⌘' : 'Ctrl+'}</span>K
+            <span className="text-xs">
+              {typeof navigator !== 'undefined' && navigator.platform?.toUpperCase()?.includes('MAC') ? '⌘' : 'Ctrl+'}
+            </span>
+            K
           </kbd>
         </button>
       </div>
@@ -266,13 +274,45 @@ export function Navbar({ onMenuClick }) {
 
       <ThemeToggle />
 
+      {/* Language Switcher */}
+      <div
+        className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-700 dark:bg-gray-900"
+        aria-label={t('language')}
+      >
+        <button
+          type="button"
+          onClick={() => setLanguage('en')}
+          aria-pressed={language === 'en'}
+          className={`rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${
+            language === 'en'
+              ? 'bg-primary text-white shadow-sm'
+              : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+          }`}
+        >
+          EN
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setLanguage('hi')}
+          aria-pressed={language === 'hi'}
+          className={`rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${
+            language === 'hi'
+              ? 'bg-primary text-white shadow-sm'
+              : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+          }`}
+        >
+          हिंदी
+        </button>
+      </div>
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
             size="icon"
             className="relative rounded-full"
-            aria-label="View notifications"
+            aria-label={t('viewNotifications')}
           >
             <Bell className="h-5 w-5" />
 
@@ -288,13 +328,13 @@ export function Navbar({ onMenuClick }) {
           <div className="flex items-center justify-between border-b border-gray-100 p-4 dark:border-gray-800">
             <div>
               <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                Notifications
+                {t('notifications')}
               </p>
 
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {unreadCount > 0
-                  ? `${unreadCount} unread update${unreadCount > 1 ? 's' : ''}`
-                  : 'All caught up'}
+                  ? `${unreadCount} ${t('unreadUpdate')}`
+                  : t('allCaughtUp')}
               </p>
             </div>
 
@@ -304,7 +344,7 @@ export function Navbar({ onMenuClick }) {
               onClick={handleBellClick}
               className="h-7 px-2 text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400"
             >
-              View all
+              {t('viewAll')}
             </Button>
           </div>
 
@@ -316,11 +356,11 @@ export function Navbar({ onMenuClick }) {
 
                 <div className="flex-1">
                   <p className="text-xs font-semibold text-gray-900 dark:text-white">
-                    Enable push alerts?
+                    {t('enablePush')}
                   </p>
 
                   <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-                    Get real-time browser alerts when an admin updates your complaints.
+                    {t('pushDescription')}
                   </p>
 
                   <Button
@@ -330,8 +370,8 @@ export function Navbar({ onMenuClick }) {
                     className="mt-2 h-7 w-full text-[11px]"
                   >
                     {requestingPush
-                      ? 'Enabling...'
-                      : 'Enable Notifications'}
+                      ? t('enabling')
+                      : t('enableNotifications')}
                   </Button>
                 </div>
               </div>
@@ -342,7 +382,7 @@ export function Navbar({ onMenuClick }) {
           <div className="max-h-80 divide-y divide-gray-100 overflow-y-auto dark:divide-gray-800">
             {recentNotifications.length === 0 ? (
               <div className="py-8 text-center text-xs text-gray-500 dark:text-gray-400">
-                No notifications yet
+                {t('noNotifications')}
               </div>
             ) : (
               recentNotifications.slice(0, 5).map((notification) => (
@@ -390,7 +430,7 @@ export function Navbar({ onMenuClick }) {
               onClick={handleBellClick}
               className="h-8 w-full text-xs text-gray-600 dark:text-gray-300"
             >
-              See all notifications
+              {t('seeAllNotifications')}
             </Button>
           </div>
         </DropdownMenuContent>
@@ -426,18 +466,18 @@ export function Navbar({ onMenuClick }) {
           <DropdownMenuSeparator />
 
           <DropdownMenuItem onClick={() => navigate('/profile')}>
-            Profile
+            {t('profile')}
           </DropdownMenuItem>
 
           <DropdownMenuItem onClick={handleBellClick}>
-            Notifications
+            {t('notifications')}
           </DropdownMenuItem>
 
           {user?.role === 'admin' && (
             <DropdownMenuItem
               onClick={() => navigate('/admin/settings')}
             >
-              Settings
+              {t('settings')}
             </DropdownMenuItem>
           )}
 
@@ -447,7 +487,7 @@ export function Navbar({ onMenuClick }) {
             onClick={handleLogout}
             className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
           >
-            Logout
+            {t('logout')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

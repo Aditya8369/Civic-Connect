@@ -1,16 +1,14 @@
+
 import { saveOfflineComplaint } from '@/utils/offlineQueue'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { MapPin, Send, AlertTriangle, ExternalLink, ThumbsUp, Check, Loader2, Clock, Camera, Trash2 } from 'lucide-react'
 import {
-  collection,
-  doc,
-  runTransaction,
-  serverTimestamp,
-  query,
-  where,
-  getDocs,
+  MapPin, Send, AlertTriangle, ExternalLink, ThumbsUp, Check,
+  Loader2, Clock, Camera, Trash2,
+} from 'lucide-react'
+import {
+  collection, doc, runTransaction, serverTimestamp, query, where, getDocs,
 } from 'firebase/firestore'
 import { db } from '@/firebase/services'
 import { endorseComplaint } from '@/firebase/endorseComplaint'
@@ -25,6 +23,7 @@ import {
 } from '@/firebase/storage'
 import VoiceRecorder from '@/components/citizen/VoiceRecorder'
 import { useAuth } from '@/hooks/useAuth'
+import { useLanguage } from '@/contexts/LanguageContext'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,7 +31,9 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { findNearbyComplaints, parseCoordinates } from '@/utils/geo'
 import { ComplaintLocationMap } from '@/components/common/ComplaintLocationMap'
 import toast from 'react-hot-toast'
@@ -47,6 +48,24 @@ const categories = [
   'Traffic Issues',
   'Other',
 ]
+
+const categoryTranslationKeys = {
+  'Potholes & Road Damage': 'categoryPotholes',
+  'Streetlight Issues': 'categoryStreetlights',
+  'Water Leakage': 'categoryWater',
+  'Garbage & Sanitation': 'categoryGarbage',
+  'Noise Pollution': 'categoryNoise',
+  'Illegal Construction': 'categoryConstruction',
+  'Traffic Issues': 'categoryTraffic',
+  Other: 'categoryOther',
+}
+
+const statusTranslationKeys = {
+  Resolved: 'statusResolved',
+  'In Progress': 'statusInProgress',
+  Pending: 'statusPending',
+  'Merged - Duplicate': 'statusMerged',
+}
 
 const statusVariant = {
   Resolved: 'success',
@@ -67,9 +86,7 @@ function getRemainingCooldown(uid) {
     const stored = localStorage.getItem(key) || localStorage.getItem(COOLDOWN_STORAGE_KEY)
     if (stored) {
       const parsed = parseInt(stored, 10)
-      if (!isNaN(parsed) && parsed > timestamp) {
-        timestamp = parsed
-      }
+      if (!isNaN(parsed) && parsed > timestamp) timestamp = parsed
     }
   } catch {
     // localStorage might be unavailable or restricted
@@ -85,9 +102,7 @@ function recordSubmissionTimestamp(uid, time = Date.now()) {
   inMemoryLastSubmittedAt = time
   try {
     localStorage.setItem(COOLDOWN_STORAGE_KEY, String(time))
-    if (uid) {
-      localStorage.setItem(`${COOLDOWN_STORAGE_KEY}_${uid}`, String(time))
-    }
+    if (uid) localStorage.setItem(`${COOLDOWN_STORAGE_KEY}_${uid}`, String(time))
   } catch {
     // LocalStorage fallback handled by inMemoryLastSubmittedAt
   }
@@ -95,7 +110,9 @@ function recordSubmissionTimestamp(uid, time = Date.now()) {
 
 export function ReportPage() {
   const { user } = useAuth()
+  const { t } = useLanguage()
   const navigate = useNavigate()
+
   const [category, setCategory] = useState('')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -104,21 +121,20 @@ export function ReportPage() {
   const [longitude, setLongitude] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const isSubmittingRef = useRef(false)
-  const [cooldownRemaining, setCooldownRemaining] = useState(() => getRemainingCooldown(user?.uid))
+  const [cooldownRemaining, setCooldownRemaining] = useState(
+    () => getRemainingCooldown(user?.uid)
+  )
 
-  // Synchronize and tick cooldown timer
   useEffect(() => {
     if (cooldownRemaining <= 0) return
 
     const timer = setInterval(() => {
-      const remaining = getRemainingCooldown(user?.uid)
-      setCooldownRemaining(remaining)
+      setCooldownRemaining(getRemainingCooldown(user?.uid))
     }, 1000)
 
     return () => clearInterval(timer)
   }, [cooldownRemaining, user?.uid])
 
-  // Cross-tab and window focus synchronization for cooldown
   useEffect(() => {
     const handleStorageOrFocus = (e) => {
       if (
@@ -140,30 +156,21 @@ export function ReportPage() {
     }
   }, [user?.uid])
 
-  // Photo evidence state
   const [photoFile, setPhotoFile] = useState(null)
   const [photoPreview, setPhotoPreview] = useState(null)
   const fileInputRef = useRef(null)
-
-  // Voice note state
   const [voiceNote, setVoiceNote] = useState(null)
 
-  // Duplicate detection state
   const [checkingDuplicates, setCheckingDuplicates] = useState(false)
   const [nearbyDuplicates, setNearbyDuplicates] = useState([])
   const [hasAcknowledgedDuplicate, setHasAcknowledgedDuplicate] = useState(false)
   const [endorsingMap, setEndorsingMap] = useState({})
   const pendingEndorsements = useRef(new Set())
-
-  // Track latest check request to avoid race conditions
   const lastCheckRequestId = useRef(0)
 
-  // Cleanup photo preview URL on unmount or file replacement
   useEffect(() => {
     return () => {
-      if (photoPreview) {
-        URL.revokeObjectURL(photoPreview)
-      }
+      if (photoPreview) URL.revokeObjectURL(photoPreview)
     }
   }, [photoPreview])
 
@@ -174,29 +181,20 @@ export function ReportPage() {
     const validation = validateComplaintPhoto(file)
     if (!validation.valid) {
       toast.error(validation.error)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+      if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
 
-    if (photoPreview) {
-      URL.revokeObjectURL(photoPreview)
-    }
-
+    if (photoPreview) URL.revokeObjectURL(photoPreview)
     setPhotoFile(file)
     setPhotoPreview(URL.createObjectURL(file))
   }
 
   const handleRemovePhoto = () => {
-    if (photoPreview) {
-      URL.revokeObjectURL(photoPreview)
-    }
+    if (photoPreview) URL.revokeObjectURL(photoPreview)
     setPhotoFile(null)
     setPhotoPreview(null)
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   const checkDuplicates = useCallback(async (cat, lat, lng) => {
@@ -210,37 +208,24 @@ export function ReportPage() {
     setCheckingDuplicates(true)
 
     try {
-      // Query active complaints in the same category
-      const q = query(
-        collection(db, 'issues'),
-        where('category', '==', cat)
-      )
+      const q = query(collection(db, 'issues'), where('category', '==', cat))
       const snap = await getDocs(q)
 
-      // Ignore response if another check started in the meantime
-      if (currentRequestId !== lastCheckRequestId.current) {
-        return []
-      }
+      if (currentRequestId !== lastCheckRequestId.current) return []
 
       const activeComplaints = []
       snap.forEach((docSnap) => {
         const data = docSnap.data()
-        // Exclude resolved, closed or inactive complaints
         if (data.status !== 'Resolved') {
-          activeComplaints.push({
-            id: docSnap.id,
-            ...data,
-          })
+          activeComplaints.push({ id: docSnap.id, ...data })
         }
       })
 
-      // Calculate distance and filter complaints within 50m
       const matches = findNearbyComplaints(coords, activeComplaints, 50)
       setNearbyDuplicates(matches)
       return matches
     } catch (err) {
       console.error('Duplicate complaint check failed:', err)
-      // Non-blocking error: allow workflow to continue
       return []
     } finally {
       if (currentRequestId === lastCheckRequestId.current) {
@@ -249,7 +234,6 @@ export function ReportPage() {
     }
   }, [])
 
-  // Re-check duplicates when category, latitude, or longitude changes
   useEffect(() => {
     const timer = setTimeout(() => {
       checkDuplicates(category, latitude, longitude)
@@ -258,42 +242,39 @@ export function ReportPage() {
     return () => clearTimeout(timer)
   }, [category, latitude, longitude, checkDuplicates])
 
-
   const handleEndorse = async (complaint) => {
     if (!user) {
-      toast.error('You must be logged in to endorse a complaint')
+      toast.error(t('loginToEndorse'))
       return
     }
 
     const hasEndorsed = complaint.endorsedBy?.includes(user.uid)
     if (hasEndorsed) {
-      toast.info('You have already endorsed this complaint')
+      toast.info(t('alreadyEndorsed'))
       return
     }
 
     if (pendingEndorsements.current.has(complaint.id)) return
     pendingEndorsements.current.add(complaint.id)
     setEndorsingMap((prev) => ({ ...prev, [complaint.id]: true }))
+
     try {
       const result = await endorseComplaint(complaint.id, user.uid)
       setNearbyDuplicates((prev) =>
-        prev.map((c) => {
-          if (c.id === complaint.id) {
-            return {
+        prev.map((c) => c.id === complaint.id
+          ? {
               ...c,
               endorsedBy: result.endorsedBy,
               endorsementCount: result.endorsementCount,
             }
-          }
-          return c
-        })
+          : c)
       )
 
-      if (result.added) toast.success('Thank you! Your endorsement has been recorded.')
-      else toast.info('You have already endorsed this complaint')
+      if (result.added) toast.success(t('endorsementRecorded'))
+      else toast.info(t('alreadyEndorsed'))
     } catch (err) {
       console.error('Failed to endorse complaint:', err)
-      toast.error('Failed to endorse complaint. Please try again.')
+      toast.error(t('endorsementFailed'))
     } finally {
       pendingEndorsements.current.delete(complaint.id)
       setEndorsingMap((prev) => ({ ...prev, [complaint.id]: false }))
@@ -303,43 +284,35 @@ export function ReportPage() {
   const handleSubmit = async (e) => {
     e.preventDefault()
 
-    // Immediate guard to prevent duplicate submissions from rapid clicks
-    if (isSubmittingRef.current || submitting) {
-      return
-    }
+    if (isSubmittingRef.current || submitting) return
 
-    // Rate-limiting cooldown verification
     const remaining = getRemainingCooldown(user?.uid)
     if (remaining > 0 || cooldownRemaining > 0) {
       const activeRemaining = remaining > 0 ? remaining : cooldownRemaining
       setCooldownRemaining(activeRemaining)
-      toast.error(`Please wait ${activeRemaining}s before submitting another report.`)
+      toast.error(t('waitBeforeSubmitting').replace('{seconds}', activeRemaining))
       return
     }
 
     if (!category || !title || !description || !address) {
-      toast.error('Please fill in all required fields')
+      toast.error(t('fillRequiredFields'))
       return
     }
 
-    // If duplicate complaints exist and citizen hasn't acknowledged, prompt them
     if (nearbyDuplicates.length > 0 && !hasAcknowledgedDuplicate) {
-      toast.error('A similar issue has already been reported nearby. Please review or confirm.')
+      toast.error(t('reviewSimilarComplaints'))
       return
     }
 
-    // Voice notes need an internet connection because they are uploaded to Firebase Storage.
     if (!navigator.onLine && voiceNote?.blob) {
-      toast.error('Voice notes require an internet connection. Reconnect or remove the voice note before submitting.')
+      toast.error(t('voiceNoteNeedsInternet'))
       return
     }
 
-    // Immediately lock submission to prevent double-clicks
     isSubmittingRef.current = true
     setSubmitting(true)
 
     try {
-      // Save complaint locally when the device is offline.
       if (!navigator.onLine) {
         if (photoFile) {
           const photoValidation = validateComplaintPhoto(photoFile)
@@ -364,32 +337,23 @@ export function ReportPage() {
 
         recordSubmissionTimestamp(user.uid, Date.now())
         setCooldownRemaining(COOLDOWN_SECONDS)
-
         isSubmittingRef.current = false
         setSubmitting(false)
 
-        toast.success(
-          'You are offline. Your complaint has been saved and is waiting to sync.'
-        )
-
+        toast.success(t('offlineComplaintSaved'))
         navigate('/my-reports')
         return
       }
 
-      // Pre-allocate the Firestore document reference so its ID can be used as the
-      // storage attachment directory. This avoids prematurely allocating or burning
-      // a sequential municipal complaintId before evidence uploads succeed.
       const issueRef = doc(collection(db, 'issues'))
       const attachmentId = issueRef.id
-
-      // Track uploaded artifacts so any partial upload failure can clean them up immediately,
-      // preventing orphaned storage files.
       const uploadedArtifacts = []
       let photoUpload = null
       let audioUpload = null
 
       try {
         const uploadPromises = []
+
         if (photoFile) {
           uploadPromises.push(
             uploadComplaintPhoto(photoFile, attachmentId).then((res) => {
@@ -438,9 +402,6 @@ export function ReportPage() {
           }
         : null
 
-      // Allocate the municipal ticket ID atomically inside the transaction.
-      // If the commit fails, the counter write is rolled back and uploaded
-      // storage artifacts are cleaned up so no orphan files or ticket gaps remain.
       let complaintId = null
       try {
         await runTransaction(db, async (transaction) => {
@@ -490,22 +451,17 @@ export function ReportPage() {
         throw commitError
       }
 
-      // Record successful submission timestamp for rate-limiting cooldown
       recordSubmissionTimestamp(user?.uid, Date.now())
       setCooldownRemaining(COOLDOWN_SECONDS)
       isSubmittingRef.current = false
       setSubmitting(false)
 
       navigate('/complaint-confirmation', {
-        state: {
-          complaintId,
-          issueId: issueRef.id,
-          title,
-        },
+        state: { complaintId, issueId: issueRef.id, title },
       })
     } catch (err) {
       console.error('Complaint submission failed:', err)
-      toast.error(err?.message || 'Failed to submit complaint. Please try again.')
+      toast.error(err?.message || t('complaintSubmissionFailed'))
       isSubmittingRef.current = false
       setSubmitting(false)
     }
@@ -514,8 +470,8 @@ export function ReportPage() {
   return (
     <div>
       <PageHeader
-        title="New Complaint"
-        description="Submit a new civic complaint"
+        title={t('newComplaint')}
+        description={t('submitNewCivicComplaint')}
       />
 
       <div className="max-w-2xl">
@@ -523,17 +479,17 @@ export function ReportPage() {
           <Card>
             <CardContent className="p-6 space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="title">Complaint Title *</Label>
+                <Label htmlFor="title">{t('complaintTitle')} *</Label>
                 <Input
                   id="title"
-                  placeholder="e.g. Pothole on Main Street"
+                  placeholder={t('complaintTitlePlaceholder')}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label>Category *</Label>
+                <Label>{t('category')} *</Label>
                 <Select
                   value={category}
                   onValueChange={(val) => {
@@ -542,14 +498,14 @@ export function ReportPage() {
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a category" />
+                    <SelectValue placeholder={t('selectCategory')} />
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((cat) => (
                       <SelectItem key={cat} value={cat}>
                         <div className="flex items-center gap-2">
                           <CategoryAvatar category={cat} size="xs" showLabel={false} />
-                          <span>{cat}</span>
+                          <span>{t(categoryTranslationKeys[cat])}</span>
                         </div>
                       </SelectItem>
                     ))}
@@ -558,30 +514,30 @@ export function ReportPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="description">Description *</Label>
+                <Label htmlFor="description">{t('description')} *</Label>
                 <textarea
                   id="description"
                   rows={4}
                   className="flex w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 resize-none"
-                  placeholder="Describe the issue in detail..."
+                  placeholder={t('describeIssuePlaceholder')}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label>Voice Note (Optional, up to 60 seconds)</Label>
+                <Label>{t('voiceNoteOptional')}</Label>
                 <VoiceRecorder
                   onRecordingComplete={setVoiceNote}
                   disabled={submitting}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Record an audio description if you prefer not to type everything.
+                  {t('voiceNoteDescription')}
                 </p>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="complaint-photo">Photo Evidence (Optional)</Label>
+                <Label htmlFor="complaint-photo">{t('photoEvidenceOptional')}</Label>
                 <input
                   ref={fileInputRef}
                   id="complaint-photo"
@@ -604,10 +560,10 @@ export function ReportPage() {
                       <Camera className="h-5 w-5" />
                     </div>
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Take photo or upload image
+                      {t('takeOrUploadPhoto')}
                     </span>
                     <span className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                      JPG or PNG up to 5MB (Mobile camera supported)
+                      {t('photoFormatLimit')}
                     </span>
                   </button>
                 ) : (
@@ -615,7 +571,7 @@ export function ReportPage() {
                     <div className="flex items-center gap-3 min-w-0">
                       <img
                         src={photoPreview}
-                        alt="Selected evidence"
+                        alt={t('selectedEvidence')}
                         className="h-14 w-14 rounded-md object-cover border border-gray-200 dark:border-gray-700 shrink-0"
                       />
                       <div className="min-w-0">
@@ -623,7 +579,9 @@ export function ReportPage() {
                           {photoFile?.name}
                         </p>
                         <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                          {photoFile ? `${(photoFile.size / (1024 * 1024)).toFixed(2)} MB` : ''}
+                          {photoFile
+                            ? `${(photoFile.size / (1024 * 1024)).toFixed(2)} MB`
+                            : ''}
                         </p>
                       </div>
                     </div>
@@ -636,20 +594,24 @@ export function ReportPage() {
                       disabled={submitting}
                     >
                       <Trash2 className="h-4 w-4 mr-1" />
-                      Remove
+                      {t('remove')}
                     </Button>
                   </div>
                 )}
               </div>
 
               <div className="space-y-2">
-                <Label>Pin complaint location</Label>
+                <Label>{t('pinComplaintLocation')}</Label>
                 <ComplaintLocationMap
                   latitude={latitude}
                   longitude={longitude}
                   address={address}
                   selectable
-                  onLocationSelect={({ latitude: nextLatitude, longitude: nextLongitude, address: nextAddress }) => {
+                  onLocationSelect={({
+                    latitude: nextLatitude,
+                    longitude: nextLongitude,
+                    address: nextAddress,
+                  }) => {
                     setLatitude(nextLatitude)
                     setLongitude(nextLongitude)
                     if (nextAddress) setAddress(nextAddress)
@@ -660,13 +622,13 @@ export function ReportPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="address">Address *</Label>
+                <Label htmlFor="address">{t('address')} *</Label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     id="address"
                     className="pl-9"
-                    placeholder="e.g. 123 Main Street, Downtown"
+                    placeholder={t('addressPlaceholder')}
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                   />
@@ -675,7 +637,7 @@ export function ReportPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="latitude">Latitude</Label>
+                  <Label htmlFor="latitude">{t('latitude')}</Label>
                   <Input
                     id="latitude"
                     type="text"
@@ -688,7 +650,7 @@ export function ReportPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="longitude">Longitude</Label>
+                  <Label htmlFor="longitude">{t('longitude')}</Label>
                   <Input
                     id="longitude"
                     type="text"
@@ -706,12 +668,11 @@ export function ReportPage() {
                 {checkingDuplicates && (
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-primary-500" />
-                    Checking for nearby duplicates...
+                    {t('checkingNearbyDuplicates')}
                   </span>
                 )}
               </div>
 
-              {/* Duplicate Complaint Warning Alert */}
               <AnimatePresence>
                 {nearbyDuplicates.length > 0 && (
                   <motion.div
@@ -726,21 +687,21 @@ export function ReportPage() {
                         <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
                         <div className="flex-1">
                           <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                            A similar issue has already been reported nearby.
+                            {t('similarIssueNearby')}
                           </h4>
                           <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-1">
-                            We found {nearbyDuplicates.length}{' '}
-                            {nearbyDuplicates.length === 1 ? 'complaint' : 'complaints'} within 50 metres
-                            in the <strong>{category}</strong> category. You can endorse the existing issue
-                            instead of creating a duplicate ticket.
+                            {t('duplicateComplaintsFound')
+                              .replace('{count}', nearbyDuplicates.length)
+                              .replace('{category}', t(categoryTranslationKeys[category] || 'categoryOther'))}
                           </p>
                         </div>
                       </div>
 
                       <div className="space-y-3">
                         {nearbyDuplicates.map((match) => {
-                          const isEndorsed =
-                            Boolean(user && match.endorsedBy?.includes(user.uid))
+                          const isEndorsed = Boolean(
+                            user && match.endorsedBy?.includes(user.uid)
+                          )
                           const isEndorsing = Boolean(endorsingMap[match.id])
                           const endorsementTotal =
                             match.endorsementCount || match.endorsedBy?.length || 0
@@ -752,7 +713,7 @@ export function ReportPage() {
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <div>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-xs font-mono text-gray-500 dark:text-gray-400">
                                       {getDisplayId(match)}
                                     </span>
@@ -760,7 +721,7 @@ export function ReportPage() {
                                       variant={statusVariant[match.status] || 'default'}
                                       className="capitalize text-[10px] px-1.5 py-0"
                                     >
-                                      {match.status}
+                                      {t(statusTranslationKeys[match.status] || 'statusPending')}
                                     </Badge>
                                     <DepartmentCrest
                                       department={match.department}
@@ -769,7 +730,7 @@ export function ReportPage() {
                                       variant="chip"
                                     />
                                     <span className="inline-flex items-center rounded-md bg-amber-100 dark:bg-amber-950/50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
-                                      {match.distanceMeters}m away
+                                      {t('metersAway').replace('{distance}', match.distanceMeters)}
                                     </span>
                                   </div>
                                   <h5 className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-1">
@@ -791,7 +752,7 @@ export function ReportPage() {
                                 </div>
                               )}
 
-                              <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-800">
+                              <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-800 flex-wrap">
                                 <Button
                                   type="button"
                                   size="sm"
@@ -799,9 +760,13 @@ export function ReportPage() {
                                   className="h-8 gap-1.5 text-xs text-gray-700 dark:text-gray-300"
                                   asChild
                                 >
-                                  <Link to={`/report/${match.id}`} target="_blank" rel="noopener noreferrer">
+                                  <Link
+                                    to={`/report/${match.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
                                     <ExternalLink className="h-3.5 w-3.5" />
-                                    View Issue
+                                    {t('viewIssue')}
                                   </Link>
                                 </Button>
 
@@ -816,17 +781,18 @@ export function ReportPage() {
                                   {isEndorsing ? (
                                     <>
                                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                      Endorsing...
+                                      {t('endorsing')}
                                     </>
                                   ) : isEndorsed ? (
                                     <>
                                       <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                                      Endorsed ({endorsementTotal})
+                                      {t('endorsedCount').replace('{count}', endorsementTotal)}
                                     </>
                                   ) : (
                                     <>
                                       <ThumbsUp className="h-3.5 w-3.5" />
-                                      I also face this {endorsementTotal > 0 ? `(${endorsementTotal})` : ''}
+                                      {t('iAlsoFaceThis')}
+                                      {endorsementTotal > 0 ? ` (${endorsementTotal})` : ''}
                                     </>
                                   )}
                                 </Button>
@@ -836,8 +802,8 @@ export function ReportPage() {
                         })}
                       </div>
 
-                      <div className="pt-2 border-t border-amber-200/80 dark:border-amber-900/60 flex items-center justify-between text-xs text-amber-900 dark:text-amber-200">
-                        <span>Still want to submit a separate complaint?</span>
+                      <div className="pt-2 border-t border-amber-200/80 dark:border-amber-900/60 flex items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200">
+                        <span>{t('stillSubmitSeparateComplaint')}</span>
                         <Button
                           type="button"
                           variant="ghost"
@@ -846,8 +812,8 @@ export function ReportPage() {
                           onClick={() => setHasAcknowledgedDuplicate(true)}
                         >
                           {hasAcknowledgedDuplicate
-                            ? '✓ Confirmed (Proceed below)'
-                            : 'Proceed with New Complaint anyway'}
+                            ? t('confirmedProceed')
+                            : t('proceedWithNewComplaint')}
                         </Button>
                       </div>
                     </div>
@@ -855,7 +821,6 @@ export function ReportPage() {
                 )}
               </AnimatePresence>
 
-              {/* Cooldown countdown banner */}
               <AnimatePresence>
                 {cooldownRemaining > 0 && (
                   <motion.div
@@ -869,12 +834,13 @@ export function ReportPage() {
                       <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0 animate-pulse" />
                       <div className="flex-1">
                         <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                          Submission Cooldown Active
+                          {t('submissionCooldownActive')}
                         </h4>
                         <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-1">
-                          To protect against spam and duplicate tickets, there is a 60-second limit between complaint submissions. You can submit another complaint in{' '}
+                          {t('cooldownDescription')}
+                          {' '}
                           <span className="font-semibold text-amber-950 dark:text-amber-100">
-                            {cooldownRemaining} second{cooldownRemaining === 1 ? '' : 's'}
+                            {t('secondsRemaining').replace('{seconds}', cooldownRemaining)}
                           </span>.
                         </p>
                       </div>
@@ -892,19 +858,19 @@ export function ReportPage() {
                   {submitting ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      {photoFile ? 'Uploading photo & submitting...' : 'Submitting...'}
+                      {photoFile ? t('uploadingPhotoSubmitting') : t('submitting')}
                     </>
                   ) : cooldownRemaining > 0 ? (
                     <>
                       <Clock className="h-4 w-4" />
-                      Please wait {cooldownRemaining}s
+                      {t('pleaseWaitSeconds').replace('{seconds}', cooldownRemaining)}
                     </>
                   ) : (
                     <>
                       <Send className="h-4 w-4" />
                       {nearbyDuplicates.length > 0 && !hasAcknowledgedDuplicate
-                        ? 'Review Nearby Issues or Confirm Submission'
-                        : 'Submit Complaint'}
+                        ? t('reviewOrConfirmSubmission')
+                        : t('submitComplaint')}
                     </>
                   )}
                 </Button>

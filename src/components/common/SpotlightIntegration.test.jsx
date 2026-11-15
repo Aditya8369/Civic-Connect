@@ -1,12 +1,25 @@
+
 // @vitest-environment jsdom
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+} from 'vitest'
+
 import { ThemeProvider } from '@/contexts/ThemeContext'
-import { SpotlightProvider, useSpotlightSearch } from '@/contexts/SpotlightContext'
+import { LanguageProvider } from '@/contexts/LanguageContext'
+import {
+  SpotlightProvider,
+  useSpotlightSearch,
+} from '@/contexts/SpotlightContext'
 import { Navbar } from '@/components/layout/Navbar'
 import * as firestore from 'firebase/firestore'
 
@@ -15,6 +28,7 @@ if (!window.HTMLElement.prototype.scrollIntoView) {
 }
 
 const mockNavigate = vi.fn()
+
 let authState = {
   user: { uid: 'citizen-1', role: 'citizen', name: 'Citizen One' },
   loading: false,
@@ -52,8 +66,10 @@ vi.mock('firebase/firestore', () => ({
   where: vi.fn((field, op, val) => ({ field, op, val })),
   orderBy: vi.fn((field, dir) => ({ field, dir })),
   doc: vi.fn(),
+
   onSnapshot: vi.fn((q, options, cb) => {
     snapshotCallback = typeof options === 'function' ? options : cb
+
     if (snapshotCallback) {
       snapshotCallback({
         docs: [
@@ -72,9 +88,13 @@ vi.mock('firebase/firestore', () => ({
           },
         ],
         docChanges: () => [],
-        metadata: { hasPendingWrites: false, fromCache: false },
+        metadata: {
+          hasPendingWrites: false,
+          fromCache: false,
+        },
       })
     }
+
     return mockUnsubscribe
   }),
 }))
@@ -88,12 +108,29 @@ function TestApp() {
   return (
     <div>
       <Navbar onMenuClick={vi.fn()} />
-      <button id="external-trigger" type="button" onClick={openSearch}>
+
+      <button
+        id="external-trigger"
+        type="button"
+        onClick={openSearch}
+      >
         Open Search Manually
       </button>
-      <input id="outside-input" type="text" placeholder="Regular form input" />
-      <textarea id="outside-textarea" placeholder="Regular textarea" />
-      <div id="modal-status">{isOpen ? 'Modal is Open' : 'Modal is Closed'}</div>
+
+      <input
+        id="outside-input"
+        type="text"
+        placeholder="Regular form input"
+      />
+
+      <textarea
+        id="outside-textarea"
+        placeholder="Regular textarea"
+      />
+
+      <div id="modal-status">
+        {isOpen ? 'Modal is Open' : 'Modal is Closed'}
+      </div>
     </div>
   )
 }
@@ -101,14 +138,17 @@ function TestApp() {
 async function renderApp() {
   container = document.createElement('div')
   document.body.appendChild(container)
+
   root = createRoot(container)
 
   await act(async () => {
     root.render(
       <ThemeProvider>
-        <SpotlightProvider>
-          <TestApp />
-        </SpotlightProvider>
+        <LanguageProvider>
+          <SpotlightProvider>
+            <TestApp />
+          </SpotlightProvider>
+        </LanguageProvider>
       </ThemeProvider>
     )
   })
@@ -119,24 +159,35 @@ function cleanupComponent() {
     act(() => {
       root.unmount()
     })
+
     root = null
   }
+
   if (container && container.parentNode) {
     container.parentNode.removeChild(container)
     container = null
   }
+
   document.body.innerHTML = ''
 }
 
 describe('Spotlight Search Integration & Keyboard Shortcuts', () => {
   beforeEach(() => {
     localStorage.clear()
+    localStorage.setItem('civic-connect-language', 'en')
+
     authState = {
-      user: { uid: 'citizen-1', role: 'citizen', name: 'Citizen One' },
+      user: {
+        uid: 'citizen-1',
+        role: 'citizen',
+        name: 'Citizen One',
+      },
       loading: false,
     }
+
     mockNavigate.mockReset()
     mockUnsubscribe.mockReset()
+
     vi.clearAllMocks()
   })
 
@@ -147,112 +198,182 @@ describe('Spotlight Search Integration & Keyboard Shortcuts', () => {
   it('opens search modal using Ctrl + K shortcut and moves focus to search input', async () => {
     await renderApp()
 
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(
+      document.querySelector('[role="dialog"]')
+    ).toBeNull()
 
     // Trigger Ctrl + K
     await act(async () => {
       window.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true })
+        new KeyboardEvent('keydown', {
+          key: 'k',
+          ctrlKey: true,
+          bubbles: true,
+        })
       )
     })
 
     const dialog = document.querySelector('[role="dialog"]')
+
     expect(dialog).not.toBeNull()
-    expect(document.getElementById('modal-status')?.textContent).toBe('Modal is Open')
+
+    expect(
+      document.getElementById('modal-status')?.textContent
+    ).toBe('Modal is Open')
 
     // Input receives focus
     const input = document.querySelector('input[role="combobox"]')
+
     expect(input).not.toBeNull()
   })
 
   it('opens search modal using Cmd + K shortcut on macOS', async () => {
     await renderApp()
 
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(
+      document.querySelector('[role="dialog"]')
+    ).toBeNull()
 
     // Trigger Cmd + K
     await act(async () => {
       window.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'K', metaKey: true, bubbles: true })
+        new KeyboardEvent('keydown', {
+          key: 'K',
+          metaKey: true,
+          bubbles: true,
+        })
       )
     })
 
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(
+      document.querySelector('[role="dialog"]')
+    ).not.toBeNull()
   })
 
   it('closes search modal using Escape shortcut and restores focus to previously focused element', async () => {
     await renderApp()
 
     const outsideBtn = document.getElementById('external-trigger')
+
     outsideBtn?.focus()
+
     expect(document.activeElement).toBe(outsideBtn)
 
-    // Open via Ctrl+K
+    // Open via Ctrl + K
     await act(async () => {
       window.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true })
+        new KeyboardEvent('keydown', {
+          key: 'k',
+          ctrlKey: true,
+          bubbles: true,
+        })
       )
     })
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+    expect(
+      document.querySelector('[role="dialog"]')
+    ).not.toBeNull()
 
     // Close via Escape
     await act(async () => {
       window.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+        })
       )
     })
 
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(
+      document.querySelector('[role="dialog"]')
+    ).toBeNull()
   })
 
   it('does not trigger search modal unexpectedly when user types "k" or "/" into regular input/textarea', async () => {
     await renderApp()
 
     const regularInput = document.getElementById('outside-input')
+
     regularInput?.focus()
 
     // User types "k" (without Ctrl/Cmd modifier)
     await act(async () => {
       regularInput?.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'k', ctrlKey: false, metaKey: false, bubbles: true })
+        new KeyboardEvent('keydown', {
+          key: 'k',
+          ctrlKey: false,
+          metaKey: false,
+          bubbles: true,
+        })
       )
     })
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
+
+    expect(
+      document.querySelector('[role="dialog"]')
+    ).toBeNull()
 
     // User types "/"
     await act(async () => {
       regularInput?.dispatchEvent(
-        new KeyboardEvent('keydown', { key: '/', ctrlKey: false, metaKey: false, bubbles: true })
+        new KeyboardEvent('keydown', {
+          key: '/',
+          ctrlKey: false,
+          metaKey: false,
+          bubbles: true,
+        })
       )
     })
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
+
+    expect(
+      document.querySelector('[role="dialog"]')
+    ).toBeNull()
 
     // User types in textarea
     const textarea = document.getElementById('outside-textarea')
+
     await act(async () => {
       textarea?.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'k', ctrlKey: false, metaKey: false, bubbles: true })
+        new KeyboardEvent('keydown', {
+          key: 'k',
+          ctrlKey: false,
+          metaKey: false,
+          bubbles: true,
+        })
       )
     })
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
+
+    expect(
+      document.querySelector('[role="dialog"]')
+    ).toBeNull()
   })
 
   it('opens search modal via Navbar search button', async () => {
     await renderApp()
 
-    const navbarSearchBtn = document.querySelector('button[aria-label*="Search reports"]')
+    const navbarSearchBtn = document.querySelector(
+      'button[aria-label*="Search reports"]'
+    )
+
     expect(navbarSearchBtn).not.toBeNull()
 
     await act(async () => {
-      navbarSearchBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      navbarSearchBtn?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true })
+      )
     })
 
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(
+      document.querySelector('[role="dialog"]')
+    ).not.toBeNull()
   })
 
   it('respects citizen role-based access control by querying only reportedBy complaints', async () => {
     authState = {
-      user: { uid: 'citizen-42', role: 'citizen', name: 'Citizen Jane' },
+      user: {
+        uid: 'citizen-42',
+        role: 'citizen',
+        name: 'Citizen Jane',
+      },
       loading: false,
     }
 
@@ -261,17 +382,29 @@ describe('Spotlight Search Integration & Keyboard Shortcuts', () => {
     // Open modal to trigger query
     await act(async () => {
       window.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true })
+        new KeyboardEvent('keydown', {
+          key: 'k',
+          ctrlKey: true,
+          bubbles: true,
+        })
       )
     })
 
     // Verify Firestore query used where('reportedBy', '==', 'citizen-42')
-    expect(firestore.where).toHaveBeenCalledWith('reportedBy', '==', 'citizen-42')
+    expect(firestore.where).toHaveBeenCalledWith(
+      'reportedBy',
+      '==',
+      'citizen-42'
+    )
   })
 
   it('respects admin role-based access control by querying all complaints', async () => {
     authState = {
-      user: { uid: 'admin-1', role: 'admin', name: 'Admin Master' },
+      user: {
+        uid: 'admin-1',
+        role: 'admin',
+        name: 'Admin Master',
+      },
       loading: false,
     }
 
@@ -280,20 +413,36 @@ describe('Spotlight Search Integration & Keyboard Shortcuts', () => {
     // Open modal
     await act(async () => {
       window.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true })
+        new KeyboardEvent('keydown', {
+          key: 'k',
+          ctrlKey: true,
+          bubbles: true,
+        })
       )
     })
 
     // For admin, query is collection(db, 'issues') without where('reportedBy', ...)
-    expect(firestore.collection).toHaveBeenCalledWith(expect.anything(), 'issues')
+    expect(firestore.collection).toHaveBeenCalledWith(
+      expect.anything(),
+      'issues'
+    )
   })
 
   it('cleans up keyboard listeners properly on unmount without memory leaks', async () => {
-    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener')
+    const removeEventListenerSpy = vi.spyOn(
+      window,
+      'removeEventListener'
+    )
 
     await renderApp()
+
     cleanupComponent()
 
-    expect(removeEventListenerSpy).toHaveBeenCalledWith('keydown', expect.any(Function))
+    expect(removeEventListenerSpy).toHaveBeenCalledWith(
+      'keydown',
+      expect.any(Function)
+    )
+
+    removeEventListenerSpy.mockRestore()
   })
 })

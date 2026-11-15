@@ -1,7 +1,9 @@
+
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -13,6 +15,7 @@ const mocks = vi.hoisted(() => {
   return {
     subscribeToReportsPage: vi.fn(),
     fetchAllReportsForExport: vi.fn(),
+    fetchAllReportsForSearch: vi.fn(),
     toCsv: vi.fn(() => 'csv-content'),
     downloadCsv: vi.fn(),
     formatDateStamp: vi.fn(() => '2026-11-13'),
@@ -34,6 +37,8 @@ vi.mock('react-hot-toast', () => ({ default: mocks.toast }))
 vi.mock('@/firebase/adminReportsQuery', () => ({
   subscribeToReportsPage: mocks.subscribeToReportsPage,
   fetchAllReportsForExport: mocks.fetchAllReportsForExport,
+  fetchAllReportsForSearch: mocks.fetchAllReportsForSearch,
+  REPORTS_PAGE_SIZE: 10,
 }))
 vi.mock('@/utils/csv', () => ({
   toCsv: mocks.toCsv,
@@ -94,7 +99,11 @@ async function renderPage() {
   root = createRoot(container)
 
   await act(async () => {
-    root.render(<AdminReportsPage />)
+    root.render(
+      <LanguageProvider>
+        <AdminReportsPage />
+      </LanguageProvider>
+    )
   })
 }
 
@@ -118,6 +127,7 @@ const exportedRows = () => mocks.toCsv.mock.calls.at(-1)?.[1]
 
 describe('AdminReportsPage - CSV export', () => {
   beforeEach(() => {
+    localStorage.setItem('civic-connect-language', 'en')
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     vi.clearAllMocks()
 
@@ -133,6 +143,7 @@ describe('AdminReportsPage - CSV export', () => {
       docs: EXPORT_DOCS,
       truncated: false,
     })
+    mocks.fetchAllReportsForSearch.mockResolvedValue(PAGE_DOCS)
     mocks.getDoc.mockResolvedValue({
       exists: () => false,
       data: () => ({}),
@@ -140,8 +151,12 @@ describe('AdminReportsPage - CSV export', () => {
   })
 
   afterEach(async () => {
-    await act(async () => root.unmount())
-    container.remove()
+    if (root) {
+      await act(async () => root.unmount())
+    }
+    container?.remove()
+    root = null
+    container = null
     vi.useRealTimers()
   })
 
@@ -178,8 +193,9 @@ describe('AdminReportsPage - CSV export', () => {
 
     const [headers, rows] = mocks.toCsv.mock.calls[0]
 
-    expect(headers).toContain('Complaint ID')
-    expect(headers).toContain('Assigned Worker Phone')
+    expect(headers).toContain('Tracking ID')
+    expect(headers).toContain('Category')
+    expect(headers).toContain('Department')
     expect(rows).toHaveLength(3)
     expect(rows[0][0]).toBe('CMP-2026-0001')
     expect(mocks.downloadCsv).toHaveBeenCalledWith(
@@ -199,6 +215,7 @@ describe('AdminReportsPage - CSV export', () => {
     await act(async () => {
       vi.advanceTimersByTime(250)
     })
+
     await act(async () => exportButton().click())
 
     expect(exportedRows().map((row) => row[0])).toEqual([
@@ -264,6 +281,7 @@ describe('AdminReportsPage - CSV export', () => {
       'Could not export reports. Please try again.'
     )
     expect(mocks.toast.success).not.toHaveBeenCalled()
+
     consoleError.mockRestore()
   })
 })

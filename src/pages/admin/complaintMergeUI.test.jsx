@@ -93,6 +93,17 @@ vi.mock('firebase/firestore', () => ({
   serverTimestamp: () => 'server-time',
 }))
 
+vi.mock('@/contexts/LanguageContext', async () => {
+  const { default: en } = await import('@/../locales/en.json')
+
+  return {
+    useLanguage: () => ({
+      language: 'en',
+      setLanguage: vi.fn(),
+      t: (key) => en[key] ?? key,
+    }),
+  }
+})
 function mount(Page) {
   const instance = { cursor: 0, values: [], effects: [], mounted: false }
   instance.render = () => {
