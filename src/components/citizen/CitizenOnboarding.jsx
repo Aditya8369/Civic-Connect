@@ -1,9 +1,11 @@
+
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/hooks/useAuth'
+import { useLanguage } from '@/contexts/LanguageContext'
 import {
   FileText,
   Activity,
@@ -17,33 +19,33 @@ import {
 const STEPS = [
   {
     stepNumber: 1,
-    title: 'Report an Issue',
-    description:
-      'Spot a civic problem in your neighborhood? Submit detailed reports with photos, GPS coordinates, and voice descriptions so municipal teams can respond swiftly.',
+    titleKey: 'onboardingReportTitle',
+    descriptionKey: 'onboardingReportDescription',
     icon: FileText,
-    actionLabel: 'Report an Issue',
+    actionLabelKey: 'onboardingReportAction',
     actionRoute: '/report',
-    accentColor: 'text-primary-600 dark:text-primary-400 bg-primary-100 dark:bg-primary-950/60',
+    accentColor:
+      'text-primary-600 dark:text-primary-400 bg-primary-100 dark:bg-primary-950/60',
   },
   {
     stepNumber: 2,
-    title: 'Track Your Reports',
-    description:
-      'Stay informed from submission to resolution. Monitor status badges, SLA target countdowns, and assigned field worker contact details in real time.',
+    titleKey: 'onboardingTrackTitle',
+    descriptionKey: 'onboardingTrackDescription',
     icon: Activity,
-    actionLabel: 'View My Reports',
+    actionLabelKey: 'onboardingTrackAction',
     actionRoute: '/my-reports',
-    accentColor: 'text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/60',
+    accentColor:
+      'text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/60',
   },
   {
     stepNumber: 3,
-    title: 'Stay Connected',
-    description:
-      'Engage with your local community. Receive instant notifications, upvote high-priority neighborhood issues, and join public discussions.',
+    titleKey: 'onboardingConnectTitle',
+    descriptionKey: 'onboardingConnectDescription',
     icon: Users,
-    actionLabel: 'Browse Notifications',
+    actionLabelKey: 'onboardingConnectAction',
     actionRoute: '/notifications',
-    accentColor: 'text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60',
+    accentColor:
+      'text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60',
   },
 ]
 
@@ -58,22 +60,23 @@ export function CitizenOnboarding({
   onDismiss,
 }) {
   const { user, loading } = useAuth()
+  const { t } = useLanguage()
   const navigate = useNavigate()
+
   const [currentStep, setCurrentStep] = useState(0)
   const [dismissed, setDismissed] = useState(false)
 
-  const storageKey = user?.uid ? getOnboardingStorageKey(user.uid) : null
+  const storageKey = user?.uid
+    ? getOnboardingStorageKey(user.uid)
+    : null
 
   // Check persistent storage on user change
   useEffect(() => {
     if (!storageKey || forceShow) return
+
     try {
       const isCompleted = localStorage.getItem(storageKey) === 'true'
-      if (isCompleted) {
-        setDismissed(true)
-      } else {
-        setDismissed(false)
-      }
+      setDismissed(isCompleted)
     } catch {
       // Ignore localStorage access failures
     }
@@ -81,6 +84,7 @@ export function CitizenOnboarding({
 
   const markCompleted = () => {
     setDismissed(true)
+
     if (storageKey) {
       try {
         localStorage.setItem(storageKey, 'true')
@@ -113,6 +117,7 @@ export function CitizenOnboarding({
   const handleStepAction = (route) => {
     markCompleted()
     onComplete?.()
+
     if (route) {
       navigate(route)
     }
@@ -123,7 +128,7 @@ export function CitizenOnboarding({
     return null
   }
 
-  // Display ONLY to citizens, NEVER to administrators
+  // Display only to citizens
   if (user.role !== 'citizen') {
     return null
   }
@@ -142,7 +147,7 @@ export function CitizenOnboarding({
     <Card
       className={`relative mb-8 overflow-hidden border-primary-200/80 bg-gradient-to-br from-primary-50/60 via-white to-blue-50/40 shadow-sm dark:border-primary-900/50 dark:from-primary-950/30 dark:via-gray-900 dark:to-blue-950/20 ${className}`}
       role="region"
-      aria-label="Citizen Onboarding Guide"
+      aria-label={t('citizenOnboardingGuide')}
     >
       {/* Top Banner Accent Line */}
       <div className="h-1.5 w-full bg-gradient-to-r from-primary-500 via-sky-400 to-emerald-500" />
@@ -154,10 +159,11 @@ export function CitizenOnboarding({
               variant="outline"
               className="border-primary-300 bg-white/80 text-primary-700 font-semibold text-xs dark:border-primary-800 dark:bg-gray-900/80 dark:text-primary-300"
             >
-              Step {step.stepNumber} of {STEPS.length}
+              {t('step')} {step.stepNumber} {t('of')} {STEPS.length}
             </Badge>
+
             <span className="text-xs font-medium text-gray-500 dark:text-gray-400 hidden sm:inline">
-              Welcome to Civic-Connect
+              {t('welcomeToCivicConnect')}
             </span>
           </div>
 
@@ -168,13 +174,14 @@ export function CitizenOnboarding({
               onClick={handleSkip}
               className="h-8 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             >
-              Skip
+              {t('skip')}
             </Button>
+
             <Button
               variant="ghost"
               size="icon"
               onClick={handleSkip}
-              aria-label="Dismiss onboarding"
+              aria-label={t('dismissOnboarding')}
               className="h-8 w-8 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
             >
               <X className="h-4 w-4" />
@@ -192,19 +199,21 @@ export function CitizenOnboarding({
 
           <div className="min-w-0 flex-1">
             <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-gray-100">
-              {step.title}
+              {t(step.titleKey)}
             </h3>
+
             <p className="mt-1 text-xs sm:text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
-              {step.description}
+              {t(step.descriptionKey)}
             </p>
-            {step.actionLabel && (
+
+            {step.actionLabelKey && (
               <Button
                 variant="link"
                 size="sm"
                 onClick={() => handleStepAction(step.actionRoute)}
                 className="mt-1.5 p-0 h-auto text-xs font-semibold text-primary-600 dark:text-primary-400"
               >
-                {step.actionLabel} &rarr;
+                {t(step.actionLabelKey)} &rarr;
               </Button>
             )}
           </div>
@@ -213,13 +222,17 @@ export function CitizenOnboarding({
         {/* Footer Navigation Controls */}
         <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-gray-100 dark:border-gray-800/80">
           {/* Step Dots */}
-          <div className="flex items-center gap-1.5 order-2 sm:order-1" aria-label={`Step ${currentStep + 1} of ${STEPS.length}`}>
+          <div
+            className="flex items-center gap-1.5 order-2 sm:order-1"
+            aria-label={`${t('step')} ${currentStep + 1} ${t('of')} ${STEPS.length}`}
+          >
             {STEPS.map((_, index) => (
               <button
                 key={index}
                 type="button"
                 onClick={() => setCurrentStep(index)}
-                aria-label={`Go to step ${index + 1}`}
+                aria-label={`${t('goToStep')} ${index + 1}`}
+                aria-current={index === currentStep ? 'step' : undefined}
                 className={`h-2 rounded-full transition-all duration-200 ${
                   index === currentStep
                     ? 'w-6 bg-primary-600 dark:bg-primary-500'
@@ -238,7 +251,8 @@ export function CitizenOnboarding({
                 onClick={handlePrevious}
                 className="gap-1 h-9 text-xs"
               >
-                <ChevronLeft className="h-4 w-4" /> Previous
+                <ChevronLeft className="h-4 w-4" />
+                {t('previous')}
               </Button>
             )}
 
@@ -248,7 +262,8 @@ export function CitizenOnboarding({
                 onClick={handleNext}
                 className="gap-1.5 h-9 text-xs bg-primary-600 hover:bg-primary-700 text-white"
               >
-                <CheckCircle className="h-4 w-4" /> Get Started
+                <CheckCircle className="h-4 w-4" />
+                {t('getStarted')}
               </Button>
             ) : (
               <Button
@@ -256,7 +271,8 @@ export function CitizenOnboarding({
                 onClick={handleNext}
                 className="gap-1 h-9 text-xs"
               >
-                Next <ChevronRight className="h-4 w-4" />
+                {t('next')}
+                <ChevronRight className="h-4 w-4" />
               </Button>
             )}
           </div>

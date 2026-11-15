@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/hooks/useAuth'
+import { useLanguage } from '@/contexts/LanguageContext'
 import {
   getPushPermissionStatus,
   requestPushPermission,
@@ -76,6 +77,7 @@ function PreferenceSwitch({
 
 export function AdminSettingsPage() {
   const { user } = useAuth()
+  const { t } = useLanguage()
 
   const [city, setCity] = useState('New York')
   const [email, setEmail] = useState('admin@civicconnect.gov')
@@ -120,7 +122,7 @@ export function AdminSettingsPage() {
       })
       .catch((err) => {
         console.error('Settings load error:', err)
-        toast.error('Could not load saved settings')
+        toast.error(t('adminSettingsLoadError'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -129,7 +131,7 @@ export function AdminSettingsPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   // Load canned resolution templates used by municipal officers.
   useEffect(() => {
@@ -167,7 +169,7 @@ export function AdminSettingsPage() {
       })
       .catch((error) => {
         console.error('Notification preferences load error:', error)
-        toast.error('Could not load notification preferences')
+        toast.error(t('adminNotificationPreferencesLoadError'))
       })
       .finally(() => {
         if (!cancelled) setPreferencesLoading(false)
@@ -176,7 +178,7 @@ export function AdminSettingsPage() {
     return () => {
       cancelled = true
     }
-  }, [user?.uid])
+  }, [user?.uid, t])
 
   const handleSave = async (e) => {
     e.preventDefault()
@@ -187,12 +189,12 @@ export function AdminSettingsPage() {
     const cleanEmail = email.trim()
 
     if (!cleanCity) {
-      toast.error('Please enter the city or municipality')
+      toast.error(t('adminEnterCity'))
       return
     }
 
     if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) {
-      toast.error('Please enter a valid admin email')
+      toast.error(t('adminEnterValidEmail'))
       return
     }
 
@@ -210,10 +212,10 @@ export function AdminSettingsPage() {
         { merge: true }
       )
 
-      toast.success('Settings saved successfully!')
+      toast.success(t('adminSettingsSaved'))
     } catch (err) {
       console.error('Settings save error:', err)
-      toast.error('Failed to save settings')
+      toast.error(t('adminSettingsSaveError'))
     } finally {
       setSaving(false)
     }
@@ -230,9 +232,7 @@ export function AdminSettingsPage() {
         const audioReady = await initializeNotificationAudio()
 
         if (!audioReady) {
-          toast.error(
-            'Sound notifications are not supported or could not be enabled'
-          )
+          toast.error(t('adminSoundNotificationsUnavailable'))
           return
         }
       }
@@ -243,10 +243,10 @@ export function AdminSettingsPage() {
       )
 
       setPreferences(updatedPreferences)
-      toast.success('Notification preference updated')
+      toast.success(t('adminNotificationPreferenceUpdated'))
     } catch (error) {
       console.error('Notification preference update error:', error)
-      toast.error('Could not update notification preference')
+      toast.error(t('adminNotificationPreferenceUpdateError'))
     } finally {
       setUpdatingPreference(null)
     }
@@ -268,8 +268,8 @@ export function AdminSettingsPage() {
         if (result.status !== 'granted') {
           toast.error(
             result.status === 'denied'
-              ? 'Browser notification permission was denied'
-              : 'Could not enable browser notifications'
+              ? t('adminBrowserPermissionDenied')
+              : t('adminBrowserNotificationsEnableError')
           )
           return
         }
@@ -280,7 +280,7 @@ export function AdminSettingsPage() {
         )
 
         setPreferences(updatedPreferences)
-        toast.success('Browser push notifications enabled')
+        toast.success(t('adminBrowserPushEnabled'))
       } else {
         // Disable push without deleting the saved FCM token.
         const updatedPreferences = await saveNotificationPreferences(
@@ -289,11 +289,11 @@ export function AdminSettingsPage() {
         )
 
         setPreferences(updatedPreferences)
-        toast.success('Browser push notifications disabled')
+        toast.success(t('adminBrowserPushDisabled'))
       }
     } catch (error) {
       console.error('Push preference update error:', error)
-      toast.error('Could not update browser notification settings')
+      toast.error(t('adminBrowserNotificationSettingsError'))
     } finally {
       setRequestingPush(false)
       setUpdatingPreference(null)
@@ -397,8 +397,8 @@ export function AdminSettingsPage() {
   return (
     <div>
       <PageHeader
-        title="Settings"
-        description="Manage platform settings and preferences"
+        title={t('settings')}
+        description={t('adminSettingsDescription')}
       />
 
       <div className="max-w-2xl space-y-6">
@@ -409,9 +409,9 @@ export function AdminSettingsPage() {
                 <Globe className="h-5 w-5 text-primary-600 dark:text-primary-400" />
               </div>
               <div>
-                <CardTitle>General Settings</CardTitle>
+                <CardTitle>{t('adminGeneralSettings')}</CardTitle>
                 <CardDescription>
-                  Configure your municipality details
+                  {t('adminMunicipalityDetailsDescription')}
                 </CardDescription>
               </div>
             </div>
@@ -420,7 +420,7 @@ export function AdminSettingsPage() {
           <CardContent>
             <form onSubmit={handleSave} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="city">City / Municipality</Label>
+                <Label htmlFor="city">{t('adminCityMunicipality')}</Label>
                 <Input
                   id="city"
                   value={city}
@@ -430,7 +430,7 @@ export function AdminSettingsPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="adminEmail">Admin Email</Label>
+                <Label htmlFor="adminEmail">{t('adminEmail')}</Label>
                 <Input
                   id="adminEmail"
                   type="email"
@@ -445,17 +445,17 @@ export function AdminSettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-900 dark:text-white">
-                    Auto-assign Reports
+                    {t('adminAutoAssignReports')}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Automatically assign reports to available officers
+                    {t('adminAutoAssignDescription')}
                   </p>
                 </div>
 
                 <button
                   type="button"
                   role="switch"
-                  aria-label="Auto-assign Reports"
+                  aria-label={t('adminAutoAssignReports')}
                   aria-checked={autoAssign}
                   disabled={loading}
                   onClick={() => setAutoAssign(!autoAssign)}
@@ -484,7 +484,7 @@ export function AdminSettingsPage() {
                   ) : (
                     <Save className="h-4 w-4" />
                   )}
-                  {saving ? 'Saving...' : 'Save Settings'}
+                  {saving ? t('saving') : t('adminSaveSettings')}
                 </Button>
               </div>
             </form>
@@ -647,9 +647,9 @@ export function AdminSettingsPage() {
                 <Bell className="h-5 w-5 text-amber-600 dark:text-amber-400" />
               </div>
               <div>
-                <CardTitle>Notifications</CardTitle>
+                <CardTitle>{t('notifications')}</CardTitle>
                 <CardDescription>
-                  Manage your personal notification preferences
+                  {t('adminNotificationPreferencesDescription')}
                 </CardDescription>
               </div>
             </div>
@@ -659,15 +659,15 @@ export function AdminSettingsPage() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  Sound Notifications
+                  {t('adminSoundNotifications')}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Play a sound when supported new notifications arrive
+                  {t('adminSoundNotificationsDescription')}
                 </p>
               </div>
 
               <PreferenceSwitch
-                label="Sound Notifications"
+                label={t('adminSoundNotifications')}
                 checked={preferences.sound}
                 disabled={preferencesLoading || updatingPreference !== null}
                 onChange={(enabled) =>
@@ -681,17 +681,17 @@ export function AdminSettingsPage() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  Browser Push Notifications
+                  {t('adminBrowserPushNotifications')}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Receive notifications through your browser
+                  {t('adminBrowserPushDescription')}
                   {permissionStatus === 'denied' &&
-                    ' — permission is blocked in your browser settings'}
+                    ` — ${t('adminBrowserPermissionBlocked')}`}
                 </p>
               </div>
 
               <PreferenceSwitch
-                label="Browser Push Notifications"
+                label={t('adminBrowserPushNotifications')}
                 checked={preferences.push}
                 disabled={
                   preferencesLoading ||
@@ -708,15 +708,15 @@ export function AdminSettingsPage() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  Email Digest
+                  {t('adminEmailDigest')}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Save your preference for receiving email notification summaries when available
+                  {t('adminEmailDigestDescription')}
                 </p>
               </div>
 
               <PreferenceSwitch
-                label="Email Digest"
+                label={t('adminEmailDigest')}
                 checked={preferences.emailDigest}
                 disabled={preferencesLoading || updatingPreference !== null}
                 onChange={(enabled) =>
@@ -727,7 +727,7 @@ export function AdminSettingsPage() {
 
             {preferencesLoading && (
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Loading notification preferences...
+                {t('adminLoadingNotificationPreferences')}
               </p>
             )}
           </CardContent>
@@ -740,8 +740,10 @@ export function AdminSettingsPage() {
                 <Shield className="h-5 w-5 text-red-600 dark:text-red-400" />
               </div>
               <div>
-                <CardTitle>Danger Zone</CardTitle>
-                <CardDescription>Irreversible actions</CardDescription>
+                <CardTitle>{t('adminDangerZone')}</CardTitle>
+                <CardDescription>
+                  {t('adminIrreversibleActions')}
+                </CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -750,15 +752,15 @@ export function AdminSettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  Delete all data
+                  {t('adminDeleteAllData')}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Permanently delete all reports and user data
+                  {t('adminDeleteAllDataDescription')}
                 </p>
               </div>
 
               <Button variant="destructive" size="sm">
-                Delete All
+                {t('adminDeleteAll')}
               </Button>
             </div>
           </CardContent>

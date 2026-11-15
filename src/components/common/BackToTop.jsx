@@ -1,16 +1,20 @@
+
 import { useState, useEffect, useCallback } from 'react'
 import { ArrowUp } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 export function BackToTop({
   threshold = 300,
   className,
   targetContainer = null,
 }) {
+  const { t } = useLanguage()
   const [isVisible, setIsVisible] = useState(false)
 
   const checkScroll = useCallback(() => {
     let currentScroll = 0
+
     if (typeof window !== 'undefined') {
       currentScroll =
         window.scrollY ||
@@ -19,14 +23,15 @@ export function BackToTop({
           : 0) ||
         0
     }
+
     if (targetContainer && targetContainer.scrollTop !== undefined) {
       currentScroll = Math.max(currentScroll, targetContainer.scrollTop)
     }
+
     setIsVisible(currentScroll > threshold)
   }, [threshold, targetContainer])
 
   useEffect(() => {
-    // Initial check
     checkScroll()
 
     const handleScroll = () => {
@@ -39,6 +44,7 @@ export function BackToTop({
         capture: true,
       })
     }
+
     if (
       targetContainer &&
       typeof targetContainer.addEventListener === 'function'
@@ -52,6 +58,7 @@ export function BackToTop({
       if (typeof window !== 'undefined') {
         window.removeEventListener('scroll', handleScroll, { capture: true })
       }
+
       if (
         targetContainer &&
         typeof targetContainer.removeEventListener === 'function'
@@ -82,6 +89,7 @@ export function BackToTop({
 
     if (typeof document !== 'undefined') {
       const scrollableMain = document.querySelector('main.overflow-y-auto')
+
       if (scrollableMain && typeof scrollableMain.scrollTo === 'function') {
         scrollableMain.scrollTo({ top: 0, behavior })
       }
@@ -92,8 +100,8 @@ export function BackToTop({
     <button
       type="button"
       onClick={scrollToTop}
-      aria-label="Back to top"
-      title="Back to top"
+      aria-label={t('backToTop')}
+      title={t('backToTop')}
       data-visible={isVisible}
       aria-hidden={!isVisible}
       tabIndex={isVisible ? 0 : -1}
@@ -105,11 +113,15 @@ export function BackToTop({
         className
       )}
     >
-      <ArrowUp className="h-4 w-4 shrink-0 text-primary-400" aria-hidden="true" />
-      <span className="hidden sm:inline font-medium">Back to top</span>
+      <ArrowUp
+        className="h-4 w-4 shrink-0 text-primary-400"
+        aria-hidden="true"
+      />
+      <span className="hidden sm:inline font-medium">
+        {t('backToTop')}
+      </span>
     </button>
   )
 }
 
 export default BackToTop
-
