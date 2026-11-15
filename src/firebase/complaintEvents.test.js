@@ -1,5 +1,11 @@
-import { beforeEach, expect, it, vi } from 'vitest'
-import { buildComplaintEvent, logComplaintEvent, addComplaintEventToBatch } from './complaintEvents'
+import { beforeEach, expect, it, vi, describe } from 'vitest'
+import {
+  buildComplaintEvent,
+  logComplaintEvent,
+  addComplaintEventToBatch,
+  sortEvents,
+  formatEventDate,
+} from './complaintEvents'
 import { commitComplaintTransition } from './complaintLifecycle'
 import { createTransactionStore } from './testSupport/transactionStore'
 

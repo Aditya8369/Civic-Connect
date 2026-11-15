@@ -41,6 +41,7 @@ import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
 import { assignComplaintDepartment } from '@/firebase/complaintDepartment'
 import { mergeComplaints } from '@/firebase/complaintMerge'
 import { loadResolutionTemplates } from '@/firebase/resolutionTemplates'
+import { ComplaintAuditTimeline } from '@/components/admin/ComplaintAuditTimeline'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -176,6 +177,9 @@ export function AdminComplaintDetailsPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [citizen, setCitizen] = useState(null)
+  const [events, setEvents] = useState([])
+  const [eventsLoading, setEventsLoading] = useState(true)
+  const [eventsError, setEventsError] = useState(null)
   const [resolutionNotes, setResolutionNotes] = useState('')
   const [resolutionTemplates, setResolutionTemplates] = useState([])
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
@@ -202,6 +206,38 @@ export function AdminComplaintDetailsPage() {
   const [selectedParentId, setSelectedParentId] = useState('')
   const [loadingCandidates, setLoadingCandidates] = useState(false)
   const [merging, setMerging] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setEventsLoading(true)
+    setEventsError(null)
+    setEvents([])
+
+    const unsubEvents = onSnapshot(
+      collection(db, `issues/${id}/events`),
+      (snap) => {
+        if (!active) return
+        if (snap?.docs) {
+          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+          setEvents(sortEvents(list))
+        } else {
+          setEvents([])
+        }
+        setEventsLoading(false)
+      },
+      (err) => {
+        if (!active) return
+        console.error('AdminComplaintDetails events Firestore error:', err)
+        setEventsError(err)
+        setEventsLoading(false)
+      }
+    )
+
+    return () => {
+      active = false
+      unsubEvents()
+    }
+  }, [id])
 
   useEffect(() => {
     let active = true
@@ -1173,6 +1209,13 @@ export function AdminComplaintDetailsPage() {
               </Button>
             </CardContent>
           </Card>
+
+          <ComplaintAuditTimeline
+            complaint={complaint}
+            events={events}
+            loading={eventsLoading}
+            error={eventsError}
+          />
 
           {complaint.feedback ? (
             <Card className="border-amber-200 dark:border-amber-900/50">
