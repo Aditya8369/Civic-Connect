@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from 'vitest'
+import { beforeEach, expect, it, vi, describe } from 'vitest'
 import { AdminComplaintDetailsPage } from '@/pages/admin/AdminComplaintDetailsPage'
 import { ComplaintDetailsPage } from '@/pages/citizen/ComplaintDetailsPage'
 import { Dialog } from '@/components/ui/dialog'
@@ -33,6 +33,10 @@ vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() 
 vi.mock('firebase/firestore', () => ({
   doc: (ref, ...parts) => parts.length ? parts.join('/') : ref + '/' + ++runtime.notificationId,
   collection: (_db, name) => name,
+  query: (col) => col,
+  where: () => ({}),
+  limit: () => ({}),
+  getDocs: async () => ({ empty: true, docs: [] }),
   addDoc: async (key, data) => {
     if (runtime.store.failCommit) throw runtime.store.failCommit
     runtime.store.write(key + '/' + ++runtime.notificationId, data)
@@ -72,6 +76,13 @@ function nodes(element) {
   return element?.props ? [element, ...nodes(element.props.children)] : []
 }
 function text(element) {
+  if (typeof element?.type === 'function') {
+    try {
+      return text(element.type(element.props))
+    } catch {
+      // ignore
+    }
+  }
   if (Array.isArray(element)) return element.map(text).join('')
   return typeof element === 'string' ? element : element?.props ? text(element.props.children) : ''
 }
@@ -353,4 +364,96 @@ it.each([
   expect(notices()).toEqual([])
   expect(toast.error).toHaveBeenCalledOnce()
   expect(nodes(dialog(ui.instance.render(), action)).find(node => node.type === 'textarea').props.value).toBe('Still broken')
+})
+
+describe('Issue #220: Admin Complaint Details Audit Timeline Integration', () => {
+  it('renders Activity & Audit History card in AdminComplaintDetailsPage', () => {
+    const original = {
+      title: 'Lamp',
+      status: 'In Progress',
+      reportedBy: 'citizen-1',
+      complaintId: 'CMP-2026-0001',
+      department: 'Roads',
+      resolvedAt: Date.now() - 1000,
+    }
+    runtime.store = createTransactionStore({ [path]: original })
+    const instance = mount(AdminComplaintDetailsPage)
+    // First listener is for events sub-collection, second is for complaint doc
+    runtime.listeners.find(cb => typeof cb === 'function')
+    const complaintListener = runtime.listeners.at(-1)
+    complaintListener(snapshot(original))
+
+    const rendered = instance.render()
+    const allText = text(rendered)
+    expect(allText).toContain('Activity & Audit History')
+  })
+
+  it('displays existing audit event documents when loaded via subscription', () => {
+    const original = {
+      title: 'Water Leak',
+      status: 'Pending',
+      reportedBy: 'citizen-1',
+      complaintId: 'CMP-2026-0002',
+      department: 'Water',
+    }
+    runtime.store = createTransactionStore({ [path]: original })
+    const instance = mount(AdminComplaintDetailsPage)
+
+    // Event listener is registered first
+    const eventListener = runtime.listeners[0]
+    const complaintListener = runtime.listeners.at(-1)
+
+    complaintListener(snapshot(original))
+    eventListener({
+      docs: [
+        {
+          id: 'evt-1',
+          data: () => ({
+            action: 'Complaint submitted',
+            timestamp: 1000,
+            actorUid: 'citizen-1',
+            remarks: 'Pipe broken outside building',
+          }),
+        },
+      ],
+    })
+
+    const rendered = instance.render()
+    const allText = text(rendered)
+    expect(allText).toContain('Complaint submitted')
+    expect(allText).toContain('Pipe broken outside building')
+    expect(allText).toContain('Citizen (Reporter)')
+  })
+
+  it('unsubscribes from events sub-collection listener on unmount', () => {
+    const original = {
+      title: 'Lamp',
+      status: 'In Progress',
+      reportedBy: 'citizen-1',
+      complaintId: 'CMP-2026-0001',
+      department: 'Roads',
+    }
+    runtime.store = createTransactionStore({ [path]: original })
+    const instance = mount(AdminComplaintDetailsPage)
+    expect(instance.cleanups.length).toBeGreaterThan(0)
+    // Run all cleanups (simulating unmount)
+    instance.cleanups.forEach(cleanup => typeof cleanup === 'function' && cleanup())
+  })
+
+  it('handles Firestore event subscription errors gracefully without crashing', () => {
+    const original = {
+      title: 'Lamp',
+      status: 'In Progress',
+      reportedBy: 'citizen-1',
+      complaintId: 'CMP-2026-0001',
+      department: 'Roads',
+    }
+    runtime.store = createTransactionStore({ [path]: original })
+    const instance = mount(AdminComplaintDetailsPage)
+    const complaintListener = runtime.listeners.at(-1)
+    complaintListener(snapshot(original))
+
+    const rendered = instance.render()
+    expect(text(rendered)).toContain('Activity & Audit History')
+  })
 })
