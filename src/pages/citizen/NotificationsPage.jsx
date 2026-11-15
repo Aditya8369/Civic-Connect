@@ -1,12 +1,16 @@
+
 import { PageHeader } from '@/components/common/PageHeader'
 import { NotificationCenter } from '@/components/NotificationCenter'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 export function NotificationsPage() {
+  const { t } = useLanguage()
+
   return (
     <div>
       <PageHeader
-        title="Notifications"
-        description="Stay updated on your reports"
+        title={t('notifications')}
+        description={t('notificationsDescription')}
       />
       <NotificationCenter />
     </div>
@@ -14,3 +18,4 @@ export function NotificationsPage() {
 }
 
 export { NotificationCenter }
+

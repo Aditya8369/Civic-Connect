@@ -1,7 +1,7 @@
-// @vitest-environment jsdom
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 import {
   PrintableGrievanceReceipt,
   ReceiptQrCode,
@@ -27,6 +27,18 @@ const mockComplaint = {
   phone: '+91 98765 43210',
   citizenAddress: 'Flat 302, Green Meadows, Indiranagar',
   createdAt: new Date(2026, 10, 10, 9, 30, 0),
+}
+
+beforeEach(() => {
+  localStorage.setItem('civic-connect-language', 'en')
+})
+
+function renderWithLanguage(component) {
+  return renderToStaticMarkup(
+    <LanguageProvider>
+      {component}
+    </LanguageProvider>
+  )
 }
 
 describe('formatReceiptDate', () => {
@@ -90,7 +102,10 @@ describe('getComplaintTrackingUrl', () => {
 
 describe('ReceiptQrCode Component', () => {
   it('renders a genuine vector SVG element with crisp edges', () => {
-    const html = renderToStaticMarkup(<ReceiptQrCode value="https://civicconnect.local/complaints/CMP-2026-0042" />)
+    const html = renderWithLanguage(
+      <ReceiptQrCode value="https://civicconnect.local/complaints/CMP-2026-0042" />
+    )
+
     expect(html).toContain('<svg')
     expect(html).toContain('aria-label="Verification QR Code"')
     expect(html).toContain('data-testid="receipt-qr-code"')
@@ -99,7 +114,10 @@ describe('ReceiptQrCode Component', () => {
   })
 
   it('renders fallback when value is empty', () => {
-    const html = renderToStaticMarkup(<ReceiptQrCode value="" />)
+    const html = renderWithLanguage(
+      <ReceiptQrCode value="" />
+    )
+
     expect(html).toContain('data-testid="receipt-qr-fallback"')
     expect(html).toContain('QR Unavailable')
   })
@@ -107,35 +125,51 @@ describe('ReceiptQrCode Component', () => {
 
 describe('PrintableGrievanceReceipt Component', () => {
   it('renders correctly and includes official municipal heading', () => {
-    const html = renderToStaticMarkup(
-      <PrintableGrievanceReceipt complaint={mockComplaint} user={{ uid: 'user-abc' }} />
+    const html = renderWithLanguage(
+      <PrintableGrievanceReceipt
+        complaint={mockComplaint}
+        user={{ uid: 'user-abc' }}
+      />
     )
+
     expect(html).toContain('MUNICIPAL GRIEVANCE RECEIPT')
     expect(html).toContain('CivicConnect Municipal Corporation')
     expect(html).toContain('ORIGINAL CITIZEN COPY')
   })
 
   it('displays the complaint tracking ID and submission date', () => {
-    const html = renderToStaticMarkup(
-      <PrintableGrievanceReceipt complaint={mockComplaint} user={{ uid: 'user-abc' }} />
+    const html = renderWithLanguage(
+      <PrintableGrievanceReceipt
+        complaint={mockComplaint}
+        user={{ uid: 'user-abc' }}
+      />
     )
+
     expect(html).toContain('CMP-2026-0042')
     expect(html).toContain('data-testid="receipt-complaint-id"')
     expect(html).toContain('data-testid="receipt-submission-date"')
   })
 
   it('displays the complaint status and assigned department', () => {
-    const html = renderToStaticMarkup(
-      <PrintableGrievanceReceipt complaint={mockComplaint} user={{ uid: 'user-abc' }} />
+    const html = renderWithLanguage(
+      <PrintableGrievanceReceipt
+        complaint={mockComplaint}
+        user={{ uid: 'user-abc' }}
+      />
     )
+
     expect(html).toContain('IN PROGRESS')
     expect(html).toContain('Roads &amp; Infrastructure')
   })
 
   it('displays category, title, description, and incident location', () => {
-    const html = renderToStaticMarkup(
-      <PrintableGrievanceReceipt complaint={mockComplaint} user={{ uid: 'user-abc' }} />
+    const html = renderWithLanguage(
+      <PrintableGrievanceReceipt
+        complaint={mockComplaint}
+        user={{ uid: 'user-abc' }}
+      />
     )
+
     expect(html).toContain('Potholes &amp; Road Damage')
     expect(html).toContain('Large Pothole on 5th Cross Road')
     expect(html).toContain('Deep road cavity causing two-wheelers to skid near junction.')
@@ -145,7 +179,7 @@ describe('PrintableGrievanceReceipt Component', () => {
   })
 
   it('displays citizen information when viewing own complaint (authorized)', () => {
-    const html = renderToStaticMarkup(
+    const html = renderWithLanguage(
       <PrintableGrievanceReceipt
         complaint={mockComplaint}
         citizen={{
@@ -157,6 +191,7 @@ describe('PrintableGrievanceReceipt Component', () => {
         user={{ uid: 'user-abc', role: 'citizen' }}
       />
     )
+
     expect(html).toContain('Jane Citizen')
     expect(html).toContain('jane.citizen@example.com')
     expect(html).toContain('+91 98765 43210')
@@ -164,33 +199,42 @@ describe('PrintableGrievanceReceipt Component', () => {
   })
 
   it('protects citizen contact info when viewed by an unauthorized third party', () => {
-    const html = renderToStaticMarkup(
+    const html = renderWithLanguage(
       <PrintableGrievanceReceipt
         complaint={mockComplaint}
         user={{ uid: 'unauthorized-stranger', role: 'citizen' }}
       />
     )
+
     // Private email and phone should not be exposed
     expect(html).not.toContain('jane.citizen@example.com')
     expect(html).not.toContain('+91 98765 43210')
   })
 
   it('allows administrator to view citizen details for municipal processing', () => {
-    const html = renderToStaticMarkup(
+    const html = renderWithLanguage(
       <PrintableGrievanceReceipt
         complaint={mockComplaint}
-        citizen={{ name: 'Jane Citizen', email: 'jane.citizen@example.com' }}
+        citizen={{
+          name: 'Jane Citizen',
+          email: 'jane.citizen@example.com',
+        }}
         user={{ uid: 'admin-1', role: 'admin' }}
       />
     )
+
     expect(html).toContain('Jane Citizen')
     expect(html).toContain('jane.citizen@example.com')
   })
 
   it('renders verification section with instruction and scannable QR code', () => {
-    const html = renderToStaticMarkup(
-      <PrintableGrievanceReceipt complaint={mockComplaint} user={{ uid: 'user-abc' }} />
+    const html = renderWithLanguage(
+      <PrintableGrievanceReceipt
+        complaint={mockComplaint}
+        user={{ uid: 'user-abc' }}
+      />
     )
+
     expect(html).toContain('Scan to verify complaint details.')
     expect(html).toContain('Official Digital Verification')
     expect(html).toContain('data-testid="receipt-qr-code"')
@@ -198,9 +242,13 @@ describe('PrintableGrievanceReceipt Component', () => {
   })
 
   it('includes municipal acknowledgment and signature placeholders for physical records', () => {
-    const html = renderToStaticMarkup(
-      <PrintableGrievanceReceipt complaint={mockComplaint} user={{ uid: 'user-abc' }} />
+    const html = renderWithLanguage(
+      <PrintableGrievanceReceipt
+        complaint={mockComplaint}
+        user={{ uid: 'user-abc' }}
+      />
     )
+
     expect(html).toContain('Citizen Acknowledgment:')
     expect(html).toContain('Receiving Authority:')
     expect(html).toContain('Municipal Office Seal')
@@ -212,9 +260,11 @@ describe('PrintableGrievanceReceipt Component', () => {
       title: 'Minimal Complaint',
       // No id, no dates, no department, no category, no location, no citizen info
     }
-    const html = renderToStaticMarkup(
+
+    const html = renderWithLanguage(
       <PrintableGrievanceReceipt complaint={sparseComplaint} />
     )
+
     expect(html).toContain('MUNICIPAL GRIEVANCE RECEIPT')
     expect(html).toContain('Minimal Complaint')
     expect(html).toContain('PENDING')
@@ -223,7 +273,10 @@ describe('PrintableGrievanceReceipt Component', () => {
   })
 
   it('returns null safely when complaint prop is null', () => {
-    const html = renderToStaticMarkup(<PrintableGrievanceReceipt complaint={null} />)
+    const html = renderWithLanguage(
+      <PrintableGrievanceReceipt complaint={null} />
+    )
+
     expect(html).toBe('')
   })
 })

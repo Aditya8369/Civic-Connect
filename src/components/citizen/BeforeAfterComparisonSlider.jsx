@@ -1,18 +1,27 @@
+
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { ArrowLeftRight, CheckCircle2, Camera, Sparkles } from 'lucide-react'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 export function BeforeAfterComparisonSlider({
   beforeImage,
   afterImage,
-  beforeLabel = 'Before (Reported)',
-  afterLabel = 'After (Resolved)',
-  beforeAlt = 'Neighborhood issue before resolution',
-  afterAlt = 'Neighborhood issue after resolution',
+  beforeLabel,
+  afterLabel,
+  beforeAlt,
+  afterAlt,
   className = '',
 }) {
+  const { t } = useLanguage()
+
+  const resolvedBeforeLabel = beforeLabel || t('beforeReported')
+  const resolvedAfterLabel = afterLabel || t('afterResolved')
+  const resolvedBeforeAlt = beforeAlt || t('beforeImageAlt')
+  const resolvedAfterAlt = afterAlt || t('afterImageAlt')
+
   const [sliderPosition, setSliderPosition] = useState(50)
   const [isDragging, setIsDragging] = useState(false)
-  const [viewMode, setViewMode] = useState('slider') // 'slider' | 'cards'
+  const [viewMode, setViewMode] = useState('slider')
   const containerRef = useRef(null)
 
   const handleMove = useCallback((clientX) => {
@@ -57,10 +66,10 @@ export function BeforeAfterComparisonSlider({
           <Sparkles className="h-6 w-6" />
         </div>
         <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
-          On-Site Resolution Verified
+          {t('onSiteResolutionVerified')}
         </h4>
         <p className="mt-1 text-xs text-gray-600 dark:text-gray-400 max-w-sm mx-auto">
-          This civic issue was inspected and completed directly in your neighborhood by municipal field crews.
+          {t('onSiteResolutionDescription')}
         </p>
       </div>
     )
@@ -75,19 +84,19 @@ export function BeforeAfterComparisonSlider({
       >
         <img
           src={beforeImage}
-          alt={beforeAlt}
+          alt={resolvedBeforeAlt}
           className="h-64 sm:h-80 w-full object-cover"
         />
         <div className="absolute top-3 left-3">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm">
             <Camera className="h-3.5 w-3.5 text-amber-400" />
-            {beforeLabel}
+            {resolvedBeforeLabel}
           </span>
         </div>
         <div className="absolute bottom-3 inset-x-3 rounded-lg bg-emerald-900/85 p-2.5 backdrop-blur-sm flex items-center gap-2 text-white">
           <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
           <p className="text-xs font-medium">
-            Resolution verified and closed by municipal field crew.
+            {t('resolutionVerifiedByCrew')}
           </p>
         </div>
       </div>
@@ -103,13 +112,13 @@ export function BeforeAfterComparisonSlider({
       >
         <img
           src={afterImage}
-          alt={afterAlt}
+          alt={resolvedAfterAlt}
           className="h-64 sm:h-80 w-full object-cover"
         />
         <div className="absolute top-3 right-3">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600/90 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            {afterLabel}
+            {resolvedAfterLabel}
           </span>
         </div>
       </div>
@@ -133,7 +142,7 @@ export function BeforeAfterComparisonSlider({
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
             }`}
           >
-            Comparison Slider
+            {t('comparisonSlider')}
           </button>
           <button
             type="button"
@@ -146,7 +155,7 @@ export function BeforeAfterComparisonSlider({
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
             }`}
           >
-            Side-by-Side Cards
+            {t('sideBySideCards')}
           </button>
         </div>
       </div>
@@ -154,20 +163,20 @@ export function BeforeAfterComparisonSlider({
       {viewMode === 'cards' ? (
         <div data-testid="before-after-cards" className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="relative overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-900 shadow-xs">
-            <img src={beforeImage} alt={beforeAlt} className="h-56 sm:h-64 w-full object-cover" />
+            <img src={beforeImage} alt={resolvedBeforeAlt} className="h-56 sm:h-64 w-full object-cover" />
             <div className="absolute top-3 left-3">
               <span className="inline-flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1 text-xs font-semibold text-amber-300 backdrop-blur-sm">
                 <Camera className="h-3.5 w-3.5" />
-                {beforeLabel}
+                {resolvedBeforeLabel}
               </span>
             </div>
           </div>
           <div className="relative overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-900 shadow-xs">
-            <img src={afterImage} alt={afterAlt} className="h-56 sm:h-64 w-full object-cover" />
+            <img src={afterImage} alt={resolvedAfterAlt} className="h-56 sm:h-64 w-full object-cover" />
             <div className="absolute top-3 right-3">
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600/90 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-sm">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                {afterLabel}
+                {resolvedAfterLabel}
               </span>
             </div>
           </div>
@@ -182,7 +191,7 @@ export function BeforeAfterComparisonSlider({
           {/* Base Layer: After Image */}
           <img
             src={afterImage}
-            alt={afterAlt}
+            alt={resolvedAfterAlt}
             className="h-64 sm:h-80 w-full object-cover pointer-events-none"
           />
 
@@ -195,7 +204,7 @@ export function BeforeAfterComparisonSlider({
           >
             <img
               src={beforeImage}
-              alt={beforeAlt}
+              alt={resolvedBeforeAlt}
               className="h-64 sm:h-80 w-full object-cover"
             />
           </div>
@@ -203,12 +212,12 @@ export function BeforeAfterComparisonSlider({
           {/* Badges */}
           <div className="pointer-events-none absolute top-3 left-3">
             <span className="inline-flex items-center gap-1 rounded-full bg-black/70 px-2.5 py-1 text-xs font-semibold text-amber-300 backdrop-blur-sm">
-              {beforeLabel}
+              {resolvedBeforeLabel}
             </span>
           </div>
           <div className="pointer-events-none absolute top-3 right-3">
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600/90 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-sm">
-              {afterLabel}
+              {resolvedAfterLabel}
             </span>
           </div>
 
@@ -219,7 +228,7 @@ export function BeforeAfterComparisonSlider({
           >
             <div
               role="slider"
-              aria-label="Before vs After image comparison slider"
+              aria-label={t('beforeAfterSliderLabel')}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(sliderPosition)}
@@ -252,13 +261,13 @@ export function BeforeAfterComparisonSlider({
             max="100"
             value={Math.round(sliderPosition)}
             onChange={(e) => setSliderPosition(Number(e.target.value))}
-            aria-label="Image comparison range slider"
+            aria-label={t('imageComparisonRangeLabel')}
             className="sr-only"
           />
 
           {/* Instruction hint */}
           <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-0.5 text-[11px] font-medium text-white/90 backdrop-blur-sm">
-            Drag or slide to compare
+            {t('dragToCompare')}
           </div>
         </div>
       )}
@@ -267,4 +276,3 @@ export function BeforeAfterComparisonSlider({
 }
 
 export default BeforeAfterComparisonSlider
-

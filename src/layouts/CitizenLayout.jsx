@@ -6,6 +6,7 @@ import { MobileSidebar } from '@/components/layout/MobileSidebar'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { PageSkeleton } from '@/components/common/PageSkeleton'
 import { Footer } from '@/components/layout/Footer'
+import { EmergencyAlertBanner } from '@/components/citizen/EmergencyAlertBanner'
 
 export function CitizenLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -19,6 +20,7 @@ export function CitizenLayout() {
         <Navbar onMenuClick={() => setSidebarOpen(true)} />
         <main className="flex flex-1 flex-col overflow-y-auto">
           <div className="page-container flex-1">
+            <EmergencyAlertBanner />
             <Suspense fallback={<PageSkeleton />}>
               <Outlet />
             </Suspense>

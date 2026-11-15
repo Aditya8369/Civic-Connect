@@ -1,10 +1,19 @@
+
 // @vitest-environment jsdom
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+} from 'vitest'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal'
 
 let spotlightOpen = false
@@ -17,10 +26,17 @@ let container
 let root
 
 function pressKey(target, key, options = {}) {
-  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options })
+  const event = new KeyboardEvent('keydown', {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...options,
+  })
+
   act(() => {
     target.dispatchEvent(event)
   })
+
   return event
 }
 
@@ -29,17 +45,26 @@ function getDialog() {
 }
 
 beforeEach(() => {
+  localStorage.setItem('civic-connect-language', 'en')
+
   spotlightOpen = false
   container = document.createElement('div')
   document.body.appendChild(container)
+
   root = createRoot(container)
+
   act(() => {
-    root.render(<KeyboardShortcutsModal />)
+    root.render(
+      <LanguageProvider>
+        <KeyboardShortcutsModal />
+      </LanguageProvider>
+    )
   })
 })
 
 afterEach(() => {
   act(() => root.unmount())
+
   container.remove()
   document.body.innerHTML = ''
 })
@@ -53,10 +78,13 @@ describe('KeyboardShortcutsModal', () => {
     pressKey(document.body, '?', { shiftKey: true })
 
     const dialog = getDialog()
+
     expect(dialog).not.toBeNull()
     expect(dialog.textContent).toContain('Keyboard shortcuts')
     expect(dialog.textContent).toContain('Open or close search')
-    expect(dialog.textContent).toContain('Show this list of keyboard shortcuts')
+    expect(dialog.textContent).toContain(
+      'Show this list of keyboard shortcuts'
+    )
   })
 
   it.each([
@@ -98,8 +126,19 @@ describe('KeyboardShortcutsModal', () => {
 
   it('ignores other keys and keys handled elsewhere', () => {
     pressKey(document.body, '/')
-    const handled = new KeyboardEvent('keydown', { key: '?', bubbles: true, cancelable: true })
-    window.addEventListener('keydown', (e) => e.preventDefault(), { once: true, capture: true })
+
+    const handled = new KeyboardEvent('keydown', {
+      key: '?',
+      bubbles: true,
+      cancelable: true,
+    })
+
+    window.addEventListener(
+      'keydown',
+      (e) => e.preventDefault(),
+      { once: true, capture: true }
+    )
+
     act(() => {
       document.body.dispatchEvent(handled)
     })
@@ -109,8 +148,13 @@ describe('KeyboardShortcutsModal', () => {
 
   it('does not open while the search modal is open', () => {
     spotlightOpen = true
+
     act(() => {
-      root.render(<KeyboardShortcutsModal />)
+      root.render(
+        <LanguageProvider>
+          <KeyboardShortcutsModal />
+        </LanguageProvider>
+      )
     })
 
     pressKey(document.body, '?', { shiftKey: true })
@@ -120,6 +164,7 @@ describe('KeyboardShortcutsModal', () => {
 
   it('closes with Escape', () => {
     pressKey(document.body, '?', { shiftKey: true })
+
     expect(getDialog()).not.toBeNull()
 
     pressKey(document.activeElement || document.body, 'Escape')
@@ -130,7 +175,10 @@ describe('KeyboardShortcutsModal', () => {
   it('closes with the labelled close button', () => {
     pressKey(document.body, '?', { shiftKey: true })
 
-    const closeButton = document.body.querySelector('button[aria-label="Close keyboard shortcuts"]')
+    const closeButton = document.body.querySelector(
+      'button[aria-label="Close keyboard shortcuts"]'
+    )
+
     expect(closeButton).not.toBeNull()
 
     act(() => {
@@ -143,20 +191,35 @@ describe('KeyboardShortcutsModal', () => {
   it('moves focus into the dialog when open', () => {
     pressKey(document.body, '?', { shiftKey: true })
 
-    expect(getDialog().contains(document.activeElement)).toBe(true)
+    expect(
+      getDialog().contains(document.activeElement)
+    ).toBe(true)
   })
 
   it('keeps Tab and Shift+Tab focus inside the dialog', () => {
     pressKey(document.body, '?', { shiftKey: true })
+
     const dialog = getDialog()
-    const closeButton = dialog.querySelector('button[aria-label="Close keyboard shortcuts"]')
+
+    const closeButton = dialog.querySelector(
+      'button[aria-label="Close keyboard shortcuts"]'
+    )
+
     act(() => closeButton.focus())
 
     pressKey(closeButton, 'Tab')
-    expect(dialog.contains(document.activeElement)).toBe(true)
 
-    pressKey(document.activeElement, 'Tab', { shiftKey: true })
-    expect(dialog.contains(document.activeElement)).toBe(true)
+    expect(
+      dialog.contains(document.activeElement)
+    ).toBe(true)
+
+    pressKey(document.activeElement, 'Tab', {
+      shiftKey: true,
+    })
+
+    expect(
+      dialog.contains(document.activeElement)
+    ).toBe(true)
   })
 
   it('pulls focus back into the dialog when it moves outside', () => {
@@ -164,23 +227,31 @@ describe('KeyboardShortcutsModal', () => {
     document.body.appendChild(outside)
 
     pressKey(document.body, '?', { shiftKey: true })
+
     const dialog = getDialog()
 
     act(() => outside.focus())
 
-    expect(dialog.contains(document.activeElement)).toBe(true)
+    expect(
+      dialog.contains(document.activeElement)
+    ).toBe(true)
   })
 
   it('returns focus to the previously focused element after closing', async () => {
     const trigger = document.createElement('button')
     trigger.textContent = 'Page button'
     document.body.appendChild(trigger)
+
     act(() => trigger.focus())
 
     pressKey(trigger, '?', { shiftKey: true })
-    expect(getDialog().contains(document.activeElement)).toBe(true)
+
+    expect(
+      getDialog().contains(document.activeElement)
+    ).toBe(true)
 
     pressKey(document.activeElement, 'Escape')
+
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50))
     })
@@ -191,11 +262,17 @@ describe('KeyboardShortcutsModal', () => {
 
   it('closes when the search modal opens', () => {
     pressKey(document.body, '?', { shiftKey: true })
+
     expect(getDialog()).not.toBeNull()
 
     spotlightOpen = true
+
     act(() => {
-      root.render(<KeyboardShortcutsModal />)
+      root.render(
+        <LanguageProvider>
+          <KeyboardShortcutsModal />
+        </LanguageProvider>
+      )
     })
 
     expect(getDialog()).toBeNull()
