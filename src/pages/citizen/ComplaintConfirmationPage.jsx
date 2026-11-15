@@ -1,4 +1,5 @@
 
+
 import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { CheckCircle2, Copy, ArrowRight, FileText } from 'lucide-react'
@@ -6,10 +7,12 @@ import toast from 'react-hot-toast'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 export function ComplaintConfirmationPage() {
   const { state } = useLocation()
   const navigate = useNavigate()
+  const { t } = useLanguage()
 
   const complaintId = state?.complaintId
   const issueId = state?.issueId
@@ -28,9 +31,9 @@ export function ComplaintConfirmationPage() {
       }
 
       await navigator.clipboard.writeText(complaintId)
-      toast.success('Complaint reference ID copied!')
+      toast.success(t('complaintReferenceCopied'))
     } catch {
-      toast.error('Could not copy the ID. Please copy it manually.')
+      toast.error(t('complaintCopyError'))
     }
   }
 
@@ -39,8 +42,8 @@ export function ComplaintConfirmationPage() {
   return (
     <div>
       <PageHeader
-        title="Complaint Submitted"
-        description="Your complaint has been successfully recorded."
+        title={t('complaintSubmitted')}
+        description={t('complaintSubmittedDescription')}
       />
 
       <div className="max-w-2xl mx-auto">
@@ -54,18 +57,17 @@ export function ComplaintConfirmationPage() {
 
             <div className="space-y-2">
               <h2 className="text-2xl font-bold">
-                Thank you for reporting!
+                {t('thankYouForReporting')}
               </h2>
               <p className="text-muted-foreground">
-                Your complaint has been saved successfully. Keep this
-                reference ID to track its progress.
+                {t('complaintSavedSuccessfully')}
               </p>
             </div>
 
             {title && (
               <div className="rounded-lg bg-muted p-4 text-left">
                 <p className="text-sm text-muted-foreground">
-                  Complaint
+                  {t('complaint')}
                 </p>
                 <p className="font-medium">{title}</p>
               </div>
@@ -73,7 +75,7 @@ export function ComplaintConfirmationPage() {
 
             <div className="rounded-lg border p-5 space-y-3">
               <p className="text-sm text-muted-foreground">
-                Your Complaint Reference ID
+                {t('yourComplaintReferenceId')}
               </p>
 
               <p className="text-xl sm:text-2xl font-bold tracking-wide break-all">
@@ -87,7 +89,7 @@ export function ComplaintConfirmationPage() {
                 className="w-full"
               >
                 <Copy className="h-4 w-4 mr-2" />
-                Copy Reference ID
+                {t('copyReferenceId')}
               </Button>
             </div>
 
@@ -98,7 +100,7 @@ export function ComplaintConfirmationPage() {
                 className="flex-1"
               >
                 <FileText className="h-4 w-4 mr-2" />
-                Track Complaint
+                {t('trackComplaint')}
                 <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
 
@@ -108,7 +110,7 @@ export function ComplaintConfirmationPage() {
                 onClick={() => navigate('/my-reports')}
                 className="flex-1"
               >
-                My Reports
+                {t('myReports')}
               </Button>
             </div>
           </CardContent>

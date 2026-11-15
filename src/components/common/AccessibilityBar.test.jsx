@@ -1,9 +1,23 @@
 
-import { beforeEach, describe, expect, it } from 'vitest'
-import { fireEvent, render, screen, cleanup } from '@testing-library/react'
-import { afterEach } from 'vitest'
+
+import { beforeEach, describe, expect, it, afterEach } from 'vitest'
+import {
+  fireEvent,
+  render,
+  screen,
+  cleanup,
+} from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 import AccessibilityBar from './AccessibilityBar'
+
+function renderAccessibilityBar() {
+  return render(
+    <LanguageProvider>
+      <AccessibilityBar />
+    </LanguageProvider>
+  )
+}
 
 afterEach(() => {
   cleanup()
@@ -11,49 +25,85 @@ afterEach(() => {
 
 beforeEach(() => {
   localStorage.clear()
+  localStorage.setItem('civic-connect-language', 'en')
+
   document.documentElement.classList.remove('high-contrast')
   document.documentElement.style.removeProperty('--accessibility-font-size')
 })
 
 describe('AccessibilityBar', () => {
   it('renders all accessibility controls', () => {
-    render(<AccessibilityBar />)
+    renderAccessibilityBar()
 
-    expect(screen.getByRole('button', { name: 'Decrease text size' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Reset text size' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Increase text size' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Toggle high contrast mode' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Decrease text size' })
+    ).toBeInTheDocument()
+
+    expect(
+      screen.getByRole('button', { name: 'Reset text size' })
+    ).toBeInTheDocument()
+
+    expect(
+      screen.getByRole('button', { name: 'Increase text size' })
+    ).toBeInTheDocument()
+
+    expect(
+      screen.getByRole('button', { name: 'Toggle high contrast mode' })
+    ).toBeInTheDocument()
   })
 
   it('increases font size', () => {
-    render(<AccessibilityBar />)
+    renderAccessibilityBar()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Increase text size' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Increase text size' })
+    )
 
-    expect(document.documentElement.style.getPropertyValue('--accessibility-font-size')).toBe('18px')
+    expect(
+      document.documentElement.style.getPropertyValue(
+        '--accessibility-font-size'
+      )
+    ).toBe('18px')
   })
 
   it('decreases font size', () => {
-    render(<AccessibilityBar />)
+    renderAccessibilityBar()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Decrease text size' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Decrease text size' })
+    )
 
-    expect(document.documentElement.style.getPropertyValue('--accessibility-font-size')).toBe('14px')
+    expect(
+      document.documentElement.style.getPropertyValue(
+        '--accessibility-font-size'
+      )
+    ).toBe('14px')
   })
 
   it('resets font size', () => {
-    render(<AccessibilityBar />)
+    renderAccessibilityBar()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Increase text size' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Reset text size' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Increase text size' })
+    )
 
-    expect(document.documentElement.style.getPropertyValue('--accessibility-font-size')).toBe('16px')
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Reset text size' })
+    )
+
+    expect(
+      document.documentElement.style.getPropertyValue(
+        '--accessibility-font-size'
+      )
+    ).toBe('16px')
   })
 
   it('toggles high contrast mode', () => {
-    render(<AccessibilityBar />)
+    renderAccessibilityBar()
 
-    const button = screen.getByRole('button', { name: 'Toggle high contrast mode' })
+    const button = screen.getByRole('button', {
+      name: 'Toggle high contrast mode',
+    })
 
     fireEvent.click(button)
 
@@ -70,17 +120,24 @@ describe('AccessibilityBar', () => {
     localStorage.setItem('civic-font-size', '20')
     localStorage.setItem('civic-high-contrast', 'true')
 
-    render(<AccessibilityBar />)
+    renderAccessibilityBar()
 
-    expect(document.documentElement.style.getPropertyValue('--accessibility-font-size')).toBe('20px')
+    expect(
+      document.documentElement.style.getPropertyValue(
+        '--accessibility-font-size'
+      )
+    ).toBe('20px')
+
     expect(document.documentElement).toHaveClass('high-contrast')
   })
 
   it('disables font controls at their limits', () => {
     localStorage.setItem('civic-font-size', '22')
 
-    render(<AccessibilityBar />)
+    renderAccessibilityBar()
 
-    expect(screen.getByRole('button', { name: 'Increase text size' })).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Increase text size' })
+    ).toBeDisabled()
   })
 })

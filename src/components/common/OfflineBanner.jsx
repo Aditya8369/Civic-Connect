@@ -1,8 +1,11 @@
+
 import { useEffect, useState } from 'react'
-import { Wifi, WifiOff } from 'lucide-react'
+import { WifiOff } from 'lucide-react'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 export default function OfflineBanner() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const { t } = useLanguage()
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true)
@@ -23,11 +26,11 @@ export default function OfflineBanner() {
     <div
       role="status"
       aria-live="polite"
+      aria-label={t('offlineStatus')}
       className="flex items-center justify-center gap-2 bg-red-600 px-4 py-3 text-sm font-medium text-white"
     >
-      <WifiOff className="h-5 w-5" />
-      You are offline. Your internet connection is unavailable.
-      Your pending complaints will be saved locally.
+      <WifiOff className="h-5 w-5" aria-hidden="true" />
+      <span>{t('offlineMessage')}</span>
     </div>
   )
 }

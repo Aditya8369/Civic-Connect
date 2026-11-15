@@ -1,3 +1,4 @@
+
 import { useState } from 'react'
 import {
   Award,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 const ICON_MAP = {
   Award,
@@ -33,23 +35,31 @@ const TIER_STYLES = {
   bronze: {
     badge: 'border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
     iconBg: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300 dark:border-amber-800',
-    label: 'Bronze',
+    labelKey: 'badgeBronze',
   },
   silver: {
     badge: 'border-slate-400 bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
     iconBg: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700',
-    label: 'Silver',
+    labelKey: 'badgeSilver',
   },
   gold: {
     badge: 'border-yellow-400 bg-yellow-50 text-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-300',
     iconBg: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300 border-yellow-400 dark:border-yellow-700',
-    label: 'Gold',
+    labelKey: 'badgeGold',
   },
   platinum: {
     badge: 'border-purple-400 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300',
     iconBg: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border-purple-400 dark:border-purple-700',
-    label: 'Platinum',
+    labelKey: 'badgePlatinum',
   },
+}
+
+const LEVEL_TITLE_KEYS = {
+  'Civic Explorer': 'levelCivicExplorer',
+  'Active Contributor': 'levelActiveContributor',
+  'Community Advocate': 'levelCommunityAdvocate',
+  'Neighborhood Guardian': 'levelNeighborhoodGuardian',
+  'Civic Champion': 'levelCivicChampion',
 }
 
 export function BadgesShowcaseCard({
@@ -59,7 +69,8 @@ export function BadgesShowcaseCard({
   stats = {},
   loading = false,
 }) {
-  const [activeTab, setActiveTab] = useState('all') // 'all' | 'unlocked' | 'locked'
+  const { t } = useLanguage()
+  const [activeTab, setActiveTab] = useState('all')
 
   const unlockedCount = badges.filter((b) => b.unlocked).length
   const lockedCount = badges.length - unlockedCount
@@ -98,10 +109,10 @@ export function BadgesShowcaseCard({
           <div>
             <CardTitle className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
               <Trophy className="h-5 w-5 text-amber-500 shrink-0" />
-              Civic Badges & Achievements
+              {t('civicBadgesAchievements')}
             </CardTitle>
             <CardDescription className="text-xs sm:text-sm mt-1">
-              Incentivizing civic engagement through community participation and verified reports
+              {t('badgesDescription')}
             </CardDescription>
           </div>
 
@@ -112,7 +123,9 @@ export function BadgesShowcaseCard({
             >
               <Flame className="h-3.5 w-3.5 text-amber-600 animate-pulse" />
               <span>{score?.monthlyScore ?? 0} pts</span>
-              <span className="text-[10px] font-normal opacity-80">this month</span>
+              <span className="text-[10px] font-normal opacity-80">
+                {t('thisMonth')}
+              </span>
             </span>
 
             <span
@@ -125,22 +138,21 @@ export function BadgesShowcaseCard({
           </div>
         </div>
 
-        {/* Level Progression Progress Bar */}
         <div className="mt-4 pt-3 border-t border-gray-200/60 dark:border-gray-800/80">
           <div className="flex items-center justify-between text-xs mb-1.5">
             <div className="flex items-center gap-1.5">
               <Badge variant="outline" className="text-[11px] font-semibold py-0 px-2 border-primary-400 text-primary-700 dark:text-primary-300">
-                Level {level?.level ?? 1}
+                {t('level')} {level?.level ?? 1}
               </Badge>
               <span className="font-semibold text-gray-900 dark:text-white">
-                {level?.title ?? 'Civic Explorer'}
+                {t(LEVEL_TITLE_KEYS[level?.title] || 'levelCivicExplorer')}
               </span>
             </div>
             <span className="text-gray-500 dark:text-gray-400 text-[11px]">
               {level?.isMaxLevel ? (
-                'Highest Rank Achieved!'
+                t('highestRankAchieved')
               ) : (
-                `${level?.pointsRemaining ?? 0} XP to ${level?.nextTitle}`
+                `${level?.pointsRemaining ?? 0} XP ${t('to')} ${t(LEVEL_TITLE_KEYS[level?.nextTitle] || 'levelCivicExplorer')}`
               )}
             </span>
           </div>
@@ -160,43 +172,44 @@ export function BadgesShowcaseCard({
       </CardHeader>
 
       <CardContent className="p-6 space-y-6">
-        {/* Quick engagement stats counters */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="p-3 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40 text-center">
             <div className="text-xl font-bold text-gray-900 dark:text-white">
               {stats?.totalFiled ?? 0}
             </div>
             <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-              Reports Filed
+              {t('reportsFiled')}
             </div>
           </div>
+
           <div className="p-3 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40 text-center">
             <div className="text-xl font-bold text-gray-900 dark:text-white">
               {stats?.totalEndorsed ?? 0}
             </div>
             <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-              Endorsed Issues
+              {t('endorsedIssues')}
             </div>
           </div>
+
           <div className="p-3 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40 text-center">
             <div className="text-xl font-bold text-gray-900 dark:text-white">
               {stats?.totalResolved ?? 0}
             </div>
             <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-              Issues Resolved
+              {t('issuesResolved')}
             </div>
           </div>
+
           <div className="p-3 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40 text-center">
             <div className="text-xl font-bold text-primary-600 dark:text-primary-400">
               {unlockedCount} / {badges.length}
             </div>
             <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-              Badges Unlocked
+              {t('badgesUnlocked')}
             </div>
           </div>
         </div>
 
-        {/* Filter Tabs */}
         <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 pb-3">
           <button
             type="button"
@@ -207,8 +220,9 @@ export function BadgesShowcaseCard({
                 : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
             }`}
           >
-            All Badges ({badges.length})
+            {t('allBadges')} ({badges.length})
           </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('unlocked')}
@@ -218,8 +232,9 @@ export function BadgesShowcaseCard({
                 : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
             }`}
           >
-            Unlocked ({unlockedCount})
+            {t('unlocked')} ({unlockedCount})
           </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('locked')}
@@ -229,11 +244,10 @@ export function BadgesShowcaseCard({
                 : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
             }`}
           >
-            In Progress ({lockedCount})
+            {t('inProgress')} ({lockedCount})
           </button>
         </div>
 
-        {/* Badges Grid */}
         <div
           data-testid="badges-grid"
           className="grid grid-cols-1 sm:grid-cols-2 gap-3.5"
@@ -252,7 +266,6 @@ export function BadgesShowcaseCard({
                     : 'border-dashed border-gray-200 dark:border-gray-800 bg-gray-50/40 dark:bg-gray-900/20 opacity-80'
                 }`}
               >
-                {/* Badge Icon */}
                 <div
                   className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${
                     badge.unlocked
@@ -268,40 +281,41 @@ export function BadgesShowcaseCard({
                   )}
                 </div>
 
-                {/* Badge Details */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-1 mb-1">
                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">
-                      {badge.title}
+                      {t(badge.titleKey || badge.title)}
                     </h3>
+
                     <div className="flex items-center gap-1.5 shrink-0">
                       <span
                         className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${tierStyle.badge}`}
                       >
-                        {tierStyle.label}
+                        {t(tierStyle.labelKey)}
                       </span>
+
                       {badge.unlocked && (
                         <span className="flex items-center text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                           <Check className="h-3 w-3 mr-0.5" />
-                          Unlocked
+                          {t('unlocked')}
                         </span>
                       )}
                     </div>
                   </div>
 
                   <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">
-                    {badge.description}
+                    {t(badge.descriptionKey || badge.description)}
                   </p>
 
-                  {/* Progress for locked badges */}
                   {!badge.unlocked && (
                     <div className="mt-2.5 pt-2 border-t border-gray-100 dark:border-gray-800">
                       <div className="flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400 mb-1">
-                        <span>Progress</span>
+                        <span>{t('progress')}</span>
                         <span className="font-medium">
                           {badge.progress.current} / {badge.progress.target} ({badge.progress.percentage}%)
                         </span>
                       </div>
+
                       <div className="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-1.5 overflow-hidden">
                         <div
                           className="bg-primary-600 dark:bg-primary-500 h-1.5 rounded-full transition-all duration-300"

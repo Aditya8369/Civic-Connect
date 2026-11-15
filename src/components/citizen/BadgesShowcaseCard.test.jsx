@@ -1,5 +1,7 @@
+
 import { describe, it, expect } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 import { BadgesShowcaseCard } from './BadgesShowcaseCard'
 
 const mockBadges = [
@@ -61,35 +63,42 @@ const mockStats = {
   totalResolved: 1,
 }
 
+function renderComponent(props = {}) {
+  return renderToStaticMarkup(
+    <LanguageProvider>
+      <BadgesShowcaseCard {...props} />
+    </LanguageProvider>
+  )
+}
+
 describe('BadgesShowcaseCard Component', () => {
   it('renders loading skeleton when loading prop is true', () => {
-    const html = renderToStaticMarkup(<BadgesShowcaseCard loading={true} />)
+    const html = renderComponent({ loading: true })
+
     expect(html).toContain('animate-pulse')
   })
 
   it('renders monthly score and all-time score badges', () => {
-    const html = renderToStaticMarkup(
-      <BadgesShowcaseCard
-        badges={mockBadges}
-        score={mockScore}
-        level={mockLevel}
-        stats={mockStats}
-      />
-    )
+    const html = renderComponent({
+      badges: mockBadges,
+      score: mockScore,
+      level: mockLevel,
+      stats: mockStats,
+    })
+
     expect(html).toContain('180 pts')
     expect(html).toContain('this month')
     expect(html).toContain('450 XP')
   })
 
   it('renders level progress and remaining XP', () => {
-    const html = renderToStaticMarkup(
-      <BadgesShowcaseCard
-        badges={mockBadges}
-        score={mockScore}
-        level={mockLevel}
-        stats={mockStats}
-      />
-    )
+    const html = renderComponent({
+      badges: mockBadges,
+      score: mockScore,
+      level: mockLevel,
+      stats: mockStats,
+    })
+
     expect(html).toContain('Level 2')
     expect(html).toContain('Active Contributor')
     expect(html).toContain('150 XP to Community Advocate')
@@ -97,14 +106,13 @@ describe('BadgesShowcaseCard Component', () => {
   })
 
   it('renders quick stats counters accurately', () => {
-    const html = renderToStaticMarkup(
-      <BadgesShowcaseCard
-        badges={mockBadges}
-        score={mockScore}
-        level={mockLevel}
-        stats={mockStats}
-      />
-    )
+    const html = renderComponent({
+      badges: mockBadges,
+      score: mockScore,
+      level: mockLevel,
+      stats: mockStats,
+    })
+
     expect(html).toContain('Reports Filed')
     expect(html).toContain('Endorsed Issues')
     expect(html).toContain('Issues Resolved')
@@ -113,14 +121,13 @@ describe('BadgesShowcaseCard Component', () => {
   })
 
   it('renders badge cards with both unlocked status and progress for locked ones', () => {
-    const html = renderToStaticMarkup(
-      <BadgesShowcaseCard
-        badges={mockBadges}
-        score={mockScore}
-        level={mockLevel}
-        stats={mockStats}
-      />
-    )
+    const html = renderComponent({
+      badges: mockBadges,
+      score: mockScore,
+      level: mockLevel,
+      stats: mockStats,
+    })
+
     expect(html).toContain('First Report')
     expect(html).toContain('Active Scout')
     expect(html).toContain('Top Endorser')
@@ -129,16 +136,16 @@ describe('BadgesShowcaseCard Component', () => {
   })
 
   it('renders filter tabs with counts for All, Unlocked, and In Progress', () => {
-    const html = renderToStaticMarkup(
-      <BadgesShowcaseCard
-        badges={mockBadges}
-        score={mockScore}
-        level={mockLevel}
-        stats={mockStats}
-      />
-    )
+    const html = renderComponent({
+      badges: mockBadges,
+      score: mockScore,
+      level: mockLevel,
+      stats: mockStats,
+    })
+
     expect(html).toContain('All Badges (3)')
     expect(html).toContain('Unlocked (2)')
     expect(html).toContain('In Progress (1)')
   })
 })
+

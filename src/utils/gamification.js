@@ -19,7 +19,9 @@ export const BADGE_DEFINITIONS = [
   {
     id: 'first_report',
     title: 'First Report',
+    titleKey: 'badgeFirstReport',
     description: 'Filed your first civic complaint to improve the community.',
+    descriptionKey: 'badgeFirstReportDescription',
     category: 'reporting',
     tier: 'bronze',
     target: 1,
@@ -28,7 +30,9 @@ export const BADGE_DEFINITIONS = [
   {
     id: 'active_scout',
     title: 'Active Scout',
+    titleKey: 'badgeActiveScout',
     description: 'Filed 5 or more civic reports around your neighborhood.',
+    descriptionKey: 'badgeActiveScoutDescription',
     category: 'reporting',
     tier: 'silver',
     target: 5,
@@ -37,7 +41,9 @@ export const BADGE_DEFINITIONS = [
   {
     id: 'civic_sentinel',
     title: 'Civic Sentinel',
+    titleKey: 'badgeCivicSentinel',
     description: 'Filed 10 or more civic reports, demonstrating dedication to public safety.',
+    descriptionKey: 'badgeCivicSentinelDescription',
     category: 'reporting',
     tier: 'gold',
     target: 10,
@@ -46,7 +52,9 @@ export const BADGE_DEFINITIONS = [
   {
     id: 'community_voice',
     title: 'Community Voice',
+    titleKey: 'badgeCommunityVoice',
     description: 'Endorsed your first neighborhood issue to support a fellow resident.',
+    descriptionKey: 'badgeCommunityVoiceDescription',
     category: 'endorsing',
     tier: 'bronze',
     target: 1,
@@ -55,7 +63,9 @@ export const BADGE_DEFINITIONS = [
   {
     id: 'top_endorser',
     title: 'Top Endorser',
+    titleKey: 'badgeTopEndorser',
     description: 'Endorsed 5 or more community issues to help prioritize city action.',
+    descriptionKey: 'badgeTopEndorserDescription',
     category: 'endorsing',
     tier: 'silver',
     target: 5,
@@ -64,7 +74,9 @@ export const BADGE_DEFINITIONS = [
   {
     id: 'civic_pillar',
     title: 'Civic Pillar',
+    titleKey: 'badgeCivicPillar',
     description: 'Endorsed 15 or more community issues to amplify neighborhood concerns.',
+    descriptionKey: 'badgeCivicPillarDescription',
     category: 'endorsing',
     tier: 'gold',
     target: 15,
@@ -73,7 +85,9 @@ export const BADGE_DEFINITIONS = [
   {
     id: 'resolution_champion',
     title: 'Resolution Champion',
+    titleKey: 'badgeResolutionChampion',
     description: 'Had at least 1 reported issue successfully resolved by municipal services.',
+    descriptionKey: 'badgeResolutionChampionDescription',
     category: 'resolution',
     tier: 'silver',
     target: 1,
@@ -82,7 +96,9 @@ export const BADGE_DEFINITIONS = [
   {
     id: 'city_impact',
     title: 'City Impact',
+    titleKey: 'badgeCityImpact',
     description: 'Had 3 or more reported issues successfully resolved by the city.',
+    descriptionKey: 'badgeCityImpactDescription',
     category: 'resolution',
     tier: 'gold',
     target: 3,
@@ -91,7 +107,9 @@ export const BADGE_DEFINITIONS = [
   {
     id: 'neighborhood_watch',
     title: 'Neighborhood Watch',
+    titleKey: 'badgeNeighborhoodWatch',
     description: 'Reported civic issues across 3 or more distinct service categories.',
+    descriptionKey: 'badgeNeighborhoodWatchDescription',
     category: 'reporting',
     tier: 'bronze',
     target: 3,
@@ -100,7 +118,9 @@ export const BADGE_DEFINITIONS = [
   {
     id: 'crowd_magnet',
     title: 'Crowd Magnet',
+    titleKey: 'badgeCrowdMagnet',
     description: 'Received 5 or more community endorsements on your reported complaints.',
+    descriptionKey: 'badgeCrowdMagnetDescription',
     category: 'impact',
     tier: 'platinum',
     target: 5,
