@@ -1,3 +1,5 @@
+ feat/municipal-accessibility-themes
+
 import { useState, useEffect } from 'react'
 import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
 import { useNavigate } from 'react-router-dom'
@@ -19,6 +21,7 @@ import {
   requestPushPermission,
 } from '@/firebase/notifications'
 import { EmptyState } from '@/components/common/EmptyState'
+import { formatRelativeTime } from '@/utils/relativeTime'
 import toast from 'react-hot-toast'
 import { useLanguage } from '@/contexts/LanguageContext'
 
@@ -30,43 +33,7 @@ function sortByCreatedDesc(list) {
   })
 }
 
-function formatRelativeTime(timestamp, language) {
-  if (!timestamp?.toDate) return ''
 
-  const date = timestamp.toDate()
-  const seconds = Math.round((date.getTime() - Date.now()) / 1000)
-
-  const formatter = new Intl.RelativeTimeFormat(
-    language === 'hi' ? 'hi-IN' : 'en',
-    { numeric: 'auto' }
-  )
-
-  if (Math.abs(seconds) < 60) {
-    return formatter.format(seconds, 'second')
-  }
-
-  const minutes = Math.round(seconds / 60)
-  if (Math.abs(minutes) < 60) {
-    return formatter.format(minutes, 'minute')
-  }
-
-  const hours = Math.round(minutes / 60)
-  if (Math.abs(hours) < 24) {
-    return formatter.format(hours, 'hour')
-  }
-
-  const days = Math.round(hours / 24)
-  if (Math.abs(days) < 30) {
-    return formatter.format(days, 'day')
-  }
-
-  const months = Math.round(days / 30)
-  if (Math.abs(months) < 12) {
-    return formatter.format(months, 'month')
-  }
-
-  return formatter.format(Math.round(days / 365), 'year')
-}
 
 const icons = {
   new_complaint: '🔔',

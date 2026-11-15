@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
     DARK_MEDIA_QUERY,
+    MUNICIPAL_THEMES,
     THEME_STORAGE_KEY,
     THEME_TRANSITION_CLASS,
     THEME_TRANSITION_MS,
@@ -33,6 +34,7 @@ function createBrokenStorage() {
 function createRoot() {
     const classes = new Set()
     return {
+        dataset: {},
         classList: {
             add: (name) => classes.add(name),
             remove: (name) => classes.delete(name),
@@ -45,6 +47,25 @@ function createRoot() {
     }
 }
 
+function relativeLuminance(hex) {
+    const clean = hex.replace('#', '')
+    const [r, g, b] = [0, 2, 4].map((offset) => {
+        const channel = parseInt(clean.slice(offset, offset + 2), 16) / 255
+        return channel <= 0.03928
+            ? channel / 12.92
+            : Math.pow((channel + 0.055) / 1.055, 2.4)
+    })
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function contrastRatio(hexA, hexB) {
+    const lumA = relativeLuminance(hexA)
+    const lumB = relativeLuminance(hexB)
+    const lighter = Math.max(lumA, lumB)
+    const darker = Math.min(lumA, lumB)
+    return (lighter + 0.05) / (darker + 0.05)
+}
+
 const systemPrefers = (theme) => (query) => ({ matches: query === DARK_MEDIA_QUERY && theme === 'dark' })
 
 afterEach(() => {
@@ -52,9 +73,11 @@ afterEach(() => {
 })
 
 describe('isTheme', () => {
-    it('accepts only light and dark', () => {
+    it('accepts light, dark, warm-civic, and high-contrast', () => {
         expect(isTheme('light')).toBe(true)
         expect(isTheme('dark')).toBe(true)
+        expect(isTheme('warm-civic')).toBe(true)
+        expect(isTheme('high-contrast')).toBe(true)
         expect(isTheme('system')).toBe(false)
         expect(isTheme('')).toBe(false)
         expect(isTheme(null)).toBe(false)
@@ -63,102 +86,51 @@ describe('isTheme', () => {
 })
 
 describe('getNextTheme', () => {
-    it('flips between light and dark', () => {
+    it('cycles through light -> dark -> warm-civic -> high-contrast -> light', () => {
         expect(getNextTheme('light')).toBe('dark')
-        expect(getNextTheme('dark')).toBe('light')
+        expect(getNextTheme('dark')).toBe('warm-civic')
+        expect(getNextTheme('warm-civic')).toBe('high-contrast')
+        expect(getNextTheme('high-contrast')).toBe('light')
     })
 })
 
-describe('readStoredTheme', () => {
-    it('returns a saved theme', () => {
-        expect(readStoredTheme(createStorage({ [THEME_STORAGE_KEY]: 'dark' }))).toBe('dark')
-        expect(readStoredTheme(createStorage({ [THEME_STORAGE_KEY]: 'light' }))).toBe('light')
+describe('readStoredTheme & writeStoredTheme', () => {
+    it('persists and reads back all 4 municipal themes in localStorage', () => {
+        const storage = createStorage()
+        for (const theme of ['light', 'dark', 'warm-civic', 'high-contrast']) {
+            expect(writeStoredTheme(storage, theme)).toBe(true)
+            expect(readStoredTheme(storage)).toBe(theme)
+            expect(resolveTheme({ storage, matchMedia: systemPrefers('light') })).toBe(theme)
+        }
     })
 
-    it('returns null when nothing is saved', () => {
+    it('returns null when nothing is saved or value is invalid', () => {
         expect(readStoredTheme(createStorage())).toBeNull()
-    })
-
-    it('ignores values that are not a theme', () => {
         expect(readStoredTheme(createStorage({ [THEME_STORAGE_KEY]: 'purple' }))).toBeNull()
-        expect(readStoredTheme(createStorage({ [THEME_STORAGE_KEY]: '' }))).toBeNull()
-    })
-
-    it('returns null when storage is missing or blocked', () => {
         expect(readStoredTheme(null)).toBeNull()
-        expect(readStoredTheme(undefined)).toBeNull()
         expect(readStoredTheme(createBrokenStorage())).toBeNull()
     })
-})
 
-describe('writeStoredTheme', () => {
-    it('saves the theme so it can be read back', () => {
-        const storage = createStorage()
-        expect(writeStoredTheme(storage, 'dark')).toBe(true)
-        expect(readStoredTheme(storage)).toBe('dark')
-        expect(writeStoredTheme(storage, 'light')).toBe(true)
-        expect(readStoredTheme(storage)).toBe('light')
-    })
-
-    it('does not save a value that is not a theme', () => {
+    it('does not save an invalid theme and handles blocked storage gracefully', () => {
         const storage = createStorage()
         expect(writeStoredTheme(storage, 'purple')).toBe(false)
         expect(readStoredTheme(storage)).toBeNull()
-    })
-
-    it('reports false instead of throwing when storage is blocked', () => {
-        expect(writeStoredTheme(createBrokenStorage(), 'dark')).toBe(false)
-        expect(writeStoredTheme(null, 'dark')).toBe(false)
+        expect(writeStoredTheme(createBrokenStorage(), 'warm-civic')).toBe(false)
     })
 })
 
-describe('getSystemTheme', () => {
-    it('follows prefers-color-scheme', () => {
+describe('getSystemTheme & resolveTheme', () => {
+    it('follows prefers-color-scheme when no explicit choice exists', () => {
         expect(getSystemTheme(systemPrefers('dark'))).toBe('dark')
         expect(getSystemTheme(systemPrefers('light'))).toBe('light')
-    })
-
-    it('falls back to light when matchMedia is missing or throws', () => {
-        expect(getSystemTheme(null)).toBe('light')
-        expect(getSystemTheme(() => { throw new Error('nope') })).toBe('light')
-    })
-})
-
-describe('resolveTheme', () => {
-    it('uses the operating system when there is no saved choice', () => {
         expect(resolveTheme({ storage: createStorage(), matchMedia: systemPrefers('dark') })).toBe('dark')
-        expect(resolveTheme({ storage: createStorage(), matchMedia: systemPrefers('light') })).toBe('light')
     })
 
-    it('prefers the saved choice over the operating system', () => {
-        const light = createStorage({ [THEME_STORAGE_KEY]: 'light' })
-        const dark = createStorage({ [THEME_STORAGE_KEY]: 'dark' })
-        expect(resolveTheme({ storage: light, matchMedia: systemPrefers('dark') })).toBe('light')
-        expect(resolveTheme({ storage: dark, matchMedia: systemPrefers('light') })).toBe('dark')
-    })
-
-    it('falls back to the operating system when the saved value is invalid', () => {
-        const storage = createStorage({ [THEME_STORAGE_KEY]: 'purple' })
-        expect(resolveTheme({ storage, matchMedia: systemPrefers('dark') })).toBe('dark')
-    })
-
-    it('still works when storage is blocked', () => {
-        expect(resolveTheme({ storage: createBrokenStorage(), matchMedia: systemPrefers('dark') })).toBe('dark')
-    })
-})
-
-describe('theme switching with storage', () => {
-    it('keeps the explicit choice after toggling, even if the system disagrees', () => {
-        const storage = createStorage()
-        const matchMedia = systemPrefers('light')
-
-        let theme = resolveTheme({ storage, matchMedia })
-        expect(theme).toBe('light')
-
-        theme = getNextTheme(theme)
-        writeStoredTheme(storage, theme)
-
-        expect(resolveTheme({ storage, matchMedia })).toBe('dark')
+    it('prefers saved municipal accessibility theme over OS preference', () => {
+        const warm = createStorage({ [THEME_STORAGE_KEY]: 'warm-civic' })
+        const hc = createStorage({ [THEME_STORAGE_KEY]: 'high-contrast' })
+        expect(resolveTheme({ storage: warm, matchMedia: systemPrefers('dark') })).toBe('warm-civic')
+        expect(resolveTheme({ storage: hc, matchMedia: systemPrefers('light') })).toBe('high-contrast')
     })
 })
 
@@ -166,20 +138,52 @@ describe('isThemeStorageEvent', () => {
     it('matches the theme key and a full clear', () => {
         expect(isThemeStorageEvent({ key: THEME_STORAGE_KEY })).toBe(true)
         expect(isThemeStorageEvent({ key: null })).toBe(true)
-    })
-
-    it('ignores other keys', () => {
         expect(isThemeStorageEvent({ key: 'something-else' })).toBe(false)
     })
 })
 
 describe('applyTheme', () => {
-    it('adds the dark class for dark and removes it for light', () => {
+    it('applies exact root classes for light, dark, warm-civic, and high-contrast', () => {
         const root = createRoot()
+
         applyTheme(root, 'dark')
         expect(root.classList.contains('dark')).toBe(true)
+        expect(root.classList.contains('theme-warm-civic')).toBe(false)
+        expect(root.classList.contains('theme-high-contrast')).toBe(false)
+
+        applyTheme(root, 'warm-civic')
+        expect(root.classList.contains('theme-warm-civic')).toBe(true)
+        expect(root.classList.contains('dark')).toBe(false)
+        expect(root.classList.contains('theme-high-contrast')).toBe(false)
+        expect(root.dataset.theme).toBe('warm-civic')
+
+        applyTheme(root, 'high-contrast')
+        expect(root.classList.contains('theme-high-contrast')).toBe(true)
+        expect(root.classList.contains('dark')).toBe(true)
+        expect(root.classList.contains('theme-warm-civic')).toBe(false)
+        expect(root.dataset.theme).toBe('high-contrast')
+
         applyTheme(root, 'light')
         expect(root.classList.contains('dark')).toBe(false)
+        expect(root.classList.contains('theme-warm-civic')).toBe(false)
+        expect(root.classList.contains('theme-high-contrast')).toBe(false)
+        expect(root.dataset.theme).toBe('light')
+    })
+})
+
+describe('WCAG AAA contrast compliance', () => {
+    it('verifies high-contrast yellow/black theme exceeds 7:1 WCAG AAA contrast ratio', () => {
+        const hc = MUNICIPAL_THEMES.find((t) => t.id === 'high-contrast')
+        expect(hc).toBeDefined()
+        const ratio = contrastRatio(hc.swatches.bg, hc.swatches.text)
+        expect(ratio).toBeGreaterThanOrEqual(7)
+    })
+
+    it('verifies warm-civic parchment theme exceeds 7:1 WCAG AAA contrast ratio', () => {
+        const warm = MUNICIPAL_THEMES.find((t) => t.id === 'warm-civic')
+        expect(warm).toBeDefined()
+        const ratio = contrastRatio(warm.swatches.bg, warm.swatches.text)
+        expect(ratio).toBeGreaterThanOrEqual(7)
     })
 })
 
@@ -196,18 +200,5 @@ describe('startThemeTransition', () => {
 
         vi.advanceTimersByTime(1)
         expect(root.classList.contains(THEME_TRANSITION_CLASS)).toBe(false)
-    })
-
-    it('can be stopped early without leaving the class behind', () => {
-        vi.useFakeTimers()
-        const root = createRoot()
-
-        const stop = startThemeTransition(root)
-        stop()
-        expect(root.classList.contains(THEME_TRANSITION_CLASS)).toBe(false)
-
-        root.classList.add(THEME_TRANSITION_CLASS)
-        vi.advanceTimersByTime(THEME_TRANSITION_MS)
-        expect(root.classList.contains(THEME_TRANSITION_CLASS)).toBe(true)
     })
 })

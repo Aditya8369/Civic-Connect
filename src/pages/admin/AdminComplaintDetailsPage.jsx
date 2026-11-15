@@ -1,3 +1,5 @@
+ feat/municipal-accessibility-themes
+
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
@@ -75,8 +77,6 @@ import ComplaintAudioPlayer from '@/components/citizen/ComplaintAudioPlayer'
 import ResolutionProofSlider, { getResolutionPhoto } from '@/components/citizen/ResolutionProofSlider'
 import { ComplaintLocationMap } from '@/components/common/ComplaintLocationMap'
 
-export { getResolutionPhoto }
-
 const statusVariant = {
   Resolved: 'success',
   'In Progress': 'warning',
@@ -134,6 +134,23 @@ function canRejectComplaint(complaint) {
 function canMergeComplaint(complaint) {
   return ['Pending', 'In Progress', 'Reopened'].includes(complaint?.status)
 }
+
+
+
+function EvidenceImage({ src, alt, onClick, className = '' }) {
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={`absolute inset-0 h-full w-full object-cover ${
+        onClick ? 'cursor-pointer' : ''
+      } ${className}`}
+      onClick={onClick}
+    />
+  )
+}
+
+
 
 export function AdminComplaintDetailsPage() {
   const { id } = useParams()
