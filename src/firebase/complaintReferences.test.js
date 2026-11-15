@@ -116,4 +116,68 @@ describe('resolveCitizenComplaintDocumentId', () => {
 
     expect(firestore.getDoc).not.toHaveBeenCalled()
   })
+
+  it('resolves a consolidated ticket document ID when the user is in mergedReporters', async () => {
+    firestore.getDoc.mockResolvedValue({
+      exists: () => true,
+      id: 'parent-doc-456',
+      data: () => ({
+        reportedBy: 'citizen-parent',
+        mergedReporters: ['citizen-1'],
+        complaintId: 'CMP-2026-0099',
+      }),
+    })
+
+    await expect(
+      resolveCitizenComplaintDocumentId('parent-doc-456', 'citizen-1'),
+    ).resolves.toBe('parent-doc-456')
+
+    expect(firestore.getDocs).not.toHaveBeenCalled()
+  })
+
+  it('resolves a consolidated tracking ID when the user is in mergedReporters', async () => {
+    firestore.getDoc.mockRejectedValue({ code: 'permission-denied' })
+    // Owner query returns empty
+    firestore.getDocs.mockResolvedValueOnce({
+      empty: true,
+      docs: [],
+    })
+    // Merged query returns the parent document
+    firestore.getDocs.mockResolvedValueOnce({
+      empty: false,
+      docs: [{ id: 'parent-doc-456' }],
+    })
+
+    await expect(
+      resolveCitizenComplaintDocumentId('CMP-2026-0099', 'citizen-1'),
+    ).resolves.toBe('parent-doc-456')
+
+    expect(firestore.getDocs).toHaveBeenCalledTimes(2)
+    const mergedQuery = firestore.getDocs.mock.calls[1][0]
+    expect(mergedQuery.constraints).toContainEqual({
+      field: 'complaintId',
+      operator: '==',
+      value: 'CMP-2026-0099',
+    })
+    expect(mergedQuery.constraints).toContainEqual({
+      field: 'mergedReporters',
+      operator: 'array-contains',
+      value: 'citizen-1',
+    })
+  })
+
+  it('resolves an accessible public civic complaint document ID', async () => {
+    firestore.getDoc.mockResolvedValue({
+      exists: () => true,
+      id: 'public-doc-789',
+      data: () => ({
+        reportedBy: 'citizen-other',
+        category: 'Potholes & Road Damage',
+      }),
+    })
+
+    await expect(
+      resolveCitizenComplaintDocumentId('public-doc-789', 'citizen-viewer'),
+    ).resolves.toBe('public-doc-789')
+  })
 })
