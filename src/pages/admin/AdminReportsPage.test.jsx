@@ -392,6 +392,25 @@ describe('AdminReportsPage client-side search and SLA', () => {
     expect(container.textContent).toContain('2 reports')
     expect(nextBtn().disabled).toBe(true)
   })
+
+  it('displays toast notice when search results are capped', async () => {
+    await emit(latest(), page(make(1), { hasMore: false }))
+    const cappedResults = make(1000)
+    cappedResults.truncated = true
+    rt.searchResults = cappedResults
+
+    const input = el('input[aria-label="Search complaints"]')
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+    vi.useFakeTimers()
+    await act(async () => {
+      setter.call(input, 'Report')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => vi.advanceTimersByTime(300))
+    vi.useRealTimers()
+
+    expect(toast).toHaveBeenCalledWith('Search results capped at 1000 reports for performance.')
+  })
 })
 
 describe('AdminReportsPage errors', () => {

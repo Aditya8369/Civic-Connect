@@ -134,14 +134,15 @@ export async function fetchAllReportsForExport(
 }
 
 /**
- * Reads every report matching the server-side filters for a complete client-side
- * search. Unlike exports, search results must not be silently capped.
+ * Reads reports matching the server-side filters for client-side search.
+ * Bounded by maxDocs (default 1000) to protect client memory, prevent browser
+ * freezing, and avoid Firestore quota exhaustion while signalling truncation.
  */
 export async function fetchAllReportsForSearch(
   filters = {},
-  { batchSize = 500 } = {}
+  { batchSize = 500, maxDocs = 1000 } = {}
 ) {
-  const docs = []
+  const allDocs = []
   let cursor = null
 
   for (;;) {
@@ -152,8 +153,19 @@ export async function fetchAllReportsForSearch(
       )
     )
     const page = toPage(snapshot, batchSize)
-    docs.push(...page.docs)
-    if (!page.hasMore) return docs
+    allDocs.push(...page.docs)
+    if (!page.hasMore) {
+      const res = allDocs.slice(0, maxDocs)
+      res.docs = res
+      res.truncated = false
+      return res
+    }
+    if (allDocs.length >= maxDocs) {
+      const res = allDocs.slice(0, maxDocs)
+      res.docs = res
+      res.truncated = true
+      return res
+    }
     cursor = page.cursor
   }
 }

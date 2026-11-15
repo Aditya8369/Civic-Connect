@@ -198,24 +198,27 @@ export function AdminReportsPage() {
   const fetchUsers = async (list) => {
     const uids = [...new Set(list.map((c) => c.reportedBy).filter(Boolean))]
     const cache = { ...cacheRef.current }
+    const uncachedUids = uids.filter((uid) => !cache[uid])
+    if (uncachedUids.length === 0) return cache
+
     let changed = false
-
-    await Promise.all(
-      uids.map(async (uid) => {
-        if (cache[uid]) return
-        changed = true
-
-        try {
-          const snap = await getDoc(doc(db, 'users', uid))
-          cache[uid] = snap.exists()
-            ? snap.data()
-            : { name: 'Unknown User', email: null }
-        } catch {
-          cache[uid] = { name: 'Unknown User', email: null }
-        }
-      })
-    )
-
+    const CHUNK_SIZE = 25
+    for (let i = 0; i < uncachedUids.length; i += CHUNK_SIZE) {
+      const chunk = uncachedUids.slice(i, i + CHUNK_SIZE)
+      await Promise.all(
+        chunk.map(async (uid) => {
+          changed = true
+          try {
+            const snap = await getDoc(doc(db, 'users', uid))
+            cache[uid] = snap.exists()
+              ? snap.data()
+              : { name: 'Unknown User', email: null }
+          } catch {
+            cache[uid] = { name: 'Unknown User', email: null }
+          }
+        })
+      )
+    }
     if (changed) {
       cacheRef.current = cache
       setUserCache({ ...cache })
@@ -254,9 +257,12 @@ export function AdminReportsPage() {
     setPageIndex(0)
 
     Promise.resolve(fetchAllReportsForSearch(serverFilters))
-      .then(async (docs) => {
+      .then(async (result) => {
         if (cancelled) return
-        const safeDocs = Array.isArray(docs) ? docs : []
+        const safeDocs = Array.isArray(result) ? result : (result?.docs || [])
+        if (result?.truncated) {
+          toast(`Search results capped at ${safeDocs.length} reports for performance.`)
+        }
         setComplaints(safeDocs)
         setHasMore(false)
         setLoadError(false)

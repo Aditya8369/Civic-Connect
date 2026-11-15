@@ -192,11 +192,29 @@ describe('fetchAllReportsForExport', () => {
 })
 
 describe('fetchAllReportsForSearch', () => {
-  it('reads every matching document without the export safety cap', async () => {
+  it('reads matching documents up to default maxDocs and reports truncation status', async () => {
     fs.getDocsResults = [snap(fakeDocs(501)), snap(fakeDocs(2, 500))]
     const docs = await fetchAllReportsForSearch({}, { batchSize: 500 })
 
     expect(docs).toHaveLength(502)
+    expect(docs.truncated).toBe(false)
     expect(docs.at(-1).id).toBe('doc-501')
+  })
+
+  it('bounds search retrieval when exceeding maxDocs and sets truncated to true', async () => {
+    fs.getDocsResults = [snap(fakeDocs(501)), snap(fakeDocs(501, 500))]
+    const result = await fetchAllReportsForSearch({}, { batchSize: 500, maxDocs: 1000 })
+
+    expect(result).toHaveLength(1000)
+    expect(result.truncated).toBe(true)
+    expect(result.docs).toHaveLength(1000)
+  })
+
+  it('allows custom maxDocs ceiling', async () => {
+    fs.getDocsResults = [snap(fakeDocs(501))]
+    const result = await fetchAllReportsForSearch({}, { batchSize: 500, maxDocs: 250 })
+
+    expect(result).toHaveLength(250)
+    expect(result.truncated).toBe(true)
   })
 })
