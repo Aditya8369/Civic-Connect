@@ -290,6 +290,15 @@ for (const action of actions) {
   }
 }
 
+it('does not fabricate timeline history when no audit events exist', async () => {
+  const ui = await setup(actions[2])
+  runtime.listeners[0]({ docs: [] })
+
+  const rendered = text(ui.instance.render())
+  expect(rendered).toContain('Timeline history is unavailable for this complaint')
+  expect(rendered).not.toContain('Status changed')
+})
+
 it('does not duplicate a progression submitted twice from the same render', async () => {
   const ui = setup({ ...actions[0], from: 'Pending', to: 'In Progress', submit: 'Mark In Progress' })
   const submit = ui.submit()
