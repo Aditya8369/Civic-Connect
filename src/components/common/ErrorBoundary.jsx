@@ -1,11 +1,8 @@
-import React, { Component } from 'react'
 
-/**
- * ErrorBoundary - Catches runtime crashes in descendant components,
- * displays an accessible fallback screen, and logs diagnostic telemetry
- * to localStorage for export.
- */
-class ErrorBoundary extends Component {
+import React, { Component } from 'react'
+import { useLanguage } from '@/contexts/LanguageContext'
+
+class ErrorBoundaryClass extends Component {
   constructor(props) {
     super(props)
     this.state = {
@@ -17,7 +14,6 @@ class ErrorBoundary extends Component {
   }
 
   static getDerivedStateFromError(error) {
-    // Update state so the next render will show the fallback UI
     return {
       hasError: true,
       error,
@@ -25,7 +21,6 @@ class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    // Log the error and error info to localStorage telemetry
     const telemetryEntry = {
       timestamp: new Date().toISOString(),
       error: error.toString(),
@@ -33,18 +28,25 @@ class ErrorBoundary extends Component {
       componentStack: errorInfo ? errorInfo.componentStack : null,
     }
 
-    // Store telemetry in localStorage (array, append new entries)
-    const existing = typeof window !== 'undefined' ? localStorage.getItem('errorBoundaryTelemetry') : null
-    const telemetry = existing ? [...JSON.parse(existing), telemetryEntry] : [telemetryEntry]
-    localStorage.setItem('errorBoundaryTelemetry', JSON.stringify(telemetry))
+    const existing =
+      typeof window !== 'undefined'
+        ? localStorage.getItem('errorBoundaryTelemetry')
+        : null
 
-    // Also log to console in development
+    const telemetry = existing
+      ? [...JSON.parse(existing), telemetryEntry]
+      : [telemetryEntry]
+
+    localStorage.setItem(
+      'errorBoundaryTelemetry',
+      JSON.stringify(telemetry)
+    )
+
     if (process.env.NODE_ENV !== 'production') {
       console.error('Error caught by ErrorBoundary:', error, errorInfo)
     }
   }
 
-  // Clear the caught error state when retry is attempted
   resetErrorState = () => {
     this.setState({
       hasError: false,
@@ -57,17 +59,25 @@ class ErrorBoundary extends Component {
     if (this.state.hasError) {
       return this.renderFallback()
     }
+
     return this.props.children
   }
 
   renderFallback() {
-    const telemetry = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('errorBoundaryTelemetry') || '[]') : []
+    const { t } = this.props
+
+    const telemetry =
+      typeof window !== 'undefined'
+        ? JSON.parse(
+            localStorage.getItem('errorBoundaryTelemetry') || '[]'
+          )
+        : []
 
     return (
       <div
         role="alert"
         aria-live="polite"
-        aria-label="Error state - application recovered"
+        aria-label={t('errorStateRecovered')}
         style={{
           padding: '2rem',
           textAlign: 'center',
@@ -79,12 +89,24 @@ class ErrorBoundary extends Component {
           margin: '2rem auto',
         }}
       >
-        <h2 style={{ margin: '0 0 1rem', fontSize: '1.25rem', fontWeight: '600' }}>
-          Something went wrong
+        <h2
+          style={{
+            margin: '0 0 1rem',
+            fontSize: '1.25rem',
+            fontWeight: '600',
+          }}
+        >
+          {t('somethingWentWrong')}
         </h2>
 
-        <p style={{ margin: '0 0 1.5rem', fontSize: '0.95rem', color: 'var(--muted, #66666b)' }}>
-          An unexpected error occurred. The application has recovered and saved diagnostic information.
+        <p
+          style={{
+            margin: '0 0 1.5rem',
+            fontSize: '0.95rem',
+            color: 'var(--muted, #66666b)',
+          }}
+        >
+          {t('unexpectedErrorDescription')}
         </p>
 
         <button
@@ -101,12 +123,11 @@ class ErrorBoundary extends Component {
             borderRadius: '6px',
             transition: 'background 0.2s',
           }}
-          aria-label="Retry and recover from error"
+          aria-label={t('retryRecoverError')}
         >
-          Retry
+          {t('retry')}
         </button>
 
-        {/* Telemetry export section - for diagnostics */}
         {telemetry.length > 0 && (
           <div
             style={{
@@ -121,8 +142,12 @@ class ErrorBoundary extends Component {
           >
             <details>
               <summary>
-                View diagnostic telemetry ({telemetry.length} error(s))
+                {t('viewDiagnosticTelemetry').replace(
+                  '{count}',
+                  String(telemetry.length)
+                )}
               </summary>
+
               <pre
                 style={{
                   margin: '0.5rem 0 0',
@@ -139,6 +164,12 @@ class ErrorBoundary extends Component {
       </div>
     )
   }
+}
+
+export function ErrorBoundary(props) {
+  const { t } = useLanguage()
+
+  return <ErrorBoundaryClass {...props} t={t} />
 }
 
 export default ErrorBoundary

@@ -126,11 +126,15 @@ service cloud.firestore {
                     request.resource.data.reportedBy == request.auth.uid &&
                     request.resource.data.status == 'Pending' &&
                     !request.resource.data.keys().hasAny(['feedback']);
-      allow update: if (isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
-                        ((resource.data.status == 'Pending' &&
-                          request.resource.data.status == 'Pending' &&
-                          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['feedback'])) ||
-                         isCitizenAppeal() || isResolutionFeedback())) || isAdmin();
+      allow update: if (isAuthenticated() && (
+                        (resource.data.reportedBy == request.auth.uid &&
+                          ((resource.data.status == 'Pending' &&
+                            request.resource.data.status == 'Pending' &&
+                            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['feedback'])) ||
+                           isCitizenAppeal() || isResolutionFeedback())) ||
+                        isCitizenUpvote() ||
+                        isCitizenEndorsement()
+                      )) || isAdmin();
       allow delete: if isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                     resource.data.status == 'Pending';
 
@@ -156,8 +160,47 @@ service cloud.firestore {
 
       // Immutable event audit trail sub-collection
       match /events/{eventId} {
+        function isValidEventSchema() {
+          let data = request.resource.data;
+          let allowedActions = [
+            'Complaint submitted',
+            'Status changed',
+            'Department assigned',
+            'Field worker designated',
+            'Resolution notes updated',
+            'Complaint merged',
+            'Duplicate complaint consolidated',
+            'Citizen appeal'
+          ];
+          return data.keys().hasOnly(['timestamp', 'actorUid', 'action', 'previousStatus', 'newStatus', 'remarks']) &&
+                 data.keys().hasAll(['action', 'actorUid']) &&
+                 data.actorUid == request.auth.uid &&
+                 data.action in allowedActions &&
+                 (data.get('timestamp', null) == null || data.timestamp == request.time || data.timestamp is timestamp) &&
+                 (data.get('remarks', '') is string && data.get('remarks', '').size() <= 1000) &&
+                 (data.get('previousStatus', null) == null || data.previousStatus is string) &&
+                 (data.get('newStatus', null) == null || data.newStatus is string);
+        }
+
+        function isComplaintAuthor() {
+          let issuePath = /databases/$(database)/documents/issues/$(issueId);
+          return (exists(issuePath) && get(issuePath).data.reportedBy == request.auth.uid) ||
+                 (getAfter(issuePath).data.reportedBy == request.auth.uid);
+        }
+
+        function isAuthorizedEventCreator() {
+          let action = request.resource.data.action;
+          let citizenAllowed = isComplaintAuthor() && (
+            action in ['Complaint submitted', 'Citizen appeal'] ||
+            (action == 'Status changed' && request.resource.data.get('newStatus', null) == 'Reopened')
+          );
+          return isAdmin() || citizenAllowed;
+        }
+
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated();
+        allow create: if isAuthenticated() &&
+                      isValidEventSchema() &&
+                      isAuthorizedEventCreator();
         allow update, delete: if false;
       }
     }
@@ -181,8 +224,38 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Citywide emergency broadcasts. Every signed-in citizen can read the live
+    // alert; only administrators can publish, replace, or end one.
+    match /broadcasts/{broadcastId} {
+      function isValidBroadcastCreate() {
+        let data = request.resource.data;
+        return data.keys().hasOnly([
+                 'title', 'message', 'severity', 'active',
+                 'createdAt', 'createdBy'
+               ]) &&
+               data.title is string &&
+               data.title.size() > 0 && data.title.size() <= 120 &&
+               data.message is string &&
+               data.message.size() > 0 && data.message.size() <= 600 &&
+               data.severity in ['info', 'warning', 'critical'] &&
+               data.active == true &&
+               data.createdAt == request.time &&
+               data.get('createdBy', request.auth.uid) == request.auth.uid;
+      }
+
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidBroadcastCreate();
+      allow update, delete: if isAdmin();
+    }
+
     match /counters/{counterId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated();
+      // Counter must be a positive integer and monotonically non-decreasing to prevent corruption & DoS
+      allow write: if isAuthenticated() &&
+                   request.resource.data.lastNumber is int &&
+                   request.resource.data.lastNumber > 0 &&
+                   (!exists(/databases/$(database)/documents/counters/$(counterId)) ||
+                    request.resource.data.lastNumber >= resource.data.lastNumber);
     }
 
     match /leaderboard/{userId} {

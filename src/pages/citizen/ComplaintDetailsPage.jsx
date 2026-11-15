@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, MapPin, CalendarDays, FileText, ClipboardCheck, AlertTriangle, Camera, ZoomIn, ZoomOut, ExternalLink, GitMerge, Printer } from 'lucide-react'
-import { doc, getDoc, collection, onSnapshot, serverTimestamp, query, where, getDocs, limit } from 'firebase/firestore'
+import { doc, getDoc, collection, onSnapshot, serverTimestamp } from 'firebase/firestore'
+import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
 import { sortEvents, formatEventDate } from '@/firebase/complaintEvents'
@@ -41,22 +42,6 @@ const statusVariant = {
 
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
-async function resolveCitizenComplaintDocumentId(idOrTrackingCode) {
-  if (!idOrTrackingCode) return idOrTrackingCode
-  const directSnap = await getDoc(doc(db, 'issues', idOrTrackingCode))
-  if (directSnap.exists()) return directSnap.id
-
-  const q = query(
-    collection(db, 'issues'),
-    where('complaintId', '==', idOrTrackingCode),
-    limit(1)
-  )
-  const querySnap = await getDocs(q)
-  if (!querySnap.empty) return querySnap.docs[0].id
-
-  return idOrTrackingCode
-}
-
 function canReopenComplaint(complaint) {
   const resolvedAt = complaint.resolvedAt?.toDate?.()
   return complaint.status === 'Resolved' && !!resolvedAt &&
@@ -70,6 +55,8 @@ export function ComplaintDetailsPage() {
   const [complaint, setComplaint] = useState(null)
   const [citizen, setCitizen] = useState(null)
   const [events, setEvents] = useState([])
+  const [eventsLoaded, setEventsLoaded] = useState(false)
+  const [eventsLoadError, setEventsLoadError] = useState(false)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -118,14 +105,22 @@ export function ComplaintDetailsPage() {
     setLoadError(false)
     setComplaint(null)
     setEvents([])
+    setEventsLoaded(false)
+    setEventsLoadError(false)
 
     const loadComplaint = async () => {
       try {
-        const documentId = await resolveCitizenComplaintDocumentId(id)
+        const documentId = await resolveCitizenComplaintDocumentId(id, user?.uid)
         if (cancelled) return
 
+        if (!documentId) {
+          setNotFound(true)
+          setLoading(false)
+          return
+        }
+
         // Replace public tracking IDs with the actual Firestore document ID.
-        if (documentId !== id) {
+        if (documentId && documentId !== id) {
           navigate(`/complaints/${documentId}`, { replace: true })
           return
         }
@@ -143,9 +138,15 @@ export function ComplaintDetailsPage() {
               }))
               setEvents(sortEvents(list))
             }
+            setEventsLoaded(true)
+            setEventsLoadError(false)
           },
           (error) => {
             console.error('ComplaintDetails events Firestore error:', error)
+            if (!cancelled) {
+              setEventsLoaded(true)
+              setEventsLoadError(true)
+            }
           },
         )
 
@@ -248,35 +249,10 @@ export function ComplaintDetailsPage() {
   const initialPhoto = complaint.imageUrl || complaint.photos?.[0]
   const resolutionPhoto = getResolutionPhoto(complaint)
 
-  const timelineEvents = (events && events.length > 0)
-    ? events.map((evt) => ({
-        ...evt,
-        formattedDate: formatEventDate(evt.timestamp),
-      }))
-    : [
-        {
-          id: 'initial',
-          action: 'Complaint submitted',
-          newStatus: 'Pending',
-          remarks: 'Complaint submitted',
-          formattedDate: formatEventDate(complaint.createdAt),
-        },
-        ...(complaint.status && complaint.status !== 'Pending'
-          ? [
-              {
-                id: 'status-update',
-                action: 'Status changed',
-                previousStatus: 'Pending',
-                newStatus: complaint.status,
-                remarks:
-                  complaint.rejectionReason ||
-                  complaint.reopenReason ||
-                  `Status updated to ${complaint.status}`,
-                formattedDate: formatEventDate(complaint.updatedAt || complaint.createdAt),
-              },
-            ]
-          : []),
-      ]
+  const timelineEvents = events.map((evt) => ({
+    ...evt,
+    formattedDate: formatEventDate(evt.timestamp),
+  }))
 
   const handleReopen = async () => {
     if (transitionPending.current) return
@@ -545,46 +521,60 @@ export function ComplaintDetailsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="relative ml-2">
-                  <div className="absolute left-[7px] top-1 bottom-1 w-0.5 bg-gray-200 dark:bg-gray-800" />
-                  <div className="space-y-6">
-                    {timelineEvents.map((evt, i) => (
-                      <motion.div
-                        key={evt.id || i}
-                        initial={{ opacity: 0, x: -8 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ duration: 0.3, delay: i * 0.08 }}
-                        className="relative flex gap-4"
-                      >
-                        <div className="relative z-10 mt-1 flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full border-2 border-primary-600 bg-primary-600 dark:border-primary-400 dark:bg-primary-400">
-                          <div className="h-1.5 w-1.5 rounded-full bg-white" />
-                        </div>
-                        <div className="flex-1 min-w-0 pb-1">
-                          <div className="flex items-baseline justify-between gap-2">
-                            <p className="text-sm font-medium text-gray-900 dark:text-white capitalize">
-                              {evt.action}
-                            </p>
-                            {evt.formattedDate && (
-                              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">
-                                {evt.formattedDate}
-                              </span>
+                {eventsLoadError ? (
+                  <p className="text-sm text-red-600 dark:text-red-400">
+                    Timeline history could not be loaded. Please try again later.
+                  </p>
+                ) : !eventsLoaded ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Loading timeline history...
+                  </p>
+                ) : timelineEvents.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Timeline history is unavailable for this complaint.
+                  </p>
+                ) : (
+                  <div className="relative ml-2">
+                    <div className="absolute left-[7px] top-1 bottom-1 w-0.5 bg-gray-200 dark:bg-gray-800" />
+                    <div className="space-y-6">
+                      {timelineEvents.map((evt, i) => (
+                        <motion.div
+                          key={evt.id || i}
+                          initial={{ opacity: 0, x: -8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ duration: 0.3, delay: i * 0.08 }}
+                          className="relative flex gap-4"
+                        >
+                          <div className="relative z-10 mt-1 flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full border-2 border-primary-600 bg-primary-600 dark:border-primary-400 dark:bg-primary-400">
+                            <div className="h-1.5 w-1.5 rounded-full bg-white" />
+                          </div>
+                          <div className="flex-1 min-w-0 pb-1">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white capitalize">
+                                {evt.action}
+                              </p>
+                              {evt.formattedDate && (
+                                <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">
+                                  {evt.formattedDate}
+                                </span>
+                              )}
+                            </div>
+                            {evt.previousStatus && evt.newStatus && evt.previousStatus !== evt.newStatus && (
+                              <p className="text-xs font-medium text-primary-600 dark:text-primary-400 mt-0.5">
+                                {evt.previousStatus} &rarr; {evt.newStatus}
+                              </p>
+                            )}
+                            {evt.remarks && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+                                {evt.remarks}
+                              </p>
                             )}
                           </div>
-                          {evt.previousStatus && evt.newStatus && evt.previousStatus !== evt.newStatus && (
-                            <p className="text-xs font-medium text-primary-600 dark:text-primary-400 mt-0.5">
-                              {evt.previousStatus} &rarr; {evt.newStatus}
-                            </p>
-                          )}
-                          {evt.remarks && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
-                              {evt.remarks}
-                            </p>
-                          )}
-                        </div>
-                      </motion.div>
-                    ))}
+                        </motion.div>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>

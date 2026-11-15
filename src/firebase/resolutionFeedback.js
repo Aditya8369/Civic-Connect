@@ -37,7 +37,8 @@ export async function submitResolutionFeedback(id, { rating, tags, comment, phot
     const file = photo || voice.blob
     const kind = photo ? 'photo' : 'voice'
     const path = `resolution-feedback/${uid}/${id}/${crypto.randomUUID()}`
-    await uploadBytes(ref(storage, path), file, { contentType: file.type })
+    const contentType = file.type || (photo ? 'image/jpeg' : 'audio/webm')
+    await uploadBytes(ref(storage, path), file, { contentType })
     attachment = { kind, path }
   }
 

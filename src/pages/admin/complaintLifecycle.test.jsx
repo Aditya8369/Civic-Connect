@@ -57,7 +57,19 @@ vi.mock('firebase/firestore', () => ({
   getDoc: async () => ({ exists: () => false }),
   serverTimestamp: () => 'server-time',
 }))
+vi.mock('@/contexts/LanguageContext', () => ({
+  useLanguage: () => ({
+    language: 'en',
+    setLanguage: vi.fn(),
+    t: (key) => {
+      const translations = {
+        // Add the English translation values used by these components.
+      }
 
+      return translations[key] ?? key
+    },
+  }),
+}))
 function mount(Page) {
   const instance = { cursor: 0, values: [], effects: [], mounted: false }
   instance.render = () => { instance.cursor = 0; runtime.current = instance; return Page() }
@@ -300,6 +312,15 @@ for (const action of actions) {
     })
   }
 }
+
+it('does not fabricate timeline history when no audit events exist', async () => {
+  const ui = await setup(actions[2])
+  runtime.listeners[0]({ docs: [] })
+
+  const rendered = text(ui.instance.render())
+  expect(rendered).toContain('Timeline history is unavailable for this complaint')
+  expect(rendered).not.toContain('Status changed')
+})
 
 it('does not duplicate a progression submitted twice from the same render', async () => {
   const ui = setup({ ...actions[0], from: 'Pending', to: 'In Progress', submit: 'Mark In Progress' })

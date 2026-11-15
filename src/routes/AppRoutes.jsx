@@ -24,6 +24,7 @@ const AdminDashboardPage = lazy(() => import('@/pages/admin/AdminDashboardPage')
 const AdminReportsPage = lazy(() => import('@/pages/admin/AdminReportsPage').then((m) => ({ default: m.AdminReportsPage })))
 const AdminComplaintDetailsPage = lazy(() => import('@/pages/admin/AdminComplaintDetailsPage').then((m) => ({ default: m.AdminComplaintDetailsPage })))
 const AdminNotificationsPage = lazy(() => import('@/pages/admin/AdminNotificationsPage').then((m) => ({ default: m.AdminNotificationsPage })))
+const AdminBroadcastPage = lazy(() => import('@/pages/admin/AdminBroadcastPage').then((m) => ({ default: m.AdminBroadcastPage })))
 const AdminSettingsPage = lazy(() => import('@/pages/admin/AdminSettingsPage').then((m) => ({ default: m.AdminSettingsPage })))
 
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })))
@@ -69,6 +70,7 @@ export function AppRoutes() {
           <Route path="/admin/reports" element={<AdminReportsPage />} />
           <Route path="/admin/reports/:id" element={<AdminComplaintDetailsPage />} />
           <Route path="/admin/notifications" element={<AdminNotificationsPage />} />
+          <Route path="/admin/broadcasts" element={<AdminBroadcastPage />} />
           <Route path="/admin/settings" element={<AdminSettingsPage />} />
         </Route>
 

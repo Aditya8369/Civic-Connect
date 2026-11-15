@@ -1,6 +1,10 @@
 import { Link } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
-import { Flag, FileText, Building2, CheckCircle2, ArrowRight, ChevronRight, Landmark } from 'lucide-react'
+import {
+  Flag, FileText, Building2, CheckCircle2, ArrowRight,
+  ChevronRight, Landmark, MapPin, HeartHandshake,
+  Activity, ArrowUpRight,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/useAuth'
 import { Footer } from '@/components/layout/Footer'
@@ -70,93 +74,251 @@ export function HomePage() {
       </header>
 
       <main>
-        <section className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,#f0f0f0_1px,transparent_1px),linear-gradient(to_bottom,#f0f0f0_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_110%)] dark:bg-[linear-gradient(to_right,#1a1a2e_1px,transparent_1px),linear-gradient(to_bottom,#1a1a2e_1px,transparent_1px)]" />
-          <div className="relative mx-auto max-w-6xl px-4 pt-32 pb-28 sm:px-6 lg:px-8">
-            <motion.div
-              initial={shouldReduceMotion ? false : { opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.6 }}
-              className="text-center max-w-4xl mx-auto"
+       <section className="relative overflow-hidden bg-[#f6f3eb] dark:bg-[#151d19]">
+  <div className="absolute -top-32 -right-24 h-96 w-96 rounded-full bg-[#d9e3d4]/60 blur-3xl dark:bg-emerald-900/20" />
+  <div className="absolute bottom-0 left-0 h-72 w-72 rounded-full bg-[#ead7c5]/50 blur-3xl dark:bg-amber-900/10" />
+
+  <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+    <div className="grid items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]">
+
+      {/* Editorial copy */}
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.6 }}
+      >
+        <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-[#c9d5c5] bg-white/70 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-[#315b43] dark:border-emerald-900 dark:bg-gray-900/60 dark:text-emerald-300">
+          <Landmark className="h-4 w-4" />
+          Your city. Your voice.
+        </div>
+
+        <p className="mb-4 text-sm font-semibold uppercase tracking-[0.22em] text-[#a65d3d]">
+          A community that moves forward
+        </p>
+
+        <h1 className="max-w-2xl text-5xl font-black leading-[1.04] tracking-tight text-[#1c3026] sm:text-6xl lg:text-7xl dark:text-white">
+          Better streets
+          <br />
+          begin with
+          <br />
+          <span className="font-serif italic font-medium text-[#b76543]">
+            being heard.
+          </span>
+        </h1>
+
+        <p className="mt-7 max-w-xl text-base leading-8 text-[#59675d] sm:text-lg dark:text-gray-300">
+          A pothole, a broken streetlight, an overflowing drain — every
+          civic issue deserves attention. Raise your voice and follow
+          your complaint from report to resolution.
+        </p>
+
+        <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+          <Link to={user ? '/report' : '/auth'}>
+            <Button
+              size="lg"
+              className="h-14 w-full gap-3 rounded-xl bg-[#244b36] px-7 text-base font-semibold text-white shadow-lg shadow-green-950/15 hover:bg-[#183b29] sm:w-auto"
             >
-              <span className="inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-4 py-1.5 text-xs font-medium text-primary-700 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300 mb-8">
-                <Landmark className="h-3.5 w-3.5" />
-                Municipal Grievance Redressal Platform
-              </span>
-              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-gray-900 dark:text-white leading-[1.1]">
-                Report Civic Issues.
-                <br />
-                <span className="text-primary-600 dark:text-primary-400">Track Resolutions.</span>
-              </h1>
-              <p className="mt-6 text-lg sm:text-xl text-gray-600 dark:text-gray-400 max-w-2xl mx-auto leading-relaxed">
-                A digital platform that connects citizens with municipal authorities to report, track, and resolve civic complaints efficiently and transparently.
-              </p>
-              <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Link to="/auth">
-                  <Button size="lg" className="gap-2 h-12 px-8 text-base shadow-lg shadow-primary-600/20">
-                    Get Started <ArrowRight className="h-5 w-5" />
-                  </Button>
-                </Link>
-                <a href="#how-it-works">
-                  <Button variant="outline" size="lg" className="h-12 px-8 text-base">
-                    Learn More
-                  </Button>
-                </a>
-              </div>
-            </motion.div>
+              <Flag className="h-5 w-5" />
+              Report a Problem in Your Street
+              <ArrowUpRight className="h-5 w-5" />
+            </Button>
+          </Link>
+
+          <Link to={user ? '/my-reports' : '/auth'}>
+            <Button
+              size="lg"
+              variant="outline"
+              className="h-14 w-full gap-2 rounded-xl border-[#aab9aa] bg-white/70 px-6 text-base text-[#244b36] hover:bg-white dark:border-gray-600 dark:bg-gray-900 dark:text-white sm:w-auto"
+            >
+              Track Existing Grievance
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </Link>
+        </div>
+
+        <div className="mt-10 flex flex-wrap gap-6 border-t border-[#d9ded5] pt-6 dark:border-gray-700">
+          <div className="flex items-center gap-2 text-sm font-medium text-[#526456] dark:text-gray-300">
+            <HeartHandshake className="h-5 w-5 text-[#b76543]" />
+            Citizen powered
           </div>
-        </section>
+          <div className="flex items-center gap-2 text-sm font-medium text-[#526456] dark:text-gray-300">
+            <Activity className="h-5 w-5 text-[#b76543]" />
+            Transparent tracking
+          </div>
+        </div>
+      </motion.div>
 
-        <section id="how-it-works" className="border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50">
-          <div className="mx-auto max-w-6xl px-4 py-24 sm:px-6 lg:px-8">
-            <motion.div
-              initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-100px' }}
-              transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.5 }}
-              className="text-center mb-16"
-            >
-              <span className="text-xs font-semibold uppercase tracking-widest text-primary-600 dark:text-primary-400">How It Works</span>
-              <h2 className="mt-4 text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">
-                From Complaint to Resolution
-              </h2>
-              <p className="mt-3 text-gray-600 dark:text-gray-400 max-w-xl mx-auto">
-                A simple three-step process that ensures your civic issues are addressed promptly.
+      {/* Editorial civic impact panel */}
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, x: 28 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.7, delay: 0.15 }}
+        className="relative"
+      >
+        <div className="relative min-h-[420px] overflow-hidden rounded-[2rem] bg-[#294b38] p-7 text-white shadow-2xl shadow-green-950/20 sm:p-10">
+          <div className="absolute -right-16 -top-16 h-64 w-64 rounded-full border border-white/10" />
+          <div className="absolute -right-5 -top-5 h-44 w-44 rounded-full border border-white/10" />
+          <div className="absolute bottom-0 right-0 h-64 w-64 rounded-full bg-[#b76543]/30 blur-3xl" />
+
+          <div className="relative z-10 flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-[0.2em] text-[#d8e4d6]">
+              The community journal
+            </span>
+            <span className="flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-[#a8d5a0]" />
+              Civic activity
+            </span>
+          </div>
+
+          <div className="relative z-10 mt-14">
+            <p className="text-sm font-medium text-[#d6dfd2]">
+              CHANGE STARTS CLOSE TO HOME
+            </p>
+            <h2 className="mt-4 max-w-sm font-serif text-4xl leading-tight sm:text-5xl">
+              Small actions.
+              <br />
+              <span className="italic text-[#e8b18d]">Stronger</span> neighbourhoods.
+            </h2>
+            <p className="mt-5 max-w-sm text-sm leading-7 text-[#d6dfd2]">
+              Every report creates a record. Every update brings citizens
+              closer to the answers they deserve.
+            </p>
+          </div>
+
+          <div className="relative z-10 mt-12 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur-sm">
+              <MapPin className="mb-4 h-6 w-6 text-[#e8b18d]" />
+              <p className="text-2xl font-bold">Live</p>
+              <p className="mt-1 text-xs text-[#d6dfd2]">
+                Complaint tracking
               </p>
-            </motion.div>
+            </div>
 
-            <div className="relative">
-              <div className="hidden lg:block absolute top-1/2 left-[15%] right-[15%] h-0.5 bg-gray-200 dark:bg-gray-800 -translate-y-1/2" />
-
-              <div className="grid lg:grid-cols-3 gap-8 lg:gap-0 relative">
-                {steps.map((step, index) => (
-                  <motion.div
-                    key={step.title}
-                    initial={shouldReduceMotion ? false : { opacity: 0, y: 24 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, margin: '-50px' }}
-                    transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.5, delay: index * 0.15 }}
-                    className="relative flex flex-col items-center text-center lg:px-8"
-                  >
-                    <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${step.color} ring-4 ring-white dark:ring-gray-950 relative z-10`}>
-                      <step.icon className="h-7 w-7" />
-                    </div>
-                    <span className="mt-6 text-sm font-semibold text-primary-600 dark:text-primary-400">{step.number}</span>
-                    <h3 className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{step.title}</h3>
-                    <p className="mt-2 text-sm text-gray-600 dark:text-gray-400 max-w-xs">{step.description}</p>
-                    {index < steps.length - 1 && (
-                      <ChevronRight className="hidden lg:block absolute top-7 -right-4 h-5 w-5 text-gray-300 dark:text-gray-700" />
-                    )}
-                    {index < steps.length - 1 && (
-                      <ArrowRight className="lg:hidden mt-6 h-5 w-5 text-gray-300 dark:text-gray-700 rotate-90" />
-                    )}
-                  </motion.div>
-                ))}
-              </div>
+            <div className="rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur-sm">
+              <CheckCircle2 className="mb-4 h-6 w-6 text-[#a8d5a0]" />
+              <p className="text-2xl font-bold">Verified</p>
+              <p className="mt-1 text-xs text-[#d6dfd2]">
+                Resolution updates
+              </p>
             </div>
           </div>
-        </section>
 
+          <div className="relative z-10 mt-5 flex items-center gap-3 rounded-xl bg-[#f1e9dc] p-4 text-[#294b38]">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#d9c6ae]">
+              <HeartHandshake className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold">Your voice matters here.</p>
+              <p className="text-xs text-[#647267]">
+                Be part of your city's progress.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="absolute -bottom-5 -left-3 rounded-xl border border-[#e5d7c6] bg-white px-5 py-3 shadow-lg sm:-left-7 dark:border-gray-700 dark:bg-gray-900">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#a65d3d]">
+            Community first
+          </p>
+          <p className="mt-1 text-sm font-bold text-[#294b38] dark:text-white">
+            One report can make a difference.
+          </p>
+        </div>
+      </motion.div>
+    </div>
+
+    {/* Civic transparency ticker */}
+    <div className="mt-20 grid gap-px overflow-hidden rounded-2xl border border-[#d9ded5] bg-[#d9ded5] sm:grid-cols-3 dark:border-gray-700 dark:bg-gray-700">
+      <div className="bg-[#fffdf8] p-6 dark:bg-gray-900">
+        <p className="text-xs font-bold uppercase tracking-widest text-[#8b725e]">
+          Issues resolved this week
+        </p>
+        <p className="mt-3 text-3xl font-black text-[#294b38] dark:text-white">
+          —
+        </p>
+        <p className="mt-1 text-xs text-gray-500">
+          Awaiting verified public statistics
+        </p>
+      </div>
+
+      <div className="bg-[#fffdf8] p-6 dark:bg-gray-900">
+        <p className="text-xs font-bold uppercase tracking-widest text-[#8b725e]">
+          Average response time
+        </p>
+        <p className="mt-3 text-3xl font-black text-[#294b38] dark:text-white">
+          —
+        </p>
+        <p className="mt-1 text-xs text-gray-500">
+          Based on verified resolution data
+        </p>
+      </div>
+
+      <div className="bg-[#fffdf8] p-6 dark:bg-gray-900">
+        <p className="text-xs font-bold uppercase tracking-widest text-[#8b725e]">
+          Community impact
+        </p>
+        <p className="mt-3 text-3xl font-black text-[#294b38] dark:text-white">
+          Together
+        </p>
+        <p className="mt-1 text-xs text-gray-500">
+          Every citizen contribution counts
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+<section
+  id="how-it-works"
+  className="bg-white px-4 py-20 dark:bg-gray-950 sm:px-6 lg:px-8"
+>
+  <div className="mx-auto max-w-7xl">
+    <div className="mx-auto max-w-2xl text-center">
+      <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#a65d3d]">
+        Simple and transparent
+      </p>
+
+      <h2 className="mt-4 text-3xl font-black tracking-tight text-gray-900 dark:text-white sm:text-4xl">
+        How It Works
+      </h2>
+
+      <p className="mt-4 text-base leading-7 text-gray-600 dark:text-gray-400">
+        From reporting a civic issue to tracking its resolution,
+        every step keeps you informed.
+      </p>
+    </div>
+
+    <div className="mt-14 grid gap-8 md:grid-cols-3">
+      {steps.map((step) => {
+        const Icon = step.icon
+
+        return (
+          <div
+            key={step.number}
+            className="relative rounded-2xl border border-gray-200 p-7 dark:border-gray-800"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-black tracking-widest text-[#b76543]">
+                {step.number}
+              </span>
+
+              <div className={`rounded-xl p-3 ${step.color}`}>
+                <Icon className="h-6 w-6" />
+              </div>
+            </div>
+
+            <h3 className="mt-6 text-xl font-bold text-gray-900 dark:text-white">
+              {step.title}
+            </h3>
+
+            <p className="mt-3 leading-7 text-gray-600 dark:text-gray-400">
+              {step.description}
+            </p>
+          </div>
+        )
+      })}
+    </div>
+  </div>
+</section>
       </main>
 
       <Footer />

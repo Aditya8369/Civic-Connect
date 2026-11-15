@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
@@ -10,6 +11,7 @@ import {
   it,
   vi,
 } from 'vitest'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 import ComplaintAudioPlayer from './ComplaintAudioPlayer'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -25,15 +27,24 @@ async function renderPlayer(props = {}) {
   root = createRoot(container)
 
   await act(async () => {
-    root.render(<ComplaintAudioPlayer {...props} />)
+    root.render(
+      <LanguageProvider>
+        <ComplaintAudioPlayer {...props} />
+      </LanguageProvider>
+    )
   })
 }
 
 beforeEach(() => {
+  localStorage.setItem('civic-connect-language', 'en')
+
   mockPlay = vi.fn().mockResolvedValue(undefined)
   mockPause = vi.fn()
 
-  if (typeof HTMLMediaElement !== 'undefined' && HTMLMediaElement.prototype) {
+  if (
+    typeof HTMLMediaElement !== 'undefined' &&
+    HTMLMediaElement.prototype
+  ) {
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(mockPlay)
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(mockPause)
   }
@@ -44,8 +55,12 @@ afterEach(async () => {
     await act(async () => {
       root.unmount()
     })
+    root = null
   }
+
   container?.remove()
+  container = null
+
   vi.restoreAllMocks()
 })
 
@@ -73,14 +88,20 @@ describe('ComplaintAudioPlayer', () => {
 
     expect(container.textContent).toContain('Voice Note')
     expect(container.textContent).toContain('Duration: 0:30')
-    expect(container.querySelector('[aria-label="Play voice note"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="playback-waveform"]')).not.toBeNull()
+    expect(
+      container.querySelector('[aria-label="Play voice note"]')
+    ).not.toBeNull()
+    expect(
+      container.querySelector('[data-testid="playback-waveform"]')
+    ).not.toBeNull()
   })
 
   it('renders 36 distinct waveform bars', async () => {
     await renderPlayer({ audioNote: sampleAudioNote })
 
-    const bars = container.querySelectorAll('[data-testid="playback-bar"]')
+    const bars = container.querySelectorAll(
+      '[data-testid="playback-bar"]'
+    )
     expect(bars.length).toBe(36)
 
     // All bars should initially be unplayed
@@ -92,7 +113,9 @@ describe('ComplaintAudioPlayer', () => {
   it('toggles playback when play/pause button is clicked', async () => {
     await renderPlayer({ audioNote: sampleAudioNote })
 
-    const playButton = container.querySelector('[aria-label="Play voice note"]')
+    const playButton = container.querySelector(
+      '[aria-label="Play voice note"]'
+    )
     expect(playButton).not.toBeNull()
 
     const audioElement = container.querySelector('audio')
@@ -108,7 +131,9 @@ describe('ComplaintAudioPlayer', () => {
       audioElement.dispatchEvent(new Event('play'))
     })
 
-    const pauseButton = container.querySelector('[aria-label="Pause voice note"]')
+    const pauseButton = container.querySelector(
+      '[aria-label="Pause voice note"]'
+    )
     expect(pauseButton).not.toBeNull()
 
     await act(async () => {
@@ -122,23 +147,35 @@ describe('ComplaintAudioPlayer', () => {
       audioElement.dispatchEvent(new Event('pause'))
     })
 
-    expect(container.querySelector('[aria-label="Play voice note"]')).not.toBeNull()
+    expect(
+      container.querySelector('[aria-label="Play voice note"]')
+    ).not.toBeNull()
   })
 
   it('synchronizes waveform progress and played bars with audio currentTime', async () => {
     await renderPlayer({ audioNote: sampleAudioNote })
 
     const audioElement = container.querySelector('audio')
-    const slider = container.querySelector('[data-testid="playback-waveform"]')
+    const slider = container.querySelector(
+      '[data-testid="playback-waveform"]'
+    )
 
     // Simulate metadata loading
-    Object.defineProperty(audioElement, 'duration', { value: 30, configurable: true })
+    Object.defineProperty(audioElement, 'duration', {
+      value: 30,
+      configurable: true,
+    })
+
     await act(async () => {
       audioElement.dispatchEvent(new Event('loadedmetadata'))
     })
 
     // Advance playback to 15 seconds (50% progress)
-    Object.defineProperty(audioElement, 'currentTime', { value: 15, configurable: true })
+    Object.defineProperty(audioElement, 'currentTime', {
+      value: 15,
+      configurable: true,
+    })
+
     await act(async () => {
       audioElement.dispatchEvent(new Event('timeupdate'))
     })
@@ -146,7 +183,9 @@ describe('ComplaintAudioPlayer', () => {
     expect(slider.getAttribute('aria-valuenow')).toBe('15')
     expect(container.textContent).toContain('00:15 / 00:30')
 
-    const bars = container.querySelectorAll('[data-testid="playback-bar"]')
+    const bars = container.querySelectorAll(
+      '[data-testid="playback-bar"]'
+    )
     const playedBars = Array.from(bars).filter(
       (bar) => bar.getAttribute('data-played') === 'true'
     )
@@ -164,7 +203,9 @@ describe('ComplaintAudioPlayer', () => {
     await renderPlayer({ audioNote: sampleAudioNote })
 
     const audioElement = container.querySelector('audio')
-    const slider = container.querySelector('[data-testid="playback-waveform"]')
+    const slider = container.querySelector(
+      '[data-testid="playback-waveform"]'
+    )
 
     // Mock getBoundingClientRect for track
     vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue({
@@ -179,7 +220,7 @@ describe('ComplaintAudioPlayer', () => {
       toJSON: () => {},
     })
 
-    // Click at 75% across track (clientX = 100 + 150 = 250)
+    // Click at 75% across track
     await act(async () => {
       slider.dispatchEvent(
         new MouseEvent('pointerdown', {
@@ -197,7 +238,9 @@ describe('ComplaintAudioPlayer', () => {
     await renderPlayer({ audioNote: sampleAudioNote })
 
     const audioElement = container.querySelector('audio')
-    const slider = container.querySelector('[data-testid="playback-waveform"]')
+    const slider = container.querySelector(
+      '[data-testid="playback-waveform"]'
+    )
 
     vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue({
       left: 0,
@@ -258,7 +301,9 @@ describe('ComplaintAudioPlayer', () => {
   it('toggles playback with Space key when slider is focused', async () => {
     await renderPlayer({ audioNote: sampleAudioNote })
 
-    const slider = container.querySelector('[data-testid="playback-waveform"]')
+    const slider = container.querySelector(
+      '[data-testid="playback-waveform"]'
+    )
 
     await act(async () => {
       slider.dispatchEvent(
@@ -277,10 +322,13 @@ describe('ComplaintAudioPlayer', () => {
     await renderPlayer({ audioNote: sampleAudioNote })
 
     const audioElement = container.querySelector('audio')
-    const slider = container.querySelector('[data-testid="playback-waveform"]')
+    const slider = container.querySelector(
+      '[data-testid="playback-waveform"]'
+    )
 
     // Set initial position to 10s
     audioElement.currentTime = 10
+
     await act(async () => {
       audioElement.dispatchEvent(new Event('timeupdate'))
     })
@@ -311,6 +359,7 @@ describe('ComplaintAudioPlayer', () => {
 
     // Clamps at 0 when seeking left past start
     audioElement.currentTime = 2
+
     await act(async () => {
       audioElement.dispatchEvent(new Event('timeupdate'))
     })
@@ -352,7 +401,9 @@ describe('ComplaintAudioPlayer', () => {
     await renderPlayer({ audioNote: sampleAudioNote })
 
     const audioElement = container.querySelector('audio')
-    const muteButton = container.querySelector('[aria-label="Mute voice note"]')
+    const muteButton = container.querySelector(
+      '[aria-label="Mute voice note"]'
+    )
     expect(muteButton).not.toBeNull()
 
     await act(async () => {
@@ -360,7 +411,9 @@ describe('ComplaintAudioPlayer', () => {
     })
 
     expect(audioElement.muted).toBe(true)
-    expect(container.querySelector('[aria-label="Unmute voice note"]')).not.toBeNull()
+    expect(
+      container.querySelector('[aria-label="Unmute voice note"]')
+    ).not.toBeNull()
 
     await act(async () => {
       container.querySelector('[aria-label="Unmute voice note"]').click()
@@ -376,13 +429,16 @@ describe('ComplaintAudioPlayer', () => {
 
     // Simulate playing to end
     audioElement.currentTime = 30
+
     await act(async () => {
       audioElement.dispatchEvent(new Event('play'))
       audioElement.dispatchEvent(new Event('ended'))
     })
 
     expect(audioElement.currentTime).toBe(0)
-    expect(container.querySelector('[aria-label="Play voice note"]')).not.toBeNull()
+    expect(
+      container.querySelector('[aria-label="Play voice note"]')
+    ).not.toBeNull()
   })
 
   it('handles audio loading error gracefully without crashing', async () => {
@@ -394,11 +450,12 @@ describe('ComplaintAudioPlayer', () => {
       audioElement.dispatchEvent(new Event('error'))
     })
 
-    expect(container.textContent).toContain('Audio recording could not be played.')
+    expect(container.textContent).toContain(
+      'Audio recording could not be played.'
+    )
     expect(container.querySelector('[role="alert"]')).not.toBeNull()
 
     const playBtn = container.querySelector('button')
     expect(playBtn.disabled).toBe(true)
   })
 })
-

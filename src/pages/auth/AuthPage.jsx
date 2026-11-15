@@ -1,3 +1,4 @@
+
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -7,11 +8,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { useAuth } from '@/hooks/useAuth'
+import { useLanguage } from '@/contexts/LanguageContext'
 import toast from 'react-hot-toast'
 
 export function AuthPage() {
   const { login, register, resetPassword } = useAuth()
+  const { t, language, setLanguage } = useLanguage()
   const navigate = useNavigate()
+
   const [role, setRole] = useState('citizen')
   const [mode, setMode] = useState('signin')
   const [email, setEmail] = useState('')
@@ -28,60 +32,70 @@ export function AuthPage() {
 
     if (mode === 'reset') {
       if (!email.trim()) {
-        toast.error('Please enter your email')
+        toast.error(t('authEnterEmail'))
         return
       }
+
       setSubmitting(true)
+
       try {
         await resetPassword(email.trim())
-        toast.success('If an account exists for this email, a reset link has been sent.')
+        toast.success(t('authResetEmailSent'))
         setMode('signin')
         setPassword('')
       } catch (err) {
         const msg =
           err.code === 'auth/invalid-email'
-            ? 'Please enter a valid email address'
+            ? t('authInvalidEmail')
             : err.code === 'auth/too-many-requests'
-            ? 'Too many attempts. Please try again later.'
-            : err.code === 'auth/network-request-failed'
-            ? 'Network error. Please check your connection.'
-            : 'Could not send the reset email. Please try again.'
+              ? t('authTooManyAttempts')
+              : err.code === 'auth/network-request-failed'
+                ? t('authNetworkError')
+                : t('authResetEmailError')
+
         toast.error(msg)
       } finally {
         setSubmitting(false)
       }
+
       return
     }
 
     if (mode === 'signup') {
       if (!name.trim()) {
-        toast.error('Please enter your name')
+        toast.error(t('authEnterName'))
         return
       }
+
       if (password.length < 6) {
-        toast.error('Password must be at least 6 characters')
+        toast.error(t('authPasswordTooShort'))
         return
       }
+
       if (password !== confirmPassword) {
-        toast.error('Passwords do not match')
+        toast.error(t('authPasswordsMismatch'))
         return
       }
     }
 
     setSubmitting(true)
+
     try {
       if (mode === 'signin') {
         const user = await login(email, password)
+
         if (role === 'citizen' && user.role !== 'citizen') {
-          toast.error('This account is not registered as a Citizen.')
+          toast.error(t('authNotCitizen'))
           setSubmitting(false)
           return
         }
+
         if (role === 'admin' && user.role !== 'admin') {
-          toast.error('This account is not registered as an Administrator.')
+          toast.error(t('authNotAdmin'))
           setSubmitting(false)
           return
         }
+
         navigate(role === 'admin' ? '/admin/dashboard' : '/dashboard')
       } else {
         await register({ name, email, password, role })
@@ -89,14 +103,17 @@ export function AuthPage() {
       }
     } catch (err) {
       if (err.code === 'auth/session-changed') return
+
       const msg =
-        err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential'
-          ? 'Invalid email or password'
+        err.code === 'auth/user-not-found' ||
+        err.code === 'auth/invalid-credential'
+          ? t('authInvalidCredentials')
           : err.code === 'auth/email-already-in-use'
-          ? 'An account with this email already exists'
-          : err.code === 'auth/weak-password'
-          ? 'Password must be at least 6 characters'
-          : err.message || 'Something went wrong'
+            ? t('authEmailAlreadyExists')
+            : err.code === 'auth/weak-password'
+              ? t('authPasswordTooShort')
+              : t('authSomethingWentWrong')
+
       toast.error(msg)
     } finally {
       setSubmitting(false)
@@ -111,13 +128,53 @@ export function AuthPage() {
         transition={{ duration: 0.4 }}
         className="w-full max-w-md"
       >
+        {/* Language Switcher */}
+        <div className="flex justify-end mb-4">
+          <div
+            className="flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1"
+            aria-label={t('language')}
+          >
+            <button
+              type="button"
+              onClick={() => setLanguage('en')}
+              aria-pressed={language === 'en'}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
+                language === 'en'
+                  ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-900 dark:text-primary-400'
+                  : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
+              }`}
+            >
+              EN
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setLanguage('hi')}
+              aria-pressed={language === 'hi'}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
+                language === 'hi'
+                  ? 'bg-white text-primary-600 shadow-sm dark:bg-gray-900 dark:text-primary-400'
+                  : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
+              }`}
+            >
+              हिंदी
+            </button>
+          </div>
+        </div>
+
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-primary-600 shadow-lg shadow-primary-600/20 mb-4">
             <Flag className="h-6 w-6 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">CivicConnect</h1>
+
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            CivicConnect
+          </h1>
+
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {role === 'admin' ? 'Administrator Portal' : 'Citizen Portal'}
+            {role === 'admin'
+              ? t('authAdministratorPortal')
+              : t('authCitizenPortal')}
           </p>
         </div>
 
@@ -137,8 +194,9 @@ export function AuthPage() {
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
               >
-                Citizen
+                {t('authCitizen')}
               </button>
+
               <button
                 type="button"
                 onClick={() => {
@@ -153,7 +211,7 @@ export function AuthPage() {
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
               >
-                Administrator
+                {t('authAdministrator')}
               </button>
             </div>
 
@@ -167,8 +225,9 @@ export function AuthPage() {
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
               >
-                Sign In
+                {t('authSignIn')}
               </button>
+
               {role !== 'admin' && (
                 <button
                   type="button"
@@ -179,7 +238,7 @@ export function AuthPage() {
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                   }`}
                 >
-                  Sign Up
+                  {t('authSignUp')}
                 </button>
               )}
             </div>
@@ -189,10 +248,10 @@ export function AuthPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               {mode === 'signup' && (
                 <div className="space-y-2">
-                  <Label htmlFor="name">Name</Label>
+                  <Label htmlFor="name">{t('authName')}</Label>
                   <Input
                     id="name"
-                    placeholder="Your full name"
+                    placeholder={t('authFullNamePlaceholder')}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                   />
@@ -201,12 +260,12 @@ export function AuthPage() {
 
               {mode === 'reset' && (
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Enter your account email and we'll send you a link to reset your password.
+                  {t('authResetDescription')}
                 </p>
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t('email')}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -219,22 +278,33 @@ export function AuthPage() {
 
               {mode !== 'reset' && (
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">{t('authPassword')}</Label>
+
                   <div className="relative">
                     <Input
                       id="password"
                       type={showPassword ? 'text' : 'password'}
-                      placeholder="Enter your password"
+                      placeholder={t('authPasswordPlaceholder')}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
                     />
+
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
+                      aria-label={
+                        showPassword
+                          ? t('authHidePassword')
+                          : t('authShowPassword')
+                      }
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                     >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -250,26 +320,37 @@ export function AuthPage() {
                     }}
                     className="text-xs font-medium text-primary-600 hover:underline dark:text-primary-400"
                   >
-                    Forgot password?
+                    {t('authForgotPassword')}
                   </button>
                 </div>
               )}
 
               {mode === 'signup' && (
                 <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirm Password</Label>
+                  <Label htmlFor="confirm-password">
+                    {t('authConfirmPassword')}
+                  </Label>
+
                   <div className="relative">
                     <Input
                       id="confirm-password"
                       type={showConfirmPassword ? 'text' : 'password'}
-                      placeholder="Confirm your password"
+                      placeholder={t('authConfirmPasswordPlaceholder')}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       required
                     />
+
                     <button
                       type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      onClick={() =>
+                        setShowConfirmPassword(!showConfirmPassword)
+                      }
+                      aria-label={
+                        showConfirmPassword
+                          ? t('authHidePassword')
+                          : t('authShowPassword')
+                      }
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                     >
                       {showConfirmPassword ? (
@@ -282,13 +363,20 @@ export function AuthPage() {
                 </div>
               )}
 
-              <Button type="submit" className="w-full gap-2 h-11" disabled={submitting}>
-                {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              <Button
+                type="submit"
+                className="w-full gap-2 h-11"
+                disabled={submitting}
+              >
+                {submitting && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+
                 {mode === 'signin'
-                  ? 'Sign In'
+                  ? t('authSignIn')
                   : mode === 'signup'
-                  ? 'Create Account'
-                  : 'Send Reset Link'}
+                    ? t('authCreateAccount')
+                    : t('authSendResetLink')}
               </Button>
 
               {mode === 'reset' && (
@@ -297,13 +385,13 @@ export function AuthPage() {
                   onClick={() => setMode('signin')}
                   className="w-full text-center text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                 >
-                  Back to Sign In
+                  {t('authBackToSignIn')}
                 </button>
               )}
 
               {role === 'admin' && (
                 <p className="text-xs text-center text-gray-400 dark:text-gray-500 mt-4">
-                  Administrator accounts are created and managed by the municipal system.
+                  {t('authAdminAccountNotice')}
                 </p>
               )}
             </form>

@@ -1,5 +1,6 @@
 
 import { useEffect, useState } from 'react'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 const FONT_SIZES = [14, 16, 18, 20, 22]
 const DEFAULT_SIZE = 16
@@ -22,6 +23,8 @@ function getSavedContrast() {
 }
 
 export default function AccessibilityBar() {
+  const { t } = useLanguage()
+
   const [fontSize, setFontSize] = useState(getSavedFontSize)
   const [highContrast, setHighContrast] = useState(getSavedContrast)
 
@@ -71,14 +74,14 @@ export default function AccessibilityBar() {
   return (
     <div
       role="group"
-      aria-label="Accessibility settings"
+      aria-label={t('accessibilitySettings')}
       className="fixed bottom-4 right-4 z-50 flex flex-wrap items-center gap-2 rounded-xl border border-gray-300 bg-white p-2 shadow-lg dark:border-gray-600 dark:bg-gray-900"
     >
       <button
         type="button"
         onClick={decreaseFont}
         disabled={fontSize === FONT_SIZES[0]}
-        aria-label="Decrease text size"
+        aria-label={t('decreaseTextSize')}
         className="rounded-md border px-3 py-2 text-gray-900 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50 dark:text-white dark:hover:bg-gray-800"
       >
         A−
@@ -87,7 +90,7 @@ export default function AccessibilityBar() {
       <button
         type="button"
         onClick={() => setFontSize(DEFAULT_SIZE)}
-        aria-label="Reset text size"
+        aria-label={t('resetTextSize')}
         className="rounded-md border px-3 py-2 text-gray-900 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:text-white dark:hover:bg-gray-800"
       >
         A
@@ -97,7 +100,7 @@ export default function AccessibilityBar() {
         type="button"
         onClick={increaseFont}
         disabled={fontSize === FONT_SIZES[FONT_SIZES.length - 1]}
-        aria-label="Increase text size"
+        aria-label={t('increaseTextSize')}
         className="rounded-md border px-3 py-2 text-gray-900 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50 dark:text-white dark:hover:bg-gray-800"
       >
         A+
@@ -106,11 +109,11 @@ export default function AccessibilityBar() {
       <button
         type="button"
         onClick={() => setHighContrast((current) => !current)}
-        aria-label="Toggle high contrast mode"
+        aria-label={t('toggleHighContrast')}
         aria-pressed={highContrast}
         className="rounded-md border px-3 py-2 text-gray-900 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:text-white dark:hover:bg-gray-800"
       >
-        High Contrast {highContrast ? 'On' : 'Off'}
+        {t('highContrast')} {highContrast ? t('on') : t('off')}
       </button>
     </div>
   )

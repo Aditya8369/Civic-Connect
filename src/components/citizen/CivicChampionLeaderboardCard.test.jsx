@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest'
+
+import { describe, it, expect, beforeEach } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 import { CivicChampionLeaderboardCard } from './CivicChampionLeaderboardCard'
 
 const mockLeaderboard = [
@@ -41,29 +43,42 @@ const mockLeaderboard = [
   },
 ]
 
+function renderComponent(props = {}) {
+  return renderToStaticMarkup(
+    <LanguageProvider>
+      <CivicChampionLeaderboardCard {...props} />
+    </LanguageProvider>
+  )
+}
+
 describe('CivicChampionLeaderboardCard Component', () => {
+  beforeEach(() => {
+    localStorage.setItem('civic-connect-language', 'en')
+  })
+
   it('renders loading placeholder when loading is true', () => {
-    const html = renderToStaticMarkup(<CivicChampionLeaderboardCard loading={true} />)
+    const html = renderComponent({ loading: true })
+
     expect(html).toContain('animate-pulse')
   })
 
   it('renders empty state when leaderboard is empty', () => {
-    const html = renderToStaticMarkup(
-      <CivicChampionLeaderboardCard leaderboard={[]} monthName="November 2026" />
-    )
+    const html = renderComponent({
+      leaderboard: [],
+      monthName: 'November 2026',
+    })
+
     expect(html).toContain('No community activity yet this month')
     expect(html).toContain('November 2026')
   })
 
   it('renders top participants with ranks, medals, names, and monthly points', () => {
-    const html = renderToStaticMarkup(
-      <CivicChampionLeaderboardCard
-        leaderboard={mockLeaderboard}
-        currentUserRank={3}
-        currentUserId="u-3"
-        monthName="November 2026"
-      />
-    )
+    const html = renderComponent({
+      leaderboard: mockLeaderboard,
+      currentUserRank: 3,
+      currentUserId: 'u-3',
+      monthName: 'November 2026',
+    })
 
     expect(html).toContain('Aria Stark')
     expect(html).toContain('350 pts')
@@ -89,7 +104,14 @@ describe('CivicChampionLeaderboardCard Component', () => {
         reportsCount: 6,
         badgesCount: 5,
         rank: i + 1,
-        medal: i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null,
+        medal:
+          i === 0
+            ? '🥇'
+            : i === 1
+              ? '🥈'
+              : i === 2
+                ? '🥉'
+                : null,
         isCurrentUser: false,
       })),
       {
@@ -105,14 +127,12 @@ describe('CivicChampionLeaderboardCard Component', () => {
       },
     ]
 
-    const html = renderToStaticMarkup(
-      <CivicChampionLeaderboardCard
-        leaderboard={extendedLeaderboard}
-        currentUserRank={9}
-        currentUserId="user-self"
-        monthName="November 2026"
-      />
-    )
+    const html = renderComponent({
+      leaderboard: extendedLeaderboard,
+      currentUserRank: 9,
+      currentUserId: 'user-self',
+      monthName: 'November 2026',
+    })
 
     expect(html).toContain('Your Current Monthly Standing:')
     expect(html).toContain('Rank #9')
