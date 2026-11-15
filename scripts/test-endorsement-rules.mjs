@@ -16,6 +16,7 @@ const authorUid = `author-${randomUUID()}`
 const endorserUid = `endorser-${randomUUID()}`
 const secondEndorserUid = `endorser-two-${randomUUID()}`
 const attackerUid = `attacker-${randomUUID()}`
+const adminUid = `admin-${randomUUID()}`
 const apps = []
 
 function client(name, uid, role = 'citizen') {
@@ -31,7 +32,7 @@ const author = client('author', authorUid)
 const endorser = client('endorser', endorserUid)
 const secondEndorser = client('second-endorser', secondEndorserUid)
 const attacker = client('attacker', attackerUid)
-const admin = client('admin', `admin-${randomUUID()}`, 'admin')
+const admin = client('admin', adminUid, 'admin')
 const signedOut = client('signed-out')
 after(() => Promise.all(apps.map(deleteApp)))
 
@@ -104,7 +105,16 @@ test('cross-citizen endorsement succeeds and atomically appends caller UID and i
 })
 
 test('cannot endorse a complaint more than once with the same UID', async () => {
-  const id = await seedComplaint({ endorsedBy: [endorserUid], endorsementCount: 1 })
+  const id = await seedComplaint()
+  await runTransaction(endorser, async transaction => {
+    const snap = await transaction.get(issue(endorser, id))
+    const current = snap.data()
+    transaction.update(issue(endorser, id), {
+      endorsedBy: [...current.endorsedBy, endorserUid],
+      endorsementCount: current.endorsementCount + 1,
+      updatedAt: serverTimestamp(),
+    })
+  })
   await denied(
     runTransaction(endorser, async transaction => {
       const snap = await transaction.get(issue(endorser, id))
@@ -208,9 +218,12 @@ test('legacy complaints without endorsedBy or endorsementCount can be endorsed',
   const id = `legacy-${randomUUID()}`
   await setDoc(issue(author, id), {
     title: 'Legacy Complaint',
+    description: 'Existing record without social counters',
     category: 'Water Supply',
     status: 'Pending',
     reportedBy: authorUid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   })
 
   await runTransaction(endorser, async transaction => {
@@ -232,9 +245,9 @@ test('legacy complaints without endorsedBy or endorsementCount can be endorsed',
 
 test('authenticated citizens can read event audit trail on community complaints', async () => {
   const id = await seedComplaint()
-  const eventRef = doc(collection(issue(author, id), 'events'))
+  const eventRef = doc(collection(issue(admin, id), 'events'))
   await setDoc(eventRef, {
-    actorUid: authorUid,
+    actorUid: adminUid,
     action: 'Status changed',
     previousStatus: 'Pending',
     newStatus: 'In Progress',

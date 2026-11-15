@@ -6,6 +6,8 @@ import { readFileSync } from 'node:fs'
 import { after, test } from 'node:test'
 import { deleteApp, initializeApp } from 'firebase/app'
 import * as firestore from 'firebase/firestore'
+import { initializeApp as initializeAdminApp } from 'firebase-admin/app'
+import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore'
 
 const endpoint = /^(127\.0\.0\.1|localhost):(\d+)$/.exec(process.env.FIRESTORE_EMULATOR_HOST || '')
 assert(endpoint, 'Set FIRESTORE_EMULATOR_HOST to a loopback Firestore Emulator')
@@ -26,7 +28,12 @@ const owner = client('owner', ownerUid)
 const secondTab = client('second-tab', ownerUid)
 const other = client('other', `${ownerUid}-other`)
 const admin = client('admin', `${ownerUid}-admin`, 'admin')
-after(() => Promise.all(apps.map(deleteApp)))
+// Legacy/partial documents cannot be produced by clients under the hardened
+// create rule. Seed them with the Admin SDK, which bypasses security rules.
+const adminSeedApp = initializeAdminApp({ projectId: 'demo-civic-offline-sync' }, 'admin-seed')
+const adminSeedDb = getAdminFirestore(adminSeedApp)
+const seedIssue = (id, data) => adminSeedDb.doc(`issues/${id}`).set(data)
+after(() => Promise.all([...apps.map(deleteApp), adminSeedApp.delete()]))
 
 // Run the production service and builders with a synthetic authenticated
 // Firestore client in place of the application's Firebase initialization.
@@ -40,11 +47,12 @@ const code = [
   eventsSource.slice(eventsSource.indexOf('export function buildComplaintEvent')),
   noticesSource.slice(noticesSource.indexOf('function buildNotification'), noticesSource.indexOf('export async function createNotification')),
   noticesSource.slice(noticesSource.indexOf('export function addNotificationToBatch'), noticesSource.indexOf('let messagingPromise')),
-  syncSource.slice(syncSource.indexOf('export function syncOfflineComplaint')),
+  syncSource.slice(syncSource.indexOf('export function normalizePhotoFile')),
 ].join('\n').replaceAll('export ', '')
-const loadSync = new Function('db', 'auth', ...Object.keys(firestore), `${code}\nreturn syncOfflineComplaint`)
+const loadSync = new Function('db', 'auth', 'uploadComplaintPhoto', ...Object.keys(firestore), `${code}\nreturn syncOfflineComplaint`)
 const session = { uid: ownerUid }
-const sync = (db, entry) => loadSync(db, { currentUser: session }, ...Object.values(firestore))(entry, session)
+const rejectPhotoUpload = async () => { throw new Error('Unexpected photo upload in rules fixture') }
+const sync = (db, entry) => loadSync(db, { currentUser: session }, rejectPhotoUpload, ...Object.values(firestore))(entry, session)
 
 const fixture = () => ({ localId: randomUUID(), userId: ownerUid, title: 'Lamp', description: 'Out', category: 'Lights', address: 'Market Road' })
 const issue = (db, id) => doc(db, 'issues', id)
@@ -55,14 +63,14 @@ const denied = promise => assert.rejects(promise, { code: 'permission-denied' })
 test('two tabs commit once, and replay preserves edits, the ticket, and a later deletion', async () => {
   const entry = fixture()
   const id = entry.localId
-  await setDoc(issue(owner, `${id}-neighbor`), { reportedBy: ownerUid, status: 'Pending', title: 'Different complaint' })
+  await seedIssue(`${id}-neighbor`, { reportedBy: ownerUid, status: 'Pending', title: 'Different complaint' })
   const before = await counterValue()
   await Promise.all([sync(owner, entry), sync(secondTab, entry)])
   const saved = (await getDoc(issue(owner, id))).data()
   assert.equal(saved.reportedBy, ownerUid)
   assert.equal(await counterValue(), before + 1)
   assert((await getDoc(receipt(owner, id))).exists())
-  await updateDoc(issue(owner, id), { title: 'Edited online', department: 'Electricity' })
+  await updateDoc(issue(admin, id), { title: 'Edited online', department: 'Electricity' })
   const edited = (await getDoc(issue(owner, id))).data()
   await sync(secondTab, entry)
   assert.equal(edited.complaintId, saved.complaintId)
@@ -81,7 +89,7 @@ test('two tabs commit once, and replay preserves edits, the ticket, and a later 
 test('an existing legacy upload is adopted without writing the complaint or allocating a ticket', async () => {
   const entry = fixture()
   const id = entry.localId
-  await setDoc(issue(owner, id), { reportedBy: ownerUid, status: 'Pending', complaintId: 'CMP-LEGACY', title: 'Already edited' })
+  await seedIssue(id, { reportedBy: ownerUid, status: 'Pending', complaintId: 'CMP-LEGACY', title: 'Already edited' })
   await updateDoc(issue(admin, id), { status: 'Resolved' })
   const existing = (await getDoc(issue(owner, id))).data()
   const before = await counterValue()
@@ -96,7 +104,7 @@ test('receipts are owner-only, immutable, and require an uploaded complaint', as
   const id = fixture().localId
   await denied(getDoc(receipt(other, id)))
   await denied(setDoc(receipt(owner, id), { createdAt: serverTimestamp() }))
-  await setDoc(issue(owner, id), { reportedBy: ownerUid, status: 'Pending', title: 'Saved' })
+  await seedIssue(id, { reportedBy: ownerUid, status: 'Pending', title: 'Saved' })
   await denied(setDoc(receipt(other, id), { createdAt: serverTimestamp() }))
   await denied(setDoc(doc(other, 'users', `${ownerUid}-other`, 'offlineComplaintReceipts', id), { createdAt: serverTimestamp() }))
   await denied(setDoc(receipt(owner, id), { createdAt: serverTimestamp(), extra: true }))
@@ -108,7 +116,7 @@ test('receipts are owner-only, immutable, and require an uploaded complaint', as
 test('creating a receipt cannot overwrite an existing complaint in the same commit', async () => {
   const id = fixture().localId
   const original = { reportedBy: ownerUid, status: 'Pending', complaintId: 'CMP-LEGACY', title: 'Saved' }
-  await setDoc(issue(owner, id), original)
+  await seedIssue(id, original)
   const batch = writeBatch(owner)
   batch.set(issue(owner, id), { ...original, complaintId: 'CMP-REPLACEMENT', title: 'Stale' })
   batch.set(receipt(owner, id), { createdAt: serverTimestamp() })

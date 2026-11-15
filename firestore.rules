@@ -2,27 +2,99 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ---------------------------------------------------------------------
+    // Shared authorization & validation helpers
+    // ---------------------------------------------------------------------
+
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Role verification: Prioritize cryptographically signed Custom Auth Claims
-    // with graceful fallback for local emulators and legacy un-migrated accounts.
+    // Role verification: prioritize cryptographically signed Custom Auth Claims
+    // with a graceful fallback for local emulators and legacy un-migrated accounts.
+    // The users document is immutable for 'role', so the fallback cannot be exploited.
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.role == 'admin' ||
-        (request.auth.token.role == null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        request.auth.token.get('role', null) == 'admin' ||
+        (request.auth.token.get('role', null) == null &&
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', null) == 'admin')
       );
     }
 
+    function isNonEmptyString(value, maxLength) {
+      return value is string && value.size() > 0 && value.size() <= maxLength;
+    }
+
+    function isOptionalString(value, maxLength) {
+      return value == null || (value is string && value.size() <= maxLength);
+    }
+
+    function isOptionalLatitude(value) {
+      return value == null || (value is number && value >= -90 && value <= 90);
+    }
+
+    function isOptionalLongitude(value) {
+      return value == null || (value is number && value >= -180 && value <= 180);
+    }
+
+    function isOptionalMap(value) {
+      return value == null || value is map;
+    }
+
+    // ---------------------------------------------------------------------
+    // User profiles (/users/{userId})
+    // ---------------------------------------------------------------------
+
     match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      // Self-registration is strictly role: 'citizen'. Client cannot elevate to admin.
-      allow create: if isAuthenticated() && request.auth.uid == userId &&
-                    request.resource.data.role == 'citizen';
-      // Prevent role modification during user profile updates.
-      allow update: if isAuthenticated() && request.auth.uid == userId &&
-                    request.resource.data.role == resource.data.role;
+      function isSelf() {
+        return isAuthenticated() && request.auth.uid == userId;
+      }
+
+      function isValidRegistration() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(['name', 'email', 'role', 'createdAt']) &&
+               data.keys().hasAll(['name', 'email', 'role', 'createdAt']) &&
+               isNonEmptyString(data.name, 100) &&
+               isNonEmptyString(data.email, 200) &&
+               // Public self-registration is strictly role: 'citizen'. Client cannot elevate to admin.
+               data.role == 'citizen' &&
+               data.createdAt == request.time;
+      }
+
+      function isValidNotificationPreferences(value) {
+        return value is map &&
+               value.keys().hasOnly(['sound', 'push', 'emailDigest']) &&
+               (!value.keys().hasAny(['sound']) || value.sound is bool) &&
+               (!value.keys().hasAny(['push']) || value.push is bool) &&
+               (!value.keys().hasAny(['emailDigest']) || value.emailDigest is bool);
+      }
+
+      function isValidProfileUpdate() {
+        let data = request.resource.data;
+        let previous = resource.data;
+        let changed = data.diff(previous).affectedKeys();
+        return changed.hasOnly([
+                 'name', 'phone', 'address', 'updatedAt', 'fcmToken',
+                 'pushNotificationsEnabled', 'notificationPreferences'
+               ]) &&
+               // Identity and role authorization attributes are immutable.
+               data.get('role', null) == previous.get('role', null) &&
+               data.get('email', null) == previous.get('email', null) &&
+               data.get('createdAt', null) == previous.get('createdAt', null) &&
+               (!changed.hasAny(['name']) || isNonEmptyString(data.get('name', null), 100)) &&
+               isOptionalString(data.get('phone', null), 20) &&
+               isOptionalString(data.get('address', null), 300) &&
+               isOptionalString(data.get('fcmToken', null), 4096) &&
+               data.get('pushNotificationsEnabled', false) is bool &&
+               isValidNotificationPreferences(data.get('notificationPreferences', {}));
+      }
+
+      allow read: if isSelf() || isAdmin();
+      // Self-registration strictly enforces 'citizen' role and schema.
+      allow create: if isSelf() && isValidRegistration();
+      // Profile updates may not change role, email, or creation metadata.
+      allow update: if isSelf() && isValidProfileUpdate();
       allow delete: if false;
 
       match /offlineComplaintReceipts/{localId} {
@@ -33,9 +105,8 @@ service cloud.firestore {
                  (!exists(issuePath) || uploaded.data == get(issuePath).data);
         }
 
-        allow get: if isAuthenticated() && request.auth.uid == userId;
-        // A legacy upload can be recorded without rewriting its saved complaint.
-        allow create: if isAuthenticated() && request.auth.uid == userId &&
+        allow get: if isSelf();
+        allow create: if isSelf() &&
                       request.resource.data.keys().hasOnly(['createdAt']) &&
                       request.resource.data.createdAt == request.time &&
                       matchesUploadedComplaint();
@@ -43,10 +114,87 @@ service cloud.firestore {
       }
     }
 
+    // ---------------------------------------------------------------------
+    // Complaints & Grievances (/issues/{issueId})
+    // ---------------------------------------------------------------------
+
     match /issues/{issueId} {
+      function isValidComplaintCreate() {
+        let data = request.resource.data;
+        let allowedFields = [
+          'complaintId', 'title', 'description', 'category', 'address',
+          'latitude', 'longitude', 'status', 'department', 'reportedBy',
+          'imageUrl', 'photos', 'audioNote', 'endorsedBy', 'endorsementCount',
+          'upvotedBy', 'upvotesCount', 'createdAt', 'updatedAt'
+        ];
+        // Workflow, assignment, audit and social fields may only be produced by
+        // server-side/admin workflows. A reporter starts from a clean Pending doc.
+        return data.keys().hasOnly(allowedFields) &&
+               data.keys().hasAll(['title', 'description', 'category', 'status', 'reportedBy', 'createdAt', 'updatedAt']) &&
+               data.reportedBy == request.auth.uid &&
+               data.status == 'Pending' &&
+               data.get('department', '') == '' &&
+               (!data.keys().hasAny(['complaintId']) ||
+                 (data.complaintId is string &&
+                  data.complaintId.matches('^CMP-[0-9]{4}-[0-9]{4,6}$'))) &&
+               isNonEmptyString(data.title, 200) &&
+               isNonEmptyString(data.description, 2000) &&
+               isNonEmptyString(data.category, 50) &&
+               isOptionalString(data.get('address', null), 300) &&
+               isOptionalLatitude(data.get('latitude', null)) &&
+               isOptionalLongitude(data.get('longitude', null)) &&
+               (data.get('imageUrl', null) == null ||
+                 (data.imageUrl is string && data.imageUrl.size() <= 2048)) &&
+               (data.get('photos', []) is list && data.get('photos', []).size() <= 5) &&
+               isOptionalMap(data.get('audioNote', null)) &&
+               (data.get('endorsedBy', []) is list && data.get('endorsedBy', []).size() == 0) &&
+               data.get('endorsementCount', 0) == 0 &&
+               (data.get('upvotedBy', []) is list && data.get('upvotedBy', []).size() == 0) &&
+               data.get('upvotesCount', 0) == 0 &&
+               data.createdAt == request.time &&
+               data.updatedAt == request.time;
+      }
+
+      function isValidCitizenPendingEdit() {
+        let data = request.resource.data;
+        let previous = resource.data;
+        let changed = data.diff(previous).affectedKeys();
+        let allowedFields = [
+          'title', 'description', 'category', 'address',
+          'latitude', 'longitude', 'imageUrl', 'photos', 'audioNote', 'updatedAt'
+        ];
+        return previous.status == 'Pending' &&
+               data.status == 'Pending' &&
+               changed.hasOnly(allowedFields) &&
+               // Protected fields are strictly immutable during citizen edit
+               data.reportedBy == previous.reportedBy &&
+               data.get('complaintId', '') == previous.get('complaintId', '') &&
+               data.get('department', '') == previous.get('department', '') &&
+               data.get('assignedWorker', null) == previous.get('assignedWorker', null) &&
+               data.get('assignedOfficer', null) == previous.get('assignedOfficer', null) &&
+               data.get('createdAt', null) == previous.get('createdAt', null) &&
+               data.get('endorsedBy', []) == previous.get('endorsedBy', []) &&
+               data.get('endorsementCount', 0) == previous.get('endorsementCount', 0) &&
+               data.get('upvotedBy', []) == previous.get('upvotedBy', []) &&
+               data.get('upvotesCount', 0) == previous.get('upvotesCount', 0) &&
+               (!changed.hasAny(['title']) || isNonEmptyString(data.title, 200)) &&
+               (!changed.hasAny(['description']) || isNonEmptyString(data.description, 2000)) &&
+               (!changed.hasAny(['category']) || isNonEmptyString(data.category, 50)) &&
+               isOptionalString(data.get('address', null), 300) &&
+               isOptionalLatitude(data.get('latitude', null)) &&
+               isOptionalLongitude(data.get('longitude', null)) &&
+               (data.get('imageUrl', null) == null ||
+                 (data.imageUrl is string && data.imageUrl.size() <= 2048)) &&
+               (data.get('photos', []) is list && data.get('photos', []).size() <= 5) &&
+               isOptionalMap(data.get('audioNote', null)) &&
+               data.updatedAt == request.time;
+      }
+
       function isResolutionFeedback() {
         let feedback = request.resource.data.get('feedback', {});
         let allowedTags = ['Quick response', 'Courteous staff', 'Clean finish'];
+        let tags = feedback.get('tags', []);
+        let comment = feedback.get('comment', '');
         let attachment = feedback.get('attachment', null);
         return resource.data.status == 'Resolved' &&
                resource.data.get('feedback', null) == null &&
@@ -54,9 +202,9 @@ service cloud.firestore {
                  .hasOnly(['feedback', 'updatedAt']) &&
                feedback.keys().hasOnly(['rating', 'tags', 'comment', 'attachment', 'submittedAt']) &&
                feedback.rating is int && feedback.rating >= 1 && feedback.rating <= 5 &&
-               feedback.tags is list && feedback.tags.hasOnly(allowedTags) &&
-               feedback.tags.size() == feedback.tags.toSet().size() &&
-               feedback.comment is string && feedback.comment.size() <= 1000 &&
+               tags is list && tags.hasOnly(allowedTags) &&
+               tags.size() == tags.toSet().size() &&
+               comment is string && comment.size() <= 1000 &&
                feedback.submittedAt == request.time && request.resource.data.updatedAt == request.time &&
                (attachment == null ||
                  (attachment.keys().hasOnly(['kind', 'path']) &&
@@ -75,8 +223,7 @@ service cloud.firestore {
                request.time <= resolvedAt + duration.value(7, 'd') &&
                request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['status', 'reopenReason', 'reopenedAt', 'updatedAt']) &&
-               reason is string &&
-               // Match the whitespace-only inputs rejected by the client's trim().
+               reason is string && reason.size() <= 1000 &&
                !reason.matches('[\\s\\p{Z}\\x0B\\x{FEFF}]*') &&
                request.resource.data.get('reopenedAt', null) == request.time &&
                request.resource.data.get('updatedAt', null) == request.time;
@@ -92,16 +239,19 @@ service cloud.firestore {
         return diff.affectedKeys().hasOnly(['upvotedBy', 'upvotesCount', 'updatedAt']) &&
                request.resource.data.reportedBy == resource.data.reportedBy &&
                request.resource.data.status == resource.data.status &&
+               prevUpvotedBy is list && nextUpvotedBy is list &&
                newCount is int && newCount >= 0 &&
+               (!diff.affectedKeys().hasAny(['updatedAt']) ||
+                 request.resource.data.updatedAt == request.time) &&
                (
-                 // Adding an upvote:
+                 // Adding an upvote: only the caller's UID may be appended.
                  (newCount == currentCount + 1 &&
                   !(request.auth.uid in prevUpvotedBy) &&
-                  request.auth.uid in nextUpvotedBy) ||
-                 // Removing an upvote:
+                  nextUpvotedBy == prevUpvotedBy.concat([request.auth.uid])) ||
+                 // Removing an upvote: only the caller's UID may be removed.
                  (newCount == (currentCount > 0 ? currentCount - 1 : 0) &&
                   request.auth.uid in prevUpvotedBy &&
-                  !(request.auth.uid in nextUpvotedBy))
+                  nextUpvotedBy == prevUpvotedBy.removeAll([request.auth.uid]))
                );
       }
 
@@ -115,45 +265,52 @@ service cloud.firestore {
         return diff.affectedKeys().hasOnly(['endorsedBy', 'endorsementCount', 'updatedAt']) &&
                request.resource.data.reportedBy == resource.data.reportedBy &&
                request.resource.data.status == resource.data.status &&
+               prevEndorsedBy is list && nextEndorsedBy is list &&
                newCount is int && newCount >= 0 &&
                newCount == currentCount + 1 &&
                !(request.auth.uid in prevEndorsedBy) &&
-               request.auth.uid in nextEndorsedBy;
+               nextEndorsedBy == prevEndorsedBy.concat([request.auth.uid]) &&
+               request.resource.data.updatedAt == request.time;
       }
 
+      // Complaints are community-visible to signed-in residents (CommunityFeed,
+      // public map, duplicate detection and consolidated-ticket lookup). Private
+      // collections such as profiles, notifications and offline receipts remain
+      // strictly owner-scoped below.
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() &&
-                    request.resource.data.reportedBy == request.auth.uid &&
-                    request.resource.data.status == 'Pending' &&
-                    !request.resource.data.keys().hasAny(['feedback']);
+
+      // Complaint creation is strictly Pending and owned by the author
+      allow create: if isAuthenticated() && isValidComplaintCreate();
+
+      // Citizen updates are restricted to Pending edits, appeals, feedback, or voting; admins have full workflow access
       allow update: if (isAuthenticated() && (
                         (resource.data.reportedBy == request.auth.uid &&
-                          ((resource.data.status == 'Pending' &&
-                            request.resource.data.status == 'Pending' &&
-                            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['feedback'])) ||
-                           isCitizenAppeal() || isResolutionFeedback())) ||
+                          (isValidCitizenPendingEdit() || isCitizenAppeal() || isResolutionFeedback())) ||
                         isCitizenUpvote() ||
                         isCitizenEndorsement()
                       )) || isAdmin();
-      allow delete: if isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
+
+      // Deletion is strictly restricted to complaints in Pending status owned by the reporter
+      allow delete: if isAuthenticated() &&
+                    resource.data.reportedBy == request.auth.uid &&
                     resource.data.status == 'Pending';
 
       // Community discussion comments sub-collection
       match /comments/{commentId} {
         allow read: if isAuthenticated();
         allow create: if isAuthenticated() &&
+                      request.resource.data.keys().hasOnly(['text', 'authorName', 'authorId', 'createdAt']) &&
                       request.resource.data.authorId == request.auth.uid &&
-                      request.resource.data.text is string &&
-                      request.resource.data.text.size() > 0 &&
-                      request.resource.data.text.size() <= 1000 &&
+                      isNonEmptyString(request.resource.data.text, 1000) &&
+                      (request.resource.data.get('authorName', null) == null ||
+                        isNonEmptyString(request.resource.data.get('authorName', null), 100)) &&
                       request.resource.data.createdAt == request.time;
         allow update: if isAuthenticated() &&
                       resource.data.authorId == request.auth.uid &&
                       request.resource.data.authorId == resource.data.authorId &&
                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'updatedAt']) &&
-                      request.resource.data.text is string &&
-                      request.resource.data.text.size() > 0 &&
-                      request.resource.data.text.size() <= 1000;
+                      isNonEmptyString(request.resource.data.text, 1000) &&
+                      request.resource.data.get('updatedAt', null) == request.time;
         allow delete: if isAuthenticated() &&
                       (resource.data.authorId == request.auth.uid || isAdmin());
       }
@@ -173,26 +330,35 @@ service cloud.firestore {
             'Citizen appeal'
           ];
           return data.keys().hasOnly(['timestamp', 'actorUid', 'action', 'previousStatus', 'newStatus', 'remarks']) &&
-                 data.keys().hasAll(['action', 'actorUid']) &&
+                 data.keys().hasAll(['timestamp', 'action', 'actorUid']) &&
                  data.actorUid == request.auth.uid &&
                  data.action in allowedActions &&
-                 (data.get('timestamp', null) == null || data.timestamp == request.time || data.timestamp is timestamp) &&
+                 data.timestamp == request.time &&
                  (data.get('remarks', '') is string && data.get('remarks', '').size() <= 1000) &&
-                 (data.get('previousStatus', null) == null || data.previousStatus is string) &&
-                 (data.get('newStatus', null) == null || data.newStatus is string);
+                 isOptionalString(data.get('previousStatus', null), 50) &&
+                 isOptionalString(data.get('newStatus', null), 50);
         }
 
         function isComplaintAuthor() {
           let issuePath = /databases/$(database)/documents/issues/$(issueId);
-          return (exists(issuePath) && get(issuePath).data.reportedBy == request.auth.uid) ||
-                 (getAfter(issuePath).data.reportedBy == request.auth.uid);
+          return getAfter(issuePath).data.reportedBy == request.auth.uid;
         }
 
         function isAuthorizedEventCreator() {
-          let action = request.resource.data.action;
+          let issuePath = /databases/$(database)/documents/issues/$(issueId);
+          let data = request.resource.data;
+          let action = data.action;
+          // Citizens may only append events that mirror the lifecycle transition
+          // committed in the same write (creation or a Resolved -> Reopened appeal).
           let citizenAllowed = isComplaintAuthor() && (
-            action in ['Complaint submitted', 'Citizen appeal'] ||
-            (action == 'Status changed' && request.resource.data.get('newStatus', null) == 'Reopened')
+            (action == 'Complaint submitted' &&
+              data.get('newStatus', null) == 'Pending' &&
+              getAfter(issuePath).data.status == 'Pending') ||
+            ((action == 'Citizen appeal' || action == 'Status changed') &&
+              data.get('newStatus', null) == 'Reopened' &&
+              getAfter(issuePath).data.status == 'Reopened' &&
+              exists(issuePath) &&
+              get(issuePath).data.status == 'Resolved')
           );
           return isAdmin() || citizenAllowed;
         }
@@ -205,27 +371,70 @@ service cloud.firestore {
       }
     }
 
-    // Platform-wide configuration. Canned resolution templates are readable
-    // by any signed-in user (officers load them in the complaint workflow);
-    // only administrators may change settings.
+    // Platform configuration
     match /settings/{settingId} {
+      function isValidResolutionTemplates() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(['templates', 'updatedAt', 'updatedBy']) &&
+               data.templates is list &&
+               data.templates.size() <= 50 &&
+               data.updatedAt == request.time &&
+               (!data.keys().hasAny(['updatedBy']) || data.updatedBy == request.auth.uid);
+      }
+
       allow read: if isAdmin() ||
                     (isAuthenticated() && settingId == 'resolutionTemplates');
-      allow write: if isAdmin();
+      allow write: if isAdmin() &&
+                    (settingId != 'resolutionTemplates' || isValidResolutionTemplates());
     }
 
+    // Notifications (/notifications/{notificationId})
     match /notifications/{notificationId} {
+      function isValidNotificationCreate() {
+        let data = request.resource.data;
+        return data.keys().hasOnly([
+                 'recipientRole', 'recipientUid', 'senderUid', 'issueId', 'type',
+                 'title', 'message', 'read', 'createdAt'
+               ]) &&
+               data.senderUid == request.auth.uid &&
+               data.read == false &&
+               data.createdAt == request.time &&
+               data.recipientRole in ['admin', 'citizen'] &&
+               data.type in ['new_complaint', 'status_update', 'department_assigned'] &&
+               isNonEmptyString(data.issueId, 40) &&
+               isNonEmptyString(data.title, 120) &&
+               isNonEmptyString(data.message, 600) &&
+               // Admin-desk notices are broadcast (no recipientUid); a direct
+               // citizen notice must name exactly one recipient.
+               (data.recipientRole == 'admin'
+                 ? data.get('recipientUid', null) == null
+                 : (data.get('recipientUid', null) is string &&
+                    data.recipientUid.size() > 0 &&
+                    data.recipientUid.size() <= 128));
+      }
+
       allow read: if isAuthenticated() &&
-                  (resource.data.recipientUid == request.auth.uid ||
-                   (resource.data.recipientRole == 'admin' && isAdmin()));
+                  (resource.data.get('recipientUid', null) == request.auth.uid ||
+                   (resource.data.get('recipientRole', null) == 'admin' && isAdmin()));
+
+      // Citizens can only notify admin desk. Administrators can notify specific citizen recipients.
+      allow create: if isAuthenticated() &&
+                    isValidNotificationCreate() &&
+                    (isAdmin() ||
+                     (request.resource.data.recipientRole == 'admin' &&
+                      request.resource.data.get('recipientUid', null) == null));
+
+      // Notification update strictly allows toggling read state on own notification
       allow update: if isAuthenticated() &&
-                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
-      allow create: if isAuthenticated();
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) &&
+                    request.resource.data.read is bool &&
+                    (resource.data.get('recipientUid', null) == request.auth.uid ||
+                     (resource.data.get('recipientRole', null) == 'admin' && isAdmin()));
+
       allow delete: if false;
     }
 
-    // Citywide emergency broadcasts. Every signed-in citizen can read the live
-    // alert; only administrators can publish, replace, or end one.
+    // Emergency broadcasts (/broadcasts/{broadcastId})
     match /broadcasts/{broadcastId} {
       function isValidBroadcastCreate() {
         let data = request.resource.data;
@@ -233,10 +442,8 @@ service cloud.firestore {
                  'title', 'message', 'severity', 'active',
                  'createdAt', 'createdBy'
                ]) &&
-               data.title is string &&
-               data.title.size() > 0 && data.title.size() <= 120 &&
-               data.message is string &&
-               data.message.size() > 0 && data.message.size() <= 600 &&
+               isNonEmptyString(data.title, 120) &&
+               isNonEmptyString(data.message, 600) &&
                data.severity in ['info', 'warning', 'critical'] &&
                data.active == true &&
                data.createdAt == request.time &&
@@ -248,16 +455,28 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // Sequential complaint ID counters (/counters/{counterId})
     match /counters/{counterId} {
       allow read: if isAuthenticated();
-      // Counter must be a positive integer and monotonically non-decreasing to prevent corruption & DoS
-      allow write: if isAuthenticated() &&
-                   request.resource.data.lastNumber is int &&
-                   request.resource.data.lastNumber > 0 &&
-                   (!exists(/databases/$(database)/documents/counters/$(counterId)) ||
-                    request.resource.data.lastNumber >= resource.data.lastNumber);
+      // Counter must start at 1 and advance strictly by exactly +1 (monotonic non-decreasing)
+      allow create: if isAuthenticated() &&
+                    request.resource.data.keys().hasOnly(['lastNumber']) &&
+                    request.resource.data.lastNumber is int &&
+                    request.resource.data.lastNumber == 1;
+      allow update: if isAuthenticated() &&
+                    request.resource.data.keys().hasOnly(['lastNumber']) &&
+                    request.resource.data.lastNumber is int &&
+                    resource.data.lastNumber is int &&
+                    request.resource.data.lastNumber == resource.data.lastNumber + 1;
+      allow delete: if false;
     }
 
+    // Gamification leaderboard projections (/leaderboard/{userId})
+    // NOTE: scores are a deterministic projection of public complaint data and
+    // are recomputed client-side from issues the caller can already read. Rules
+    // can validate shape/ownership/bounds but cannot aggregate issues to prove
+    // a score is honest; server-authoritative aggregation is tracked as a
+    // residual risk in the Issue #20 report.
     match /leaderboard/{userId} {
       function isValidLeaderboardEntry() {
         let data = request.resource.data;
@@ -273,14 +492,20 @@ service cloud.firestore {
                data.get('displayName', '').size() <= 100 &&
                data.get('monthlyScore', 0) is number &&
                data.get('monthlyScore', 0) >= 0 &&
+               data.get('monthlyScore', 0) <= 100000000 &&
                data.get('allTimeScore', 0) is number &&
                data.get('allTimeScore', 0) >= 0 &&
+               data.get('allTimeScore', 0) <= 100000000 &&
+               data.get('monthlyScore', 0) <= data.get('allTimeScore', 0) &&
                data.get('badgesCount', 0) is number &&
                data.get('badgesCount', 0) >= 0 &&
+               data.get('badgesCount', 0) <= 100 &&
                data.get('reportsCount', 0) is number &&
                data.get('reportsCount', 0) >= 0 &&
+               data.get('reportsCount', 0) <= 100000 &&
                data.get('level', 1) is number &&
                data.get('level', 1) >= 1 &&
+               data.get('level', 1) <= 100 &&
                data.get('updatedAt', null) == request.time;
       }
 
@@ -292,4 +517,3 @@ service cloud.firestore {
     }
   }
 }
-

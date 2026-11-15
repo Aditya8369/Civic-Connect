@@ -40,9 +40,11 @@ async function seed({ status = 'Resolved', resolvedAt = ago(60000), feedback = n
     status: 'Pending',
     reportedBy: ownerUid,
     title: 'Pothole repair',
-    department: 'Roads',
-    createdAt: ago(120000),
-    updatedAt: ago(120000),
+    description: 'Pothole caused by recent road works',
+    category: 'Roads',
+    department: '',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   })
   if (status !== 'Pending' || feedback) {
     const patch = { status }

@@ -9,6 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:rules": "npx --yes firebase-tools@15.36.0 emulators:exec --only firestore --project demo-civic-connect \"vitest run --config vitest.rules.config.js\"",
+    "deploy:rules": "npx --yes firebase-tools@15.36.0 deploy --only firestore:rules",
     "report:bundle-size": "node scripts/report-bundle-size.mjs",
     "postinstall": "node -e \"const fs = require('fs'); if (fs.existsSync('.env.example') && !fs.existsSync('.env')) fs.copyFileSync('.env.example', '.env');\"",
     "emulators:start": "npx --yes firebase-tools emulators:start --project demo-civic-connect",
@@ -44,6 +46,7 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
     "@lhci/cli": "^0.16.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
