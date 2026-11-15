@@ -1,5 +1,7 @@
+
 import { useEffect, useRef, useState } from 'react'
 import { Mic, Square, RotateCcw, Play, Pause, Trash2 } from 'lucide-react'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 const MAX_DURATION = 60
 const BAR_COUNT = 32
@@ -30,12 +32,14 @@ function getRecordedPreviewHeights(count = BAR_COUNT) {
 }
 
 export default function VoiceRecorder({ onRecordingComplete, disabled = false }) {
+  const { t } = useLanguage()
+
   const [status, setStatus] = useState('idle')
   const [seconds, setSeconds] = useState(0)
   const [audioUrl, setAudioUrl] = useState('')
   const [error, setError] = useState('')
   const [isPlaying, setIsPlaying] = useState(false)
-  const [waveformMode, setWaveformMode] = useState('idle') // 'idle' | 'analyser' | 'simulated'
+  const [waveformMode, setWaveformMode] = useState('idle')
 
   const recorderRef = useRef(null)
   const streamRef = useRef(null)
@@ -46,7 +50,6 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
   const mountedRef = useRef(true)
   const audioUrlRef = useRef('')
 
-  // Web Audio API refs
   const audioContextRef = useRef(null)
   const analyserRef = useRef(null)
   const sourceRef = useRef(null)
@@ -95,9 +98,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
   const resetBarHeights = (height = DEFAULT_BAR_HEIGHT) => {
     for (let i = 0; i < BAR_COUNT; i++) {
       const bar = barRefs.current[i]
-      if (bar) {
-        bar.style.height = `${height}px`
-      }
+      if (bar) bar.style.height = `${height}px`
     }
   }
 
@@ -105,9 +106,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
     const heights = recordedHeightsRef.current
     for (let i = 0; i < BAR_COUNT; i++) {
       const bar = barRefs.current[i]
-      if (bar) {
-        bar.style.height = `${heights[i] || 12}px`
-      }
+      if (bar) bar.style.height = `${heights[i] || 12}px`
     }
   }
 
@@ -148,8 +147,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
             bar.style.height = `${targetHeight.toFixed(1)}px`
           }
         } else {
-          // Simulated organic animation
-          const t = now / 160
+          const time = now / 160
           for (let i = 0; i < BAR_COUNT; i++) {
             const bar = barRefs.current[i]
             if (!bar) continue
@@ -157,8 +155,8 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
             if (isReducedMotion) {
               bar.style.height = '14px'
             } else {
-              const wave1 = Math.sin(t + i * 0.35)
-              const wave2 = Math.cos(t * 0.75 + i * 0.22)
+              const wave1 = Math.sin(time + i * 0.35)
+              const wave2 = Math.cos(time * 0.75 + i * 0.22)
               const norm = (wave1 + wave2 + 2) / 4
               const targetHeight = 8 + norm * 32
               bar.style.height = `${targetHeight.toFixed(1)}px`
@@ -212,7 +210,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
     setError('')
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setError('Audio recording is not supported in this browser.')
+      setError(t('audioRecordingUnsupported'))
       return
     }
 
@@ -229,7 +227,6 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
       secondsRef.current = 0
       setSeconds(0)
 
-      // Set up Web Audio API Analyser
       let activeAnalyser = null
       try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext
@@ -238,6 +235,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
           if (audioContext.state === 'suspended') {
             audioContext.resume().catch(() => {})
           }
+
           const analyserNode = audioContext.createAnalyser()
           analyserNode.fftSize = 64
           analyserNode.smoothingTimeConstant = 0.8
@@ -280,7 +278,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
 
         if (mountedRef.current) {
           setStatus('idle')
-          setError('An error occurred while recording. Please try again.')
+          setError(t('recordingError'))
         }
       }
 
@@ -298,7 +296,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
         if (blob.size === 0) {
           setStatus('idle')
           resetBarHeights()
-          setError('No audio was recorded. Please try again.')
+          setError(t('noAudioRecorded'))
           return
         }
 
@@ -339,11 +337,11 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
 
       if (mountedRef.current) {
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          setError('Microphone permission denied. Please allow microphone access.')
+          setError(t('microphonePermissionDenied'))
         } else if (err.name === 'NotFoundError') {
-          setError('No microphone was found on this device.')
+          setError(t('microphoneNotFound'))
         } else {
-          setError('Unable to access the microphone. Please try again.')
+          setError(t('microphoneAccessFailed'))
         }
 
         setStatus('idle')
@@ -352,9 +350,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
   }
 
   const discardRecording = () => {
-    if (audioRef.current) {
-      audioRef.current.pause()
-    }
+    if (audioRef.current) audioRef.current.pause()
 
     if (audioUrl) URL.revokeObjectURL(audioUrl)
 
@@ -381,7 +377,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
         await audioRef.current.play()
         setIsPlaying(true)
       } catch {
-        setError('Unable to play this recording.')
+        setError(t('audioPlaybackFailed'))
       }
     }
   }
@@ -396,9 +392,11 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
   return (
     <div className="w-full rounded-xl border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-800 dark:bg-gray-900 transition-colors">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-semibold text-gray-800 dark:text-gray-100">Voice note</h3>
+        <h3 className="font-semibold text-gray-800 dark:text-gray-100">
+          {t('voiceNote')}
+        </h3>
         <span className="text-sm text-gray-500 dark:text-gray-400">
-          Maximum 60 seconds
+          {t('maximumSeconds')}
         </span>
       </div>
 
@@ -416,15 +414,14 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
         {status === 'recording' && (
           <span className="flex items-center gap-1.5 text-sm font-medium text-red-600 dark:text-red-400">
             <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-600 dark:bg-red-400" />
-            Recording
+            {t('recording')}
           </span>
         )}
       </div>
 
-      {/* Tactile Waveform Visualization */}
       <div
         className="mb-4 flex h-14 items-center justify-center gap-1 rounded-xl bg-slate-50/80 px-4 py-2 border border-slate-100 dark:border-slate-800/80 dark:bg-slate-900/60"
-        aria-label="Audio waveform visualization"
+        aria-label={t('audioWaveform')}
         data-testid="recording-waveform"
         data-waveform-mode={status === 'recording' ? waveformMode : 'idle'}
       >
@@ -442,9 +439,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
                   ? 'bg-primary-700/80 dark:bg-primary-400/80'
                   : 'bg-slate-200 dark:bg-slate-700'
             }`}
-            style={{
-              height: `${DEFAULT_BAR_HEIGHT}px`,
-            }}
+            style={{ height: `${DEFAULT_BAR_HEIGHT}px` }}
           />
         ))}
       </div>
@@ -458,7 +453,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
             className="flex items-center gap-2 rounded-lg bg-red-600 px-5 py-2.5 font-medium text-white hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 disabled:cursor-not-allowed disabled:opacity-50 transition-colors shadow-xs"
           >
             <Mic size={18} />
-            Start recording
+            {t('startRecording')}
           </button>
         )}
 
@@ -469,7 +464,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
             className="flex items-center gap-2 rounded-lg bg-gray-800 px-5 py-2.5 font-medium text-white hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 transition-colors shadow-xs"
           >
             <Square size={16} />
-            Stop recording
+            {t('stopRecording')}
           </button>
         )}
 
@@ -481,7 +476,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
               className="flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2.5 font-medium text-white hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 transition-colors shadow-xs"
             >
               {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-              {isPlaying ? 'Pause' : 'Play'}
+              {isPlaying ? t('pause') : t('play')}
             </button>
 
             <button
@@ -490,7 +485,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
               className="flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-700 px-4 py-2.5 font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 transition-colors"
             >
               <Trash2 size={18} />
-              Discard
+              {t('discard')}
             </button>
 
             <button
@@ -499,7 +494,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
               className="flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-700 px-4 py-2.5 font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 transition-colors"
             >
               <RotateCcw size={18} />
-              Record again
+              {t('recordAgain')}
             </button>
           </>
         )}
@@ -522,7 +517,7 @@ export default function VoiceRecorder({ onRecordingComplete, disabled = false })
       )}
 
       <p className="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
-        Allow microphone access when your browser asks.
+        {t('microphoneAccessInstruction')}
       </p>
     </div>
   )

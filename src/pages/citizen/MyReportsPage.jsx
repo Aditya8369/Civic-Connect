@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -28,6 +29,7 @@ import {
 } from '@/components/ui/dialog'
 import toast from 'react-hot-toast'
 import { useComplaintEditSave } from '@/hooks/useComplaintEditSave'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 const statusVariant = {
   Resolved: 'success',
@@ -38,18 +40,33 @@ const statusVariant = {
   'Merged - Duplicate': 'secondary',
 }
 
-function formatDate(timestamp) {
+const statusTranslationKeys = {
+  Resolved: 'statusResolved',
+  'In Progress': 'statusInProgress',
+  Pending: 'statusPending',
+  Rejected: 'statusRejected',
+  Reopened: 'statusReopened',
+  'Merged - Duplicate': 'statusMerged',
+}
+
+function formatDate(timestamp, language) {
   if (!timestamp?.toDate) return ''
-  return timestamp.toDate().toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
+
+  return timestamp.toDate().toLocaleDateString(
+    language === 'hi' ? 'hi-IN' : 'en-US',
+    {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }
+  )
 }
 
 export function MyReportsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const { t, language } = useLanguage()
+
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -60,6 +77,7 @@ export function MyReportsPage() {
   const [editTitle, setEditTitle] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editAddress, setEditAddress] = useState('')
+
   const { savingEdit, saveEdit } = useComplaintEditSave()
 
   useEffect(() => {
@@ -68,15 +86,18 @@ export function MyReportsPage() {
       setLoading(false)
       return
     }
+
     console.log('MyReports: fetching issues for uid:', user.uid)
     setLoading(true)
     setLoadError(false)
+
     // No orderBy here: where + orderBy on another field needs a composite index,
     // so the results are sorted on the client instead.
     const q = query(
       collection(db, 'issues'),
       where('reportedBy', '==', user.uid)
     )
+
     const unsubscribe = onSnapshot(
       q,
       { includeMetadataChanges: true },
@@ -88,7 +109,12 @@ export function MyReportsPage() {
           }
           return
         }
-        const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+
+        const list = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }))
+
         console.log('MyReports: received', list.length, 'documents')
         setComplaints(sortByCreatedAtDesc(list))
         setLoadError(false)
@@ -100,6 +126,7 @@ export function MyReportsPage() {
         setLoading(false)
       }
     )
+
     return unsubscribe
   }, [user, reloadKey])
 
@@ -112,12 +139,14 @@ export function MyReportsPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return
+
     try {
       await deleteDoc(doc(db, 'issues', deleteTarget.id))
-      toast.success('Complaint deleted successfully')
+      toast.success(t('complaintDeletedSuccessfully'))
     } catch {
-      toast.error('Failed to delete complaint')
+      toast.error(t('failedToDeleteComplaint'))
     }
+
     setDeleteTarget(null)
   }
 
@@ -128,41 +157,62 @@ export function MyReportsPage() {
     setEditAddress(complaint.address)
   }
 
-  const handleEditSave = () => saveEdit(editTarget, {
-    title: editTitle, description: editDescription, address: editAddress,
-  }, user?.uid, () => setEditTarget(null))
+  const handleEditSave = () =>
+    saveEdit(
+      editTarget,
+      {
+        title: editTitle,
+        description: editDescription,
+        address: editAddress,
+      },
+      user?.uid,
+      () => setEditTarget(null)
+    )
+
+  const getStatusLabel = (status) => {
+    const key = statusTranslationKeys[status]
+    return key ? t(key) : status
+  }
 
   return (
     <div>
       <PageHeader
-        title="My Reports"
-        description="Track and manage your submitted complaints"
+        title={t('myReports')}
+        description={t('myReportsDescription')}
       />
 
       <div className="relative mb-6 max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+
         <Input
           className="pl-9"
-          placeholder="Search by complaint ID, title, or category..."
+          placeholder={t('searchMyReports')}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-busy={loading}>
+      <div
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+        aria-busy={loading}
+      >
         {loadError ? (
           <div className="sm:col-span-2 xl:col-span-3">
-            <ConnectionErrorBanner onRetry={() => setReloadKey((k) => k + 1)} />
+            <ConnectionErrorBanner
+              onRetry={() => setReloadKey((k) => k + 1)}
+            />
           </div>
         ) : loading ? (
-          Array.from({ length: 6 }, (_, i) => <ComplaintCardSkeleton key={i} />)
+          Array.from({ length: 6 }, (_, i) => (
+            <ComplaintCardSkeleton key={i} />
+          ))
         ) : complaints.length === 0 ? (
           <div className="sm:col-span-2 xl:col-span-3">
             <EmptyState
               variant="reports"
-              heading="No Reports Yet"
-              description="You haven't submitted any civic reports yet. Help improve your community by reporting an issue."
-              actionLabel="Report an Issue"
+              heading={t('noReportsYet')}
+              description={t('noReportsDescription')}
+              actionLabel={t('reportAnIssue')}
               onAction={() => navigate('/report')}
             />
           </div>
@@ -170,9 +220,9 @@ export function MyReportsPage() {
           <div className="sm:col-span-2 xl:col-span-3">
             <EmptyState
               variant="reports"
-              heading="No Complaints Found"
-              description="Try a different search term or clear your search query."
-              actionLabel="Clear Search"
+              heading={t('noComplaintsFound')}
+              description={t('noComplaintsFoundDescription')}
+              actionLabel={t('clearSearch')}
               actionVariant="outline"
               onAction={() => setSearchQuery('')}
             />
@@ -189,14 +239,22 @@ export function MyReportsPage() {
                 <CardContent className="p-5 flex flex-col h-full">
                   <div className="mb-3">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs font-mono text-gray-400 dark:text-gray-500">{getDisplayId(report)}</span>
-                      <Badge variant={statusVariant[report.status] || 'default'} className="capitalize">
-                        {report.status}
+                      <span className="text-xs font-mono text-gray-400 dark:text-gray-500">
+                        {getDisplayId(report)}
+                      </span>
+
+                      <Badge
+                        variant={statusVariant[report.status] || 'default'}
+                        className="capitalize"
+                      >
+                        {getStatusLabel(report.status)}
                       </Badge>
                     </div>
+
                     <h3 className="font-medium text-gray-900 dark:text-white leading-snug">
                       {report.title}
                     </h3>
+
                     <div className="flex flex-wrap items-center gap-1.5 mt-2">
                       <DepartmentCrest
                         department={report.department}
@@ -204,15 +262,21 @@ export function MyReportsPage() {
                         size="xs"
                         variant="chip"
                       />
+
                       {report.category && (
-                        <CategoryAvatar category={report.category} size="xs" />
+                        <CategoryAvatar
+                          category={report.category}
+                          size="xs"
+                        />
                       )}
                     </div>
-                    {report.status === 'Merged - Duplicate' && report.mergedInto && (
-                      <p className="text-xs text-purple-600 dark:text-purple-400 font-medium mt-1">
-                        Consolidated into {report.mergedInto}
-                      </p>
-                    )}
+
+                    {report.status === 'Merged - Duplicate' &&
+                      report.mergedInto && (
+                        <p className="text-xs text-purple-600 dark:text-purple-400 font-medium mt-1">
+                          {t('consolidatedInto')} {report.mergedInto}
+                        </p>
+                      )}
                   </div>
 
                   <div className="mt-auto space-y-2">
@@ -220,9 +284,10 @@ export function MyReportsPage() {
                       <MapPin className="h-3.5 w-3.5 shrink-0" />
                       <span className="truncate">{report.address}</span>
                     </div>
+
                     <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
                       <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                      <span>{formatDate(report.createdAt)}</span>
+                      <span>{formatDate(report.createdAt, language)}</span>
                     </div>
                   </div>
 
@@ -233,18 +298,29 @@ export function MyReportsPage() {
                       className="flex-1 gap-1.5 text-xs h-9"
                       onClick={() => navigate(`/report/${report.id}`)}
                     >
-                      <Eye className="h-3.5 w-3.5" /> View Details
+                      <Eye className="h-3.5 w-3.5" />
+                      {t('viewDetails')}
                     </Button>
+
                     {report.status === 'Pending' && (
                       <>
-                        <Button variant="ghost" size="sm" className="gap-1.5 text-xs h-9" onClick={() => openEdit(report)}>
-                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1.5 text-xs h-9"
+                          onClick={() => openEdit(report)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          {t('edit')}
                         </Button>
+
                         <Button
                           variant="ghost"
                           size="sm"
                           className="gap-1.5 text-xs h-9 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
                           onClick={() => setDeleteTarget(report)}
+                          aria-label={t('deleteComplaint')}
+                          title={t('deleteComplaint')}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -258,34 +334,62 @@ export function MyReportsPage() {
         )}
       </div>
 
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Complaint</DialogTitle>
+            <DialogTitle>{t('deleteComplaint')}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this complaint? This action cannot be undone.
+              {t('deleteComplaintConfirmation')}
             </DialogDescription>
           </DialogHeader>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+            >
+              {t('cancel')}
+            </Button>
+
+            <Button variant="destructive" onClick={handleDelete}>
+              {t('delete')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editTarget} onOpenChange={(open) => { if (!open && !savingEdit) setEditTarget(null) }}>
+      <Dialog
+        open={!!editTarget}
+        onOpenChange={(open) => {
+          if (!open && !savingEdit) setEditTarget(null)
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Complaint</DialogTitle>
-            <DialogDescription>Update the details of your pending complaint.</DialogDescription>
+            <DialogTitle>{t('editComplaint')}</DialogTitle>
+            <DialogDescription>
+              {t('updatePendingComplaint')}
+            </DialogDescription>
           </DialogHeader>
+
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-title">Title</Label>
-              <Input id="edit-title" disabled={savingEdit} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+              <Label htmlFor="edit-title">{t('title')}</Label>
+              <Input
+                id="edit-title"
+                disabled={savingEdit}
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+              />
             </div>
+
             <div className="space-y-2">
-              <Label htmlFor="edit-desc">Description</Label>
+              <Label htmlFor="edit-desc">{t('description')}</Label>
               <textarea
                 id="edit-desc"
                 disabled={savingEdit}
@@ -295,15 +399,29 @@ export function MyReportsPage() {
                 onChange={(e) => setEditDescription(e.target.value)}
               />
             </div>
+
             <div className="space-y-2">
-              <Label htmlFor="edit-addr">Address</Label>
-              <Input id="edit-addr" disabled={savingEdit} value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
+              <Label htmlFor="edit-addr">{t('address')}</Label>
+              <Input
+                id="edit-addr"
+                disabled={savingEdit}
+                value={editAddress}
+                onChange={(e) => setEditAddress(e.target.value)}
+              />
             </div>
           </div>
+
           <DialogFooter>
-            <Button variant="outline" disabled={savingEdit} onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button
+              variant="outline"
+              disabled={savingEdit}
+              onClick={() => setEditTarget(null)}
+            >
+              {t('cancel')}
+            </Button>
+
             <Button onClick={handleEditSave} disabled={savingEdit}>
-              {savingEdit ? 'Saving...' : 'Save Changes'}
+              {savingEdit ? t('saving') : t('saveChanges')}
             </Button>
           </DialogFooter>
         </DialogContent>

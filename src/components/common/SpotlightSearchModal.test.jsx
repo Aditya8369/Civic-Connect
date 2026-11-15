@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SpotlightSearchModal } from './SpotlightSearchModal'
 import * as searchHistory from '@/utils/searchHistory'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 
 if (!window.HTMLElement.prototype.scrollIntoView) {
   window.HTMLElement.prototype.scrollIntoView = vi.fn()
@@ -85,12 +86,14 @@ async function renderModal(props = {}) {
 
   await act(async () => {
     root.render(
-      <SpotlightSearchModal
-        isOpen={true}
-        onClose={vi.fn()}
-        reports={mockReports}
-        {...props}
-      />
+      <LanguageProvider>
+        <SpotlightSearchModal
+          isOpen={true}
+          onClose={vi.fn()}
+          reports={mockReports}
+          {...props}
+        />
+      </LanguageProvider>
     )
   })
 }
@@ -111,12 +114,15 @@ function cleanupComponent() {
 
 describe('SpotlightSearchModal Component', () => {
   beforeEach(() => {
-    localStorage.clear()
-    currentRole = 'citizen'
-    currentUid = 'citizen-1'
-    mockNavigate.mockReset()
-    vi.restoreAllMocks()
-  })
+  localStorage.clear()
+  localStorage.setItem('civic-connect-language', 'en')
+
+  currentRole = 'citizen'
+  currentUid = 'citizen-1'
+
+  mockNavigate.mockReset()
+  vi.restoreAllMocks()
+})
 
   afterEach(() => {
     cleanupComponent()

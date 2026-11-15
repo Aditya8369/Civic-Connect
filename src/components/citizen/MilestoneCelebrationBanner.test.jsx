@@ -7,6 +7,7 @@ import { MilestoneCelebrationBanner } from './MilestoneCelebrationBanner'
 import { BeforeAfterComparisonSlider } from './BeforeAfterComparisonSlider'
 import { ConfettiBurst } from './ConfettiBurst'
 import toast from 'react-hot-toast'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -47,7 +48,11 @@ let root = null
 
 function renderComponent(ui) {
   act(() => {
-    root.render(ui)
+    root.render(
+      <LanguageProvider>
+        {ui}
+      </LanguageProvider>
+    )
   })
 }
 
@@ -56,6 +61,7 @@ beforeEach(() => {
   document.body.appendChild(container)
   root = createRoot(container)
   localStorage.clear()
+  localStorage.setItem('civic-connect-language', 'en')
   vi.clearAllMocks()
 })
 

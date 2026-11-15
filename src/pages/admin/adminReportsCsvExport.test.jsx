@@ -1,7 +1,9 @@
+
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -97,7 +99,11 @@ async function renderPage() {
   root = createRoot(container)
 
   await act(async () => {
-    root.render(<AdminReportsPage />)
+    root.render(
+      <LanguageProvider>
+        <AdminReportsPage />
+      </LanguageProvider>
+    )
   })
 }
 
@@ -121,6 +127,7 @@ const exportedRows = () => mocks.toCsv.mock.calls.at(-1)?.[1]
 
 describe('AdminReportsPage - CSV export', () => {
   beforeEach(() => {
+    localStorage.setItem('civic-connect-language', 'en')
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     vi.clearAllMocks()
 
@@ -144,8 +151,12 @@ describe('AdminReportsPage - CSV export', () => {
   })
 
   afterEach(async () => {
-    await act(async () => root.unmount())
-    container.remove()
+    if (root) {
+      await act(async () => root.unmount())
+    }
+    container?.remove()
+    root = null
+    container = null
     vi.useRealTimers()
   })
 
@@ -204,6 +215,7 @@ describe('AdminReportsPage - CSV export', () => {
     await act(async () => {
       vi.advanceTimersByTime(250)
     })
+
     await act(async () => exportButton().click())
 
     expect(exportedRows().map((row) => row[0])).toEqual([
@@ -269,6 +281,7 @@ describe('AdminReportsPage - CSV export', () => {
       'Could not export reports. Please try again.'
     )
     expect(mocks.toast.success).not.toHaveBeenCalled()
+
     consoleError.mockRestore()
   })
 })

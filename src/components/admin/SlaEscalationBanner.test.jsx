@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -14,21 +15,7 @@ import {
   URGENT_THRESHOLD_MS,
 } from './SlaEscalationBanner'
 import { getSlaTargetDate } from '@/utils/sla'
-
-function nodes(element) {
-  if (!element) return []
-  if (Array.isArray(element)) return element.flatMap(nodes)
-  return element?.props ? [element, ...nodes(element.props.children)] : []
-}
-
-function text(element) {
-  if (element == null) return ''
-  if (Array.isArray(element)) return element.map(text).join('')
-  if (typeof element === 'string' || typeof element === 'number') {
-    return String(element)
-  }
-  return element?.props ? text(element.props.children) : ''
-}
+import { LanguageProvider } from '@/contexts/LanguageContext'
 
 function complaintFromRemainingTime({
   id,
@@ -66,7 +53,11 @@ function renderBanner(props) {
   const root = createRoot(container)
 
   act(() => {
-    root.render(<SlaEscalationBanner {...props} />)
+    root.render(
+      <LanguageProvider>
+        <SlaEscalationBanner {...props} />
+      </LanguageProvider>
+    )
   })
 
   return {
@@ -77,8 +68,10 @@ function renderBanner(props) {
 
 describe('SlaEscalationBanner', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.restoreAllMocks()
     sessionStorage.clear()
+    localStorage.clear()
+    localStorage.setItem('civic-connect-language', 'en')
     document.body.innerHTML = ''
   })
 
@@ -226,7 +219,7 @@ describe('SlaEscalationBanner', () => {
       })
 
       expect(container.textContent).toContain(
-        '2 tickets require immediate attention'
+        '2 tickets require immediate attention.'
       )
       expect(container.textContent).toContain('CC-110')
 
