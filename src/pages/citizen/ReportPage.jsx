@@ -22,6 +22,12 @@ import {
   deleteComplaintEvidence,
 } from '@/firebase/storage'
 import VoiceRecorder from '@/components/citizen/VoiceRecorder'
+import {
+  buildOCRSuggestions,
+  cleanOCRText,
+  extractTextFromImage,
+  terminateWorker,
+} from '@/utils/ocr'
 import { useAuth } from '@/hooks/useAuth'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -158,6 +164,9 @@ export function ReportPage() {
 
   const [photoFile, setPhotoFile] = useState(null)
   const [photoPreview, setPhotoPreview] = useState(null)
+  const [ocrRunning, setOcrRunning] = useState(false)
+  const [ocrText, setOcrText] = useState('')
+  const [ocrAttempted, setOcrAttempted] = useState(false)
   const fileInputRef = useRef(null)
   const [voiceNote, setVoiceNote] = useState(null)
 
@@ -174,7 +183,45 @@ export function ReportPage() {
     }
   }, [photoPreview])
 
-  const handlePhotoChange = (e) => {
+  // Release the shared OCR worker when leaving the report page so its model
+  // and wasm memory do not stay resident for the rest of the session.
+  useEffect(() => {
+    return () => {
+      void terminateWorker()
+    }
+  }, [])
+
+  const runOCRExtraction = useCallback(async (file) => {
+    if (!file) return ''
+
+    const requestId = ocrRequestId.current + 1
+    ocrRequestId.current = requestId
+    setOcrRunning(true)
+    setOcrAttempted(true)
+    setOcrText('')
+
+    let extractedText = ''
+    try {
+      const text = await extractTextFromImage(file)
+      extractedText = typeof text === 'string' ? text : ''
+    } catch (err) {
+      // OCR is an optional convenience; never let it interrupt reporting.
+      console.error('OCR extraction failed:', err)
+    }
+
+    // A newer photo was selected, or the photo was removed while this scan ran.
+    if (ocrRequestId.current !== requestId) return extractedText
+
+    const cleaned = cleanOCRText(extractedText)
+    setOcrText(cleaned)
+    setOcrRunning(false)
+
+    // Only suggest the text here. The citizen decides whether to apply it to
+    // the title or address using the buttons in the suggestion panel.
+    return extractedText
+  }, [])
+
+  const handlePhotoChange = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -188,6 +235,11 @@ export function ReportPage() {
     if (photoPreview) URL.revokeObjectURL(photoPreview)
     setPhotoFile(file)
     setPhotoPreview(URL.createObjectURL(file))
+    setOcrText('')
+    setOcrAttempted(false)
+
+    // Kick off OCR immediately so a suggestion is ready after upload.
+    await runOCRExtraction(file)
   }
 
   const handleRemovePhoto = () => {
@@ -195,6 +247,11 @@ export function ReportPage() {
     setPhotoFile(null)
     setPhotoPreview(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const extractOCRSuggestion = () => {
+    if (!photoFile || ocrRunning) return Promise.resolve('')
+    return runOCRExtraction(photoFile)
   }
 
   const checkDuplicates = useCallback(async (cat, lat, lng) => {
@@ -467,6 +524,26 @@ export function ReportPage() {
     }
   }
 
+  const ocrSuggestions = buildOCRSuggestions(ocrText)
+
+  const applyOCRSuggestion = (field) => {
+    const value =
+      field === 'address' ? ocrSuggestions.address : ocrSuggestions.title
+    if (!value) return
+
+    if (field === 'address') {
+      setAddress(value)
+    } else {
+      setTitle(value)
+    }
+
+    // Bring the filled field into view so the citizen can see and edit it.
+    const input =
+      field === 'address' ? addressInputRef.current : titleInputRef.current
+    input?.focus?.()
+    input?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  }
+
   return (
     <div>
       <PageHeader
@@ -598,6 +675,91 @@ export function ReportPage() {
                     </Button>
                   </div>
                 )}
+
+                {photoFile && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="text-sm font-medium text-primary-600 dark:text-primary-400"
+                      onClick={extractOCRSuggestion}
+                      disabled={submitting || ocrRunning}
+                    >
+                      <Camera className="h-4 w-4 mr-1" />
+                      Suggest from photo
+                    </Button>
+
+                    {ocrRunning && (
+                      <span
+                        className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+                        role="status"
+                      >
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Extracting text from photo (up to 5s)...
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {ocrText && !submitting && (
+                  <div
+                    className="mt-2 p-3 bg-primary-50 dark:bg-primary-950/40 rounded border border-primary-200 dark:border-primary-400"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <p className="text-sm font-medium text-primary-800 dark:text-primary-200">
+                      Text found in your photo. Use it to fill a field:
+                    </p>
+                    <p className="text-sm text-primary-900 dark:text-primary-100 line-clamp-3 mt-1 whitespace-pre-line">
+                      {ocrText}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5 text-xs"
+                        onClick={() => applyOCRSuggestion('title')}
+                        disabled={submitting || !ocrSuggestions.title}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        Use as title
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1.5 text-xs"
+                        onClick={() => applyOCRSuggestion('address')}
+                        disabled={submitting || !ocrSuggestions.address}
+                      >
+                        <MapPin className="h-3.5 w-3.5" />
+                        Use as address
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 gap-1.5 text-xs text-gray-600 dark:text-gray-300"
+                        onClick={() => setOcrText('')}
+                        disabled={submitting}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {photoFile && ocrAttempted && !ocrRunning && !ocrText && (
+                  <p
+                    className="mt-2 text-xs text-gray-500 dark:text-gray-400"
+                    role="status"
+                  >
+                    No readable text found in this photo. You can still fill in
+                    the details manually.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -627,6 +789,7 @@ export function ReportPage() {
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     id="address"
+                    ref={addressInputRef}
                     className="pl-9"
                     placeholder={t('addressPlaceholder')}
                     value={address}
