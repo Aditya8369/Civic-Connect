@@ -133,3 +133,32 @@ it('commitComplaintTransition commits audit event atomically with issue changes'
   })
 })
 
+it('buildComplaintEvent properly formats events for all lifecycle actions', () => {
+  const allowedActions = [
+    'Complaint submitted',
+    'Status changed',
+    'Department assigned',
+    'Field worker designated',
+    'Resolution notes updated',
+    'Complaint merged',
+    'Duplicate complaint consolidated',
+    'Citizen appeal',
+  ]
+
+  for (const action of allowedActions) {
+    const event = buildComplaintEvent({
+      actorUid: 'user-xyz',
+      action,
+      previousStatus: 'Pending',
+      newStatus: 'In Progress',
+      remarks: `Executed ${action}`,
+    })
+
+    expect(event.action).toBe(action)
+    expect(event.actorUid).toBe('user-xyz')
+    expect(event.timestamp).toBe('server-time')
+    expect(event.remarks).toBe(`Executed ${action}`)
+  }
+})
+
+
