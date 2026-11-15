@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
@@ -76,6 +75,8 @@ import ComplaintAudioPlayer from '@/components/citizen/ComplaintAudioPlayer'
 import ResolutionProofSlider, { getResolutionPhoto } from '@/components/citizen/ResolutionProofSlider'
 import { ComplaintLocationMap } from '@/components/common/ComplaintLocationMap'
 
+export { getResolutionPhoto }
+
 const statusVariant = {
   Resolved: 'success',
   'In Progress': 'warning',
@@ -132,118 +133,6 @@ function canRejectComplaint(complaint) {
 
 function canMergeComplaint(complaint) {
   return ['Pending', 'In Progress', 'Reopened'].includes(complaint?.status)
-}
-
-export function getResolutionPhoto(complaint) {
-  const photos =
-    complaint?.resolutionPhotos ||
-    complaint?.resolutionEvidence ||
-    (complaint?.resolutionPhotoUrl
-      ? [complaint.resolutionPhotoUrl]
-      : [])
-
-  if (Array.isArray(photos)) return photos[0] || null
-  return typeof photos === 'string' ? photos : null
-}
-
-function EvidenceImage({ src, alt, onClick, className = '' }) {
-  return (
-    <img
-      src={src}
-      alt={alt}
-      className={`absolute inset-0 h-full w-full object-cover ${
-        onClick ? 'cursor-pointer' : ''
-      } ${className}`}
-      onClick={onClick}
-    />
-  )
-}
-
-function ResolutionProofSlider({
-  beforePhoto,
-  afterPhoto,
-  onImageClick,
-  t,
-}) {
-  const [splitPosition, setSplitPosition] = useState(50)
-
-  if (!beforePhoto && !afterPhoto) return null
-
-  if (!beforePhoto || !afterPhoto) {
-    const photo = beforePhoto || afterPhoto
-
-    return (
-      <div className="relative aspect-[16/10] w-full max-w-xl overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-900">
-        <EvidenceImage
-          src={photo}
-          alt={
-            beforePhoto
-              ? t('complaintEvidenceImage')
-              : t('resolutionEvidenceImage')
-          }
-          onClick={onImageClick}
-        />
-        <span className="absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
-          {beforePhoto ? t('before') : t('after')}
-        </span>
-      </div>
-    )
-  }
-
-  return (
-    <div
-      className="relative aspect-[16/10] w-full max-w-xl overflow-hidden rounded-lg bg-gray-100 select-none dark:bg-gray-900"
-      data-testid="resolution-proof-slider"
-    >
-      <EvidenceImage
-        src={beforePhoto}
-        alt={t('beforeComplaintEvidence')}
-        onClick={onImageClick}
-      />
-
-      <div
-        className="absolute inset-y-0 left-0 overflow-hidden"
-        style={{ width: `${splitPosition}%` }}
-      >
-        <EvidenceImage
-          src={afterPhoto}
-          alt={t('afterResolutionEvidence')}
-          onClick={onImageClick}
-          className="max-w-none"
-        />
-      </div>
-
-      <span className="absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
-        {t('after')}
-      </span>
-
-      <span className="absolute right-2 top-2 rounded bg-black/65 px-2 py-1 text-[11px] font-medium text-white">
-        {t('before')}
-      </span>
-
-      <div
-        className="pointer-events-none absolute inset-y-0 z-10 w-0.5 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.25)]"
-        style={{ left: `${splitPosition}%` }}
-        aria-hidden="true"
-      >
-        <span className="absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-xs font-bold text-gray-700 shadow-md">
-          ↔
-        </span>
-      </div>
-
-      <input
-        type="range"
-        min="0"
-        max="100"
-        value={splitPosition}
-        onChange={(event) =>
-          setSplitPosition(Number(event.target.value))
-        }
-        aria-label={t('compareBeforeAfterEvidence')}
-        className="absolute inset-0 z-20 h-full w-full cursor-ew-resize opacity-0"
-      />
-    </div>
-  )
 }
 
 export function AdminComplaintDetailsPage() {

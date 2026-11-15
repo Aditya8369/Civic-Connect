@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react'
 import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
 import { useNavigate } from 'react-router-dom'
@@ -20,7 +19,6 @@ import {
   requestPushPermission,
 } from '@/firebase/notifications'
 import { EmptyState } from '@/components/common/EmptyState'
-import { formatRelativeTime } from '@/utils/relativeTime'
 import toast from 'react-hot-toast'
 import { useLanguage } from '@/contexts/LanguageContext'
 
@@ -322,5 +320,3 @@ export function NotificationCenter({ className = '' }) {
 }
 
 export default NotificationCenter
-
-
