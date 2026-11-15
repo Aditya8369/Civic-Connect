@@ -72,7 +72,7 @@ export function Footer({
         'relative border-t border-slate-800 bg-slate-900 text-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400',
         className
       )}
-      aria-label={t('footerMunicipalPortal')}
+      aria-label="Municipal Portal Footer"
     >
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
         <div className="grid grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-4 lg:gap-8">
