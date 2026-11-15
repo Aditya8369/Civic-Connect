@@ -5,6 +5,10 @@ import {
   getPendingComplaints,
   removeOfflineComplaint,
   getPendingComplaintCount,
+  updateOfflineComplaintStatus,
+  markComplaintSyncing,
+  markComplaintPending,
+  resetStaleSyncingComplaints,
 } from './offlineQueue'
 
 describe('offlineQueue photo evidence preservation (Issue #145)', () => {
@@ -15,6 +19,15 @@ describe('offlineQueue photo evidence preservation (Issue #145)', () => {
 
     const mockIDBStore = {
       add: vi.fn(record => {
+        mockStore.set(record.localId, record)
+      }),
+      get: vi.fn(localId => {
+        const record = mockStore.get(localId)
+        const req = { result: record ? { ...record } : undefined }
+        setTimeout(() => req.onsuccess?.(), 0)
+        return req
+      }),
+      put: vi.fn(record => {
         mockStore.set(record.localId, record)
       }),
       getAll: vi.fn(() => {
@@ -37,7 +50,7 @@ describe('offlineQueue photo evidence preservation (Issue #145)', () => {
     const mockDB = {
       transaction: vi.fn(() => {
         const tx = { ...mockIDBTransaction }
-        setTimeout(() => tx.oncomplete?.(), 0)
+        setTimeout(() => tx.oncomplete?.(), 10)
         return tx
       }),
       close: vi.fn(),
@@ -115,5 +128,42 @@ describe('offlineQueue photo evidence preservation (Issue #145)', () => {
     expect(normalizePhotoFile({ title: 'Just text' })).toBeNull()
     expect(normalizePhotoFile(null)).toBeNull()
     expect(normalizePhotoFile(undefined)).toBeNull()
+  })
+
+  it('marks complaints as syncing and updates syncAttemptAt', async () => {
+    const saved = await saveOfflineComplaint({ title: 'Street light broken', userId: 'user-1' })
+    expect(saved.syncStatus).toBe('pending')
+
+    await markComplaintSyncing(saved.localId)
+    const updated = mockStore.get(saved.localId)
+    expect(updated.syncStatus).toBe('syncing')
+    expect(updated.syncAttemptAt).toBeDefined()
+
+    // While syncing, it should not appear in fresh getPendingComplaints
+    const pending = await getPendingComplaints('user-1')
+    expect(pending).toHaveLength(0)
+
+    // Mark back to pending on sync failure
+    await markComplaintPending(saved.localId)
+    const reverted = mockStore.get(saved.localId)
+    expect(reverted.syncStatus).toBe('pending')
+
+    const pendingAgain = await getPendingComplaints('user-1')
+    expect(pendingAgain).toHaveLength(1)
+  })
+
+  it('resets stale syncing complaints if a previous tab crashed mid-sync', async () => {
+    const saved = await saveOfflineComplaint({ title: 'Flooded road', userId: 'user-2' })
+    // Simulate complaint stuck in syncing with attempt timestamp from 5 minutes ago
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    mockStore.set(saved.localId, {
+      ...saved,
+      syncStatus: 'syncing',
+      syncAttemptAt: fiveMinutesAgo,
+    })
+
+    const resetCount = await resetStaleSyncingComplaints('user-2', 60000)
+    expect(resetCount).toBe(1)
+    expect(mockStore.get(saved.localId).syncStatus).toBe('pending')
   })
 })
