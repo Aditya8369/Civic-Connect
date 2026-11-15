@@ -1,5 +1,3 @@
- feat/municipal-accessibility-themes
-
 import { useState, useEffect } from 'react'
 import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
 import { useNavigate } from 'react-router-dom'
