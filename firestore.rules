@@ -126,11 +126,15 @@ service cloud.firestore {
                     request.resource.data.reportedBy == request.auth.uid &&
                     request.resource.data.status == 'Pending' &&
                     !request.resource.data.keys().hasAny(['feedback']);
-      allow update: if (isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
-                        ((resource.data.status == 'Pending' &&
-                          request.resource.data.status == 'Pending' &&
-                          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['feedback'])) ||
-                         isCitizenAppeal() || isResolutionFeedback())) || isAdmin();
+      allow update: if (isAuthenticated() && (
+                        (resource.data.reportedBy == request.auth.uid &&
+                          ((resource.data.status == 'Pending' &&
+                            request.resource.data.status == 'Pending' &&
+                            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['feedback'])) ||
+                           isCitizenAppeal() || isResolutionFeedback())) ||
+                        isCitizenUpvote() ||
+                        isCitizenEndorsement()
+                      )) || isAdmin();
       allow delete: if isAuthenticated() && resource.data.reportedBy == request.auth.uid &&
                     resource.data.status == 'Pending';
 
@@ -182,7 +186,13 @@ service cloud.firestore {
     }
 
     match /counters/{counterId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated();
+      // Counter must be a positive integer and monotonically non-decreasing to prevent corruption & DoS
+      allow write: if isAuthenticated() &&
+                   request.resource.data.lastNumber is int &&
+                   request.resource.data.lastNumber > 0 &&
+                   (!exists(/databases/$(database)/documents/counters/$(counterId)) ||
+                    request.resource.data.lastNumber >= resource.data.lastNumber);
     }
 
     match /leaderboard/{userId} {
