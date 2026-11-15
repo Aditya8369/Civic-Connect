@@ -160,8 +160,47 @@ service cloud.firestore {
 
       // Immutable event audit trail sub-collection
       match /events/{eventId} {
+        function isValidEventSchema() {
+          let data = request.resource.data;
+          let allowedActions = [
+            'Complaint submitted',
+            'Status changed',
+            'Department assigned',
+            'Field worker designated',
+            'Resolution notes updated',
+            'Complaint merged',
+            'Duplicate complaint consolidated',
+            'Citizen appeal'
+          ];
+          return data.keys().hasOnly(['timestamp', 'actorUid', 'action', 'previousStatus', 'newStatus', 'remarks']) &&
+                 data.keys().hasAll(['action', 'actorUid']) &&
+                 data.actorUid == request.auth.uid &&
+                 data.action in allowedActions &&
+                 (data.get('timestamp', null) == null || data.timestamp == request.time || data.timestamp is timestamp) &&
+                 (data.get('remarks', '') is string && data.get('remarks', '').size() <= 1000) &&
+                 (data.get('previousStatus', null) == null || data.previousStatus is string) &&
+                 (data.get('newStatus', null) == null || data.newStatus is string);
+        }
+
+        function isComplaintAuthor() {
+          let issuePath = /databases/$(database)/documents/issues/$(issueId);
+          return (exists(issuePath) && get(issuePath).data.reportedBy == request.auth.uid) ||
+                 (getAfter(issuePath).data.reportedBy == request.auth.uid);
+        }
+
+        function isAuthorizedEventCreator() {
+          let action = request.resource.data.action;
+          let citizenAllowed = isComplaintAuthor() && (
+            action in ['Complaint submitted', 'Citizen appeal'] ||
+            (action == 'Status changed' && request.resource.data.get('newStatus', null) == 'Reopened')
+          );
+          return isAdmin() || citizenAllowed;
+        }
+
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated();
+        allow create: if isAuthenticated() &&
+                      isValidEventSchema() &&
+                      isAuthorizedEventCreator();
         allow update, delete: if false;
       }
     }
