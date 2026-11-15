@@ -1,10 +1,14 @@
+
 import { Skeleton } from '@/components/ui/skeleton'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 export function PageSkeleton() {
+  const { t } = useLanguage()
+
   return (
     <div
       role="status"
-      aria-label="Loading page content"
+      aria-label={t('loadingPageContent')}
       className="w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6 animate-pulse"
     >
       {/* Top bar with branded loader */}
@@ -16,6 +20,7 @@ export function PageSkeleton() {
           </div>
           <Skeleton className="h-4 w-32 sm:w-48" />
         </div>
+
         <div className="flex items-center gap-2">
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
           <Skeleton className="h-9 w-24 rounded-lg hidden sm:block" />
@@ -70,8 +75,8 @@ export function PageSkeleton() {
           </div>
         </div>
       </div>
-      <span className="sr-only">Loading page...</span>
+
+      <span className="sr-only">{t('loadingPage')}</span>
     </div>
   )
 }
-

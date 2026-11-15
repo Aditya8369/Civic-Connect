@@ -1,3 +1,4 @@
+
 import { NavLink, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -14,25 +15,27 @@ import {
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/hooks/useAuth'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 const citizenLinks = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/report', label: 'New Complaint', icon: PlusCircle },
-  { to: '/my-reports', label: 'My Reports', icon: ClipboardList },
-  { to: '/notifications', label: 'Notifications', icon: Bell },
-  { to: '/profile', label: 'Profile', icon: User },
-  { to: '/help', label: 'Help & Support', icon: HelpCircle },
+  { to: '/dashboard', label: 'dashboard', icon: LayoutDashboard },
+  { to: '/report', label: 'newComplaint', icon: PlusCircle },
+  { to: '/my-reports', label: 'myReports', icon: ClipboardList },
+  { to: '/notifications', label: 'notifications', icon: Bell },
+  { to: '/profile', label: 'profile', icon: User },
+  { to: '/help', label: 'helpSupport', icon: HelpCircle },
 ]
 
 const adminLinks = [
-  { to: '/admin/dashboard', label: 'Dashboard', icon: Shield },
-  { to: '/admin/reports', label: 'Manage Reports', icon: Flag },
-  { to: '/admin/notifications', label: 'Notifications', icon: Bell },
-  { to: '/admin/settings', label: 'Settings', icon: Settings },
+  { to: '/admin/dashboard', label: 'dashboard', icon: Shield },
+  { to: '/admin/reports', label: 'manageReports', icon: Flag },
+  { to: '/admin/notifications', label: 'notifications', icon: Bell },
+  { to: '/admin/settings', label: 'settings', icon: Settings },
 ]
 
 export function Sidebar({ className }) {
   const { user, logout } = useAuth()
+  const { t } = useLanguage()
   const navigate = useNavigate()
   const isAdmin = user?.role === 'admin'
   const links = isAdmin ? adminLinks : citizenLinks
@@ -57,7 +60,7 @@ export function Sidebar({ className }) {
       </div>
 
       <nav
-        aria-label="Primary navigation"
+        aria-label={t('primaryNavigation')}
         className="flex-1 space-y-1 px-3 py-4"
       >
         {links.map((link) => (
@@ -74,10 +77,11 @@ export function Sidebar({ className }) {
             }
           >
             <link.icon className="h-5 w-5 shrink-0" />
-            <span>{link.label}</span>
+            <span>{t(link.label)}</span>
           </NavLink>
         ))}
       </nav>
+
       <motion.button
         type="button"
         onClick={handleLogout}
@@ -85,7 +89,7 @@ export function Sidebar({ className }) {
         whileTap={{ scale: 0.97 }}
       >
         <LogOut className="h-5 w-5 shrink-0" />
-        <span>Logout</span>
+        <span>{t('logout')}</span>
       </motion.button>
     </aside>
   )

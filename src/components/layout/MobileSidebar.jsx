@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X } from 'lucide-react'
 import { Sidebar } from './Sidebar'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -16,6 +17,8 @@ const FOCUSABLE_SELECTOR = [
 export function MobileSidebar({ open, onClose }) {
   const panelRef = useRef(null)
   const onCloseRef = useRef(onClose)
+
+  const { language, setLanguage } = useLanguage()
 
   // Keep the latest close callback without restarting the focus effect.
   onCloseRef.current = onClose
@@ -134,7 +137,47 @@ export function MobileSidebar({ open, onClose }) {
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
 
-            <Sidebar />
+            <div className="h-full overflow-y-auto">
+              {/* Mobile language switcher */}
+              <div className="flex items-center justify-between border-b border-gray-200/20 px-5 py-3">
+                <span className="text-sm font-medium text-gray-500">
+                  Language
+                </span>
+
+                <div
+                  className="flex items-center gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-800"
+                  aria-label="Select language"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setLanguage('en')}
+                    aria-pressed={language === 'en'}
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      language === 'en'
+                        ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white'
+                        : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                    }`}
+                  >
+                    EN
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setLanguage('hi')}
+                    aria-pressed={language === 'hi'}
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      language === 'hi'
+                        ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white'
+                        : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                    }`}
+                  >
+                    हिंदी
+                  </button>
+                </div>
+              </div>
+
+              <Sidebar />
+            </div>
           </motion.div>
         </>
       )}

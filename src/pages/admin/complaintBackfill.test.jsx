@@ -37,7 +37,19 @@ vi.mock('firebase/firestore', () => ({
   getDoc: async () => ({ exists: () => false }),
   serverTimestamp: vi.fn(), collection: vi.fn(), addDoc: vi.fn(),
 }))
+vi.mock('@/contexts/LanguageContext', () => ({
+  useLanguage: () => ({
+    language: 'en',
+    setLanguage: vi.fn(),
+    t: (key) => {
+      const translations = {
+        retryTicketId: 'Retry ticket ID',
+      }
 
+      return translations[key] ?? key
+    },
+  }),
+}))
 const flush = () => new Promise(resolve => setImmediate(resolve))
 function mount() {
   const instance = { cursor: 0, values: [], effects: [], mounted: false }
