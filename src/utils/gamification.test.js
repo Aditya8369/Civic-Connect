@@ -29,13 +29,32 @@ describe('Gamification Utility Engine', () => {
       expect(toDate('invalid-date')).toBeNull()
     })
 
+    // Local-time constructors keep these tests independent of the machine's time zone.
     it('correctly compares dates within the same month and year', () => {
-      const ref = new Date('2026-11-15T00:00:00Z')
-      expect(isSameMonth(new Date('2026-11-01T08:00:00Z'), ref)).toBe(true)
-      expect(isSameMonth(new Date('2026-11-30T23:59:59Z'), ref)).toBe(true)
-      expect(isSameMonth(new Date('2026-10-31T23:59:59Z'), ref)).toBe(false)
-      expect(isSameMonth(new Date('2025-11-15T00:00:00Z'), ref)).toBe(false)
+      const ref = new Date(2026, 10, 15, 12, 0, 0)
+      expect(isSameMonth(new Date(2026, 10, 1, 8, 0, 0), ref)).toBe(true)
+      expect(isSameMonth(new Date(2026, 10, 30, 23, 59, 59), ref)).toBe(true)
+      expect(isSameMonth(new Date(2026, 9, 31, 23, 59, 59), ref)).toBe(false)
+      expect(isSameMonth(new Date(2025, 10, 15, 12, 0, 0), ref)).toBe(false)
       expect(isSameMonth(null, ref)).toBe(false)
+    })
+
+    it('uses the local calendar month around midnight on the 1st', () => {
+      const firstOfDecember = new Date(2026, 11, 1, 9, 0, 0)
+      // Filed half an hour into 1 December, local time
+      expect(isSameMonth(new Date(2026, 11, 1, 0, 30, 0), firstOfDecember)).toBe(true)
+      // Filed half an hour before midnight on 30 November, local time
+      expect(isSameMonth(new Date(2026, 10, 30, 23, 30, 0), firstOfDecember)).toBe(false)
+    })
+
+    it('counts a report filed just after midnight on the 1st in that month', () => {
+      const filed = [{ id: 'c1', status: 'Pending', createdAt: new Date(2026, 11, 1, 1, 0, 0) }]
+      const decemberResult = computeCivicScore(filed, [], new Date(2026, 11, 1, 9, 0, 0))
+      expect(decemberResult.breakdown.monthlyFiled).toBe(1)
+
+      const lastMonth = [{ id: 'c0', status: 'Pending', createdAt: new Date(2026, 10, 30, 22, 0, 0) }]
+      const stillDecember = computeCivicScore(lastMonth, [], new Date(2026, 11, 1, 2, 0, 0))
+      expect(stillDecember.breakdown.monthlyFiled).toBe(0)
     })
   })
 
