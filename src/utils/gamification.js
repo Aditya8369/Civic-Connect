@@ -158,15 +158,17 @@ export function toDate(val) {
 }
 
 /**
- * Checks if two dates fall into the same calendar month and year.
+ * Checks if two dates fall into the same calendar month and year, in the
+ * user's local time zone. computeCivicScore labels the month (monthName) in
+ * local time too, so the score and its label always refer to the same month.
  */
 export function isSameMonth(dateA, referenceDate = new Date()) {
   const d = toDate(dateA)
   const ref = toDate(referenceDate)
   if (!d || !ref) return false
   return (
-    d.getUTCFullYear() === ref.getUTCFullYear() &&
-    d.getUTCMonth() === ref.getUTCMonth()
+    d.getFullYear() === ref.getFullYear() &&
+    d.getMonth() === ref.getMonth()
   )
 }
 
