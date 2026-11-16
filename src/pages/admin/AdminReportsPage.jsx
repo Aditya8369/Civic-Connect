@@ -814,7 +814,7 @@ export function AdminReportsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visibleComplaints.map((complaint) => {
-            const user = userCache[complaint.reportedBy]
+            const reportedUser = userCache[complaint.reportedBy]
             const isSelected = selectedIds.includes(complaint.id)
 
             return (

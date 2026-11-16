@@ -168,6 +168,8 @@ export function ReportPage() {
   const [ocrText, setOcrText] = useState('')
   const [ocrAttempted, setOcrAttempted] = useState(false)
   const fileInputRef = useRef(null)
+  const addressInputRef = useRef(null)
+  const titleInputRef = useRef(null)
   const [voiceNote, setVoiceNote] = useState(null)
 
   const [checkingDuplicates, setCheckingDuplicates] = useState(false)

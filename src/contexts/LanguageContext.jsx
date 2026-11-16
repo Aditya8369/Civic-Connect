@@ -83,10 +83,19 @@ export function LanguageProvider({ children }) {
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function useLanguage() {
-  const context = useContext(LanguageContext)
+  let context = null
+  try {
+    context = useContext(LanguageContext)
+  } catch {
+    context = null
+  }
 
   if (!context) {
-    throw new Error('useLanguage must be used within LanguageProvider')
+    return {
+      language: 'en',
+      setLanguage: () => {},
+      t: (key) => translations.en[key] ?? key,
+    }
   }
 
   return context
