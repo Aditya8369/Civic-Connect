@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   collection,
@@ -7,12 +7,14 @@ import {
   onSnapshot,
   doc,
   runTransaction,
-  addDoc,
-  serverTimestamp,
   orderBy,
   limit,
 } from 'firebase/firestore'
 import { db } from '@/firebase/services'
+import {
+  createCommentSubscriptionManager,
+  postIssueComment,
+} from '@/firebase/communityComments'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
@@ -42,6 +44,20 @@ export default function CommunityFeed() {
   const [commentsData, setCommentsData] = useState({})
   const [newComment, setNewComment] = useState({})
   const [submittingComment, setSubmittingComment] = useState({})
+
+  // Active real-time listeners for complaint comment drawers
+  const commentManagerRef = useRef(null)
+  if (!commentManagerRef.current) {
+    commentManagerRef.current = createCommentSubscriptionManager(db)
+  }
+
+  // Teardown all real-time subscriptions when CommunityFeed unmounts
+  useEffect(() => {
+    const manager = commentManagerRef.current
+    return () => {
+      manager.unsubscribeAll()
+    }
+  }, [])
 
   // Fetch live community complaints
   useEffect(() => {
@@ -123,28 +139,34 @@ export default function CommunityFeed() {
 
   // Comments Toggle & Listener
   const toggleComments = (issueId) => {
-    setOpenComments((prev) => {
-      const nextState = !prev[issueId]
+    const isCurrentlyOpen = !!openComments[issueId]
+    const nextState = !isCurrentlyOpen
 
-      if (nextState && !commentsData[issueId]) {
-        const commentsRef = collection(db, 'issues', issueId, 'comments')
-        const q = query(commentsRef, orderBy('createdAt', 'asc'))
-
-        onSnapshot(q, (snapshot) => {
-          const list = snapshot.docs.map((d) => ({
-            id: d.id,
-            ...d.data(),
-          }))
-
-          setCommentsData((cd) => ({
-            ...cd,
-            [issueId]: list,
-          }))
-        })
+    if (!nextState) {
+      // Drawer collapsed: terminate real-time listener to prevent memory leaks and quota burn
+      commentManagerRef.current.unsubscribe(issueId)
+    } else {
+      // Drawer opened: register real-time listener if not already active
+      if (!commentManagerRef.current.has(issueId)) {
+        commentManagerRef.current.subscribe(
+          issueId,
+          (list) => {
+            setCommentsData((cd) => ({
+              ...cd,
+              [issueId]: list,
+            }))
+          },
+          (error) => {
+            console.error(`Error listening to comments for issue ${issueId}:`, error)
+          }
+        )
       }
+    }
 
-      return { ...prev, [issueId]: nextState }
-    })
+    setOpenComments((prev) => ({
+      ...prev,
+      [issueId]: nextState,
+    }))
   }
 
   // Submit Comment
@@ -164,13 +186,12 @@ export default function CommunityFeed() {
     }))
 
     try {
-      const commentsRef = collection(db, 'issues', issueId, 'comments')
-
-      await addDoc(commentsRef, {
+      await postIssueComment({
+        issueId,
         text,
         authorName: user.name || 'Citizen',
         authorId: user.uid,
-        createdAt: serverTimestamp(),
+        customDb: db,
       })
 
       setNewComment((prev) => ({
