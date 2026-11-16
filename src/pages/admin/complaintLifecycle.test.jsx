@@ -293,7 +293,7 @@ for (const action of actions) {
       title: action.title, type: 'status_update', issueId: ui.original.complaintId,
       recipientUid: action.label === 'reopening' ? null : 'citizen-1',
       recipientRole: action.label === 'reopening' ? 'admin' : 'citizen',
-      senderUid: action.label === 'reopening' ? 'citizen-1' : '',
+      senderUid: 'citizen-1',
       read: false, createdAt: 'server-time', message: expect.stringContaining(
         action.label === 'progression' ? 'Resolved' : 'Needs follow-up',
       ),
