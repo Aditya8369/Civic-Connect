@@ -67,6 +67,33 @@ export function normalizePhotoFile(complaint) {
   return blob
 }
 
+// Normalize audio evidence from queue record to a valid Blob
+export function normalizeAudioBlob(complaint) {
+  const audio = complaint?.audioBlob || complaint?.audioFile || complaint?.voiceNote?.blob
+  if (!audio) return null
+
+  const type = audio.type || complaint?.audioMimeType || complaint?.audioContentType || 'audio/webm'
+  const blob = audio.blob || audio
+
+  if (typeof Blob !== 'undefined') {
+    if (blob instanceof Blob && blob.type === type) {
+      return blob
+    }
+    try {
+      return new Blob([blob], { type })
+    } catch {
+      // Continue to fallback if constructor fails
+    }
+  }
+
+  if (!blob.type) {
+    try {
+      Object.defineProperty(blob, 'type', { value: type, configurable: true, writable: true })
+    } catch {}
+  }
+  return blob
+}
+
 // Save a complaint for later submission.
 export async function saveOfflineComplaint(complaint) {
   const db = await openDatabase()
@@ -75,11 +102,18 @@ export async function saveOfflineComplaint(complaint) {
   const photoName = photoFile?.name || complaint.photoName || null
   const photoType = photoFile?.type || complaint.photoType || null
 
+  const audioBlob = complaint.audioBlob || complaint.audioFile || complaint.voiceNote?.blob || null
+  const audioDuration = complaint.audioDuration ?? complaint.voiceNote?.durationSeconds ?? null
+  const audioMimeType = audioBlob?.type || complaint.audioMimeType || complaint.audioContentType || complaint.voiceNote?.contentType || null
+
   const record = {
     ...complaint,
     photoFile,
     photoName,
     photoType,
+    audioBlob,
+    audioDuration,
+    audioMimeType,
     localId: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
     syncStatus: 'pending',

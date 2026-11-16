@@ -363,11 +363,6 @@ export function ReportPage() {
       return
     }
 
-    if (!navigator.onLine && voiceNote?.blob) {
-      toast.error(t('voiceNoteNeedsInternet'))
-      return
-    }
-
     isSubmittingRef.current = true
     setSubmitting(true)
 
@@ -392,6 +387,9 @@ export function ReportPage() {
           longitude: longitude ? parseFloat(longitude) : null,
           userId: user.uid,
           photoFile: photoFile || null,
+          audioBlob: voiceNote?.blob || null,
+          audioDuration: voiceNote?.durationSeconds || null,
+          audioMimeType: voiceNote?.contentType || null,
         })
 
         recordSubmissionTimestamp(user.uid, Date.now())
