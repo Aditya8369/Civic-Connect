@@ -74,6 +74,37 @@ describe('serverless API', () => {
     expect(response.text).not.toContain('private database details')
   })
 
+  it('returns 400, not 500, for malformed JSON bodies', async () => {
+    const response = await request(app)
+      .post('/api/v1/system/status')
+      .set('content-type', 'application/json')
+      .send('{bad json')
+      .expect(400)
+    expect(response.body.error.code).toBe('bad_request')
+    expect(response.body.error.message).toBe('The request could not be processed.')
+  })
+
+  it('returns 413 for oversized JSON bodies', async () => {
+    const response = await request(app)
+      .post('/api/v1/system/status')
+      .set('content-type', 'application/json')
+      .send(JSON.stringify({ data: 'x'.repeat(1_100_000) }))
+      .expect(413)
+    expect(response.body.error.code).toBe('payload_too_large')
+  })
+
+  it('checks token revocation only on role-protected routes', async () => {
+    verifyIdToken.mockResolvedValue({ uid: 'admin-1', roles: ['admin'] })
+    const protectedApp = express()
+    protectedApp.get('/admin', requireAuth(['admin']), (_req, res) => res.json({ success: true }))
+    await request(protectedApp).get('/admin').set('authorization', 'Bearer valid-token').expect(200)
+    expect(verifyIdToken).toHaveBeenLastCalledWith('valid-token', true)
+
+    verifyIdToken.mockResolvedValue({ uid: 'user-1' })
+    await request(app).get('/api/v1/system/status').set('authorization', 'Bearer valid-token').expect(200)
+    expect(verifyIdToken).toHaveBeenLastCalledWith('valid-token', false)
+  })
+
   it('checks custom role claims when a route requires a role', async () => {
     verifyIdToken.mockResolvedValue({ uid: 'user-1', roles: ['citizen'] })
     const protectedApp = express()

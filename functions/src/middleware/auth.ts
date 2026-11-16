@@ -15,7 +15,7 @@ export function requireAuth(roles: string[] = []): RequestHandler {
     if (!match) return next(new ApiError(401, 'A valid Bearer token is required.', 'unauthenticated'))
 
     try {
-      const decoded = await getAdminAuth().verifyIdToken(match[1])
+      const decoded = await getAdminAuth().verifyIdToken(match[1], roles.length > 0)
       req.user = decoded
       if (roles.length) {
         const claims = decoded as typeof decoded & { role?: string; roles?: string[] }
