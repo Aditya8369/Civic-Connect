@@ -45,12 +45,15 @@ async function seedIssue() {
   const id = `comm-issue-${randomUUID()}`
   await setDoc(issue(author, id), {
     title: 'Broken park bench',
+    description: 'The bench slats are cracked and unsafe',
     category: 'Parks',
     status: 'Pending',
+    department: '',
     reportedBy: authorUid,
     upvotedBy: [],
     upvotesCount: 0,
     createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   })
   return id
 }

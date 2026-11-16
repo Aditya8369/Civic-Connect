@@ -36,8 +36,17 @@ const ago = ms => Timestamp.fromMillis(Date.now() - ms)
 const denied = promise => assert.rejects(promise, { code: 'permission-denied' })
 
 async function seed({ status = 'Resolved', resolvedAt = ago(60000) } = {}) {
-  const id = `appeal-${randomUUID()}`
-  await setDoc(issue(owner, id), { status: 'Pending', reportedBy: ownerUid, title: 'Broken lamp', department: 'Electricity' })
+  const id = `ap-${randomUUID()}`
+  await setDoc(issue(owner, id), {
+    status: 'Pending',
+    reportedBy: ownerUid,
+    title: 'Broken lamp',
+    description: 'Streetlight outside the school is not working',
+    category: 'Electricity',
+    department: '',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
   if (status !== 'Pending') {
     await updateDoc(issue(admin, id), resolvedAt === null ? { status } : { status, resolvedAt })
   }
@@ -141,7 +150,7 @@ test('appeals cannot alter ownership, the resolution date, or unrelated fields',
 
 test('ordinary Pending edits and admin status updates still succeed', async () => {
   const id = await seed({ status: 'Pending' })
-  await updateDoc(issue(owner, id), { title: 'Streetlight near school' })
+  await updateDoc(issue(owner, id), { title: 'Streetlight near school', updatedAt: serverTimestamp() })
   await updateDoc(issue(admin, id), { status: 'In Progress' })
   const saved = (await getDoc(issue(owner, id))).data()
   assert.equal(saved.title, 'Streetlight near school')

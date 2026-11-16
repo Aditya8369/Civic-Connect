@@ -6,7 +6,7 @@ import { after, test } from 'node:test'
 import { deleteApp, initializeApp } from 'firebase/app'
 import {
   addDoc, collection, connectFirestoreEmulator, deleteDoc, doc, getDoc, getDocs, getFirestore,
-  serverTimestamp, setDoc, updateDoc,
+  runTransaction, serverTimestamp, setDoc, updateDoc,
 } from 'firebase/firestore'
 
 const endpoint = /^(127\.0\.0\.1|localhost):(\d+)$/.exec(process.env.FIRESTORE_EMULATOR_HOST || '')
@@ -41,6 +41,7 @@ async function seedIssue() {
   const id = `event-issue-${randomUUID()}`
   await setDoc(issue(author, id), {
     title: 'Pothole on Main Street',
+    description: 'Deep pothole near the intersection',
     category: 'Roads',
     status: 'Pending',
     reportedBy: authorUid,
@@ -69,13 +70,34 @@ test('complaint author can append "Complaint submitted" event to their complaint
 
 test('complaint author can append "Status changed" with "Reopened" status', async () => {
   const id = await seedIssue()
-  const ref = await addDoc(eventsCol(author, id), {
-    actorUid: authorUid,
-    action: 'Status changed',
-    previousStatus: 'Resolved',
-    newStatus: 'Reopened',
-    remarks: 'Issue recurred',
-    timestamp: serverTimestamp(),
+  await updateDoc(issue(admin, id), {
+    status: 'Resolved',
+    resolvedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+
+  // The appeal and its audit event must commit atomically, exactly as the
+  // application's reopen workflow does.
+  const ref = await runTransaction(author, async transaction => {
+    const ref = issue(author, id)
+    const snap = await transaction.get(ref)
+    assert.equal(snap.data().status, 'Resolved')
+    transaction.update(ref, {
+      status: 'Reopened',
+      reopenReason: 'Issue recurred',
+      reopenedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+    const eventRef = doc(collection(ref, 'events'))
+    transaction.set(eventRef, {
+      actorUid: authorUid,
+      action: 'Status changed',
+      previousStatus: 'Resolved',
+      newStatus: 'Reopened',
+      remarks: 'Issue recurred',
+      timestamp: serverTimestamp(),
+    })
+    return eventRef
   })
   assert(ref.id)
 })
