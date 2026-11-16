@@ -402,8 +402,8 @@ service cloud.firestore {
                data.recipientRole in ['admin', 'citizen'] &&
                data.type in ['new_complaint', 'status_update', 'department_assigned'] &&
                isNonEmptyString(data.issueId, 40) &&
-               isNonEmptyString(data.title, 120) &&
-               isNonEmptyString(data.message, 600) &&
+               isNonEmptyString(data.title, 200) &&
+               isNonEmptyString(data.message, 1000) &&
                // Admin-desk notices are broadcast (no recipientUid); a direct
                // citizen notice must name exactly one recipient.
                (data.recipientRole == 'admin'
