@@ -1,6 +1,8 @@
+
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -36,10 +38,12 @@ let container
 let root
 
 const doc = (id, data) => ({ id, data: () => data })
+
 const windowDocs = [
   doc('a', { title: 'A', status: 'Pending', department: 'Roads', reportedBy: 'u1' }),
   doc('b', { title: 'B', status: 'Resolved', department: 'Water', reportedBy: 'u2' }),
 ]
+
 const aggregates = {
   total: 1234,
   pending: 321,
@@ -53,11 +57,22 @@ const aggregates = {
 beforeEach(async () => {
   rt.listeners = []
   rt.jobs = []
+
+  localStorage.setItem('civic-connect-language', 'en')
+
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
-  await act(async () => root.render(<AdminDashboardPage />))
+
+  await act(async () => {
+    root.render(
+      <LanguageProvider>
+        <AdminDashboardPage />
+      </LanguageProvider>
+    )
+  })
 })
+
 afterEach(async () => {
   await act(async () => root.unmount())
   container.remove()
@@ -66,19 +81,36 @@ afterEach(async () => {
 describe('AdminDashboardPage data loading', () => {
   it('listens to a bounded, newest-first window instead of the whole collection', () => {
     expect(rt.listeners).toHaveLength(1)
+
     const { constraints } = rt.listeners[0].q
-    expect(constraints).toContainEqual({ kind: 'orderBy', field: 'createdAt', dir: 'desc' })
-    expect(constraints).toContainEqual({ kind: 'limit', n: 200 })
+
+    expect(constraints).toContainEqual({
+      kind: 'orderBy',
+      field: 'createdAt',
+      dir: 'desc',
+    })
+
+    expect(constraints).toContainEqual({
+      kind: 'limit',
+      n: 200,
+    })
   })
 
   it('keeps real-time updates: each snapshot re-renders the list and asks aggregates to refresh', async () => {
     await act(async () => rt.listeners[0].onNext({ docs: windowDocs }))
+
     expect(container.textContent).toContain('A')
     expect(rt.jobs[0].refresh).toHaveBeenCalledTimes(1)
 
     await act(async () =>
-      rt.listeners[0].onNext({ docs: [doc('c', { title: 'Brand new report', status: 'Pending' }), ...windowDocs] })
+      rt.listeners[0].onNext({
+        docs: [
+          doc('c', { title: 'Brand new report', status: 'Pending' }),
+          ...windowDocs,
+        ],
+      })
     )
+
     expect(container.textContent).toContain('Brand new report')
     expect(rt.jobs[0].refresh).toHaveBeenCalledTimes(2)
   })
@@ -86,7 +118,9 @@ describe('AdminDashboardPage data loading', () => {
   it('shows whole-collection totals from aggregates, not the size of the window', async () => {
     await act(async () => rt.listeners[0].onNext({ docs: windowDocs }))
     await act(async () => rt.jobs[0].handlers.onData(aggregates))
+
     const text = container.textContent
+
     expect(text).toContain('1234')
     expect(text).toContain('868')
     expect(text).toContain('4.3 ★')
@@ -95,30 +129,47 @@ describe('AdminDashboardPage data loading', () => {
 
   it('does not flash a partial window count as the total while aggregates are loading', async () => {
     await act(async () => rt.listeners[0].onNext({ docs: windowDocs }))
-    const totalCard = [...container.querySelectorAll('p')].find((p) => p.textContent === 'Total Complaints')
+
+    const totalCard = [...container.querySelectorAll('p')].find(
+      (p) => p.textContent === 'Total Complaints'
+    )
+
     expect(totalCard.nextElementSibling.textContent).toBe('-')
   })
 
   it('falls back to window counts if the aggregate queries fail', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
     await act(async () => rt.listeners[0].onNext({ docs: windowDocs }))
-    await act(async () => rt.jobs[0].handlers.onError(new Error('boom')))
-    const totalCard = [...container.querySelectorAll('p')].find((p) => p.textContent === 'Total Complaints')
+    await act(async () =>
+      rt.jobs[0].handlers.onError(new Error('boom'))
+    )
+
+    const totalCard = [...container.querySelectorAll('p')].find(
+      (p) => p.textContent === 'Total Complaints'
+    )
+
     expect(totalCard.nextElementSibling.textContent).toBe('2')
+
     spy.mockRestore()
   })
 
   it('stops the listener and aggregate polling on unmount', async () => {
     await act(async () => root.unmount())
+
     expect(rt.listeners[0].unsub).toHaveBeenCalled()
     expect(rt.jobs[0].stop).toHaveBeenCalled()
-    root = createRoot(container) // so afterEach can unmount safely
+
+    root = createRoot(container)
   })
 
   it('leaves the loading state (shows empty list) when the live listener errors', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
     await act(async () => rt.listeners[0].onError(new Error('denied')))
+
     expect(container.textContent).toContain('No reports submitted yet.')
+
     spy.mockRestore()
   })
 })

@@ -22,8 +22,18 @@
       (function () {
         try {
           var saved = localStorage.getItem('civic-theme');
-          var dark = saved === 'dark' || (saved !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-          if (dark) document.documentElement.classList.add('dark');
+          var root = document.documentElement;
+          if (saved === 'warm-civic') {
+            root.classList.add('theme-warm-civic');
+            root.dataset.theme = 'warm-civic';
+          } else if (saved === 'high-contrast') {
+            root.classList.add('dark', 'theme-high-contrast');
+            root.dataset.theme = 'high-contrast';
+          } else {
+            var dark = saved === 'dark' || (saved !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            if (dark) root.classList.add('dark');
+            root.dataset.theme = dark ? 'dark' : 'light';
+          }
         } catch (e) { }
       })();
     </script>

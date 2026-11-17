@@ -213,6 +213,9 @@ describe('notifications service', () => {
 
     it('registers service worker, gets FCM token, and saves to users doc when granted', async () => {
       const registerMock = vi.fn().mockResolvedValue({ scope: '/' })
+      if (!globalThis.navigator) {
+        globalThis.navigator = {}
+      }
       Object.defineProperty(globalThis.navigator, 'serviceWorker', {
         value: { register: registerMock },
         configurable: true,

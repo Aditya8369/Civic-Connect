@@ -1,4 +1,5 @@
 
+
 import { useState, useEffect } from 'react'
 import { Camera, Save, Loader2, BellRing, Trophy } from 'lucide-react'
 import { doc, getDoc } from 'firebase/firestore'
@@ -17,7 +18,10 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/hooks/useAuth'
-import { getPushPermissionStatus, requestPushPermission } from '@/firebase/notifications'
+import {
+  getPushPermissionStatus,
+  requestPushPermission,
+} from '@/firebase/notifications'
 import {
   loadNotificationPreferences,
   saveNotificationPreferences,
@@ -26,6 +30,7 @@ import {
 import { useCivicGamification } from '@/hooks/useCivicGamification'
 import { BadgesShowcaseCard } from '@/components/citizen/BadgesShowcaseCard'
 import { CivicChampionLeaderboardCard } from '@/components/citizen/CivicChampionLeaderboardCard'
+import { useLanguage } from '@/contexts/LanguageContext'
 import toast from 'react-hot-toast'
 
 function PreferenceSwitch({
@@ -65,6 +70,7 @@ function PreferenceSwitch({
 
 export function ProfilePage() {
   const { user, updateUserProfile } = useAuth()
+  const { t } = useLanguage()
 
   const [name, setName] = useState(user?.name || '')
   const [email] = useState(user?.email || '')
@@ -78,7 +84,9 @@ export function ProfilePage() {
   )
   const [requestingPush, setRequestingPush] = useState(false)
   const [updatingPreference, setUpdatingPreference] = useState(null)
-  const [preferences, setPreferences] = useState(DEFAULT_NOTIFICATION_PREFERENCES)
+  const [preferences, setPreferences] = useState(
+    DEFAULT_NOTIFICATION_PREFERENCES
+  )
   const [preferencesLoading, setPreferencesLoading] = useState(true)
 
   // Live Civic Gamification & Leaderboard State
@@ -94,16 +102,19 @@ export function ProfilePage() {
 
   const handleEnablePush = async () => {
     setRequestingPush(true)
+
     try {
       const res = await requestPushPermission(user?.uid)
       setPermissionStatus(res.status)
+
       if (res.status === 'granted') {
-        toast.success('Real-time push notifications enabled!')
+        toast.success(t('profilePushEnabled'))
       } else if (res.status === 'denied') {
-        toast('Push notifications were not enabled. You will still receive in-app alerts.', { icon: 'ℹ️' })
+        toast(t('profilePushNotEnabled'), { icon: 'ℹ️' })
       }
     } catch (err) {
       console.error('Error enabling push notifications:', err)
+      toast.error(t('profilePushError'))
     } finally {
       setRequestingPush(false)
     }
@@ -130,7 +141,7 @@ export function ProfilePage() {
       })
       .catch((err) => {
         console.error('Profile load error:', err)
-        toast.error('Could not load your saved profile')
+        toast.error(t('profileLoadError'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -139,7 +150,7 @@ export function ProfilePage() {
     return () => {
       cancelled = true
     }
-  }, [user?.uid])
+  }, [user?.uid, t])
 
   // Load the user's saved notification preferences.
   useEffect(() => {
@@ -160,7 +171,7 @@ export function ProfilePage() {
       })
       .catch((error) => {
         console.error('Could not load notification preferences:', error)
-        toast.error('Could not load notification preferences')
+        toast.error(t('profilePreferencesLoadError'))
       })
       .finally(() => {
         if (!cancelled) setPreferencesLoading(false)
@@ -169,7 +180,7 @@ export function ProfilePage() {
     return () => {
       cancelled = true
     }
-  }, [user?.uid])
+  }, [user?.uid, t])
 
   // Save sound and email digest preferences.
   const handlePreferenceChange = async (key, value) => {
@@ -182,9 +193,7 @@ export function ProfilePage() {
         const initialized = await initializeNotificationAudio()
 
         if (!initialized) {
-          toast.error(
-            'Your browser could not initialize notification audio'
-          )
+          toast.error(t('profileAudioInitError'))
           return
         }
       }
@@ -195,10 +204,10 @@ export function ProfilePage() {
       )
 
       setPreferences(updatedPreferences)
-      toast.success('Notification preferences updated')
+      toast.success(t('profilePreferencesUpdated'))
     } catch (error) {
       console.error('Could not update notification preferences:', error)
-      toast.error('Could not update notification preferences')
+      toast.error(t('profilePreferencesUpdateError'))
     } finally {
       setUpdatingPreference(null)
     }
@@ -219,15 +228,11 @@ export function ProfilePage() {
 
         if (result.status !== 'granted') {
           if (result.status === 'denied') {
-            toast.error(
-              'Push notifications are blocked in your browser settings.'
-            )
+            toast.error(t('profilePushBlocked'))
           } else if (result.status === 'unsupported') {
-            toast.error(
-              'Your browser does not support push notifications.'
-            )
+            toast.error(t('profilePushUnsupported'))
           } else {
-            toast.error('Could not enable push notifications.')
+            toast.error(t('profilePushEnableError'))
           }
 
           return
@@ -239,7 +244,7 @@ export function ProfilePage() {
         )
 
         setPreferences(updatedPreferences)
-        toast.success('Push notifications enabled!')
+        toast.success(t('profilePushTurnedOn'))
         return
       }
 
@@ -250,10 +255,10 @@ export function ProfilePage() {
       )
 
       setPreferences(updatedPreferences)
-      toast.success('Push notifications disabled')
+      toast.success(t('profilePushTurnedOff'))
     } catch (error) {
       console.error('Could not update push notifications:', error)
-      toast.error('Could not update push notification settings')
+      toast.error(t('profilePushSettingsError'))
     } finally {
       setRequestingPush(false)
       setUpdatingPreference(null)
@@ -278,12 +283,12 @@ export function ProfilePage() {
     const cleanPhone = phone.trim()
 
     if (!cleanName) {
-      toast.error('Please enter your name')
+      toast.error(t('profileEnterName'))
       return
     }
 
     if (cleanPhone && !/^[\d\s()+.-]{7,20}$/.test(cleanPhone)) {
-      toast.error('Please enter a valid phone number')
+      toast.error(t('profileInvalidPhone'))
       return
     }
 
@@ -297,10 +302,10 @@ export function ProfilePage() {
       })
 
       setName(cleanName)
-      toast.success('Profile updated successfully!')
+      toast.success(t('profileUpdated'))
     } catch (err) {
       console.error('Profile save error:', err)
-      toast.error('Failed to update profile')
+      toast.error(t('profileUpdateError'))
     } finally {
       setSaving(false)
     }
@@ -309,8 +314,8 @@ export function ProfilePage() {
   return (
     <div>
       <PageHeader
-        title="Profile"
-        description="Manage your account settings, civic badges, and community standing"
+        title={t('profile')}
+        description={t('profileDescription')}
       />
 
       <div className="max-w-3xl space-y-6">
@@ -324,9 +329,10 @@ export function ProfilePage() {
                     {initials}
                   </AvatarFallback>
                 </Avatar>
+
                 <button
                   type="button"
-                  aria-label="Upload profile photo"
+                  aria-label={t('profileUploadPhoto')}
                   className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-primary-600 text-white shadow-sm hover:bg-primary-700 transition-colors"
                 >
                   <Camera className="h-3.5 w-3.5" />
@@ -334,15 +340,22 @@ export function ProfilePage() {
               </div>
 
               <div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{user?.name}</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{user?.email}</p>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {user?.name}
+                </h2>
+
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {user?.email}
+                </p>
+
                 <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                   <span className="inline-flex items-center rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 capitalize">
                     {user?.role}
                   </span>
+
                   <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                     <Trophy className="h-3 w-3 text-amber-500" />
-                    {level?.title || 'Civic Explorer'}
+                    {level?.title || t('profileCivicExplorer')}
                   </span>
                 </div>
               </div>
@@ -364,20 +377,20 @@ export function ProfilePage() {
           leaderboard={leaderboard}
           currentUserRank={currentUserRank}
           currentUserId={user?.uid}
-          monthName={score?.monthName || 'This Month'}
+          monthName={score?.monthName || t('profileThisMonth')}
           loading={gamificationLoading}
         />
 
         {/* Personal Information Form Card */}
         <Card>
           <CardHeader>
-            <CardTitle>Personal Information</CardTitle>
+            <CardTitle>{t('profilePersonalInformation')}</CardTitle>
           </CardHeader>
 
           <CardContent>
             <form onSubmit={handleSave} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="fullName">Full Name</Label>
+                <Label htmlFor="fullName">{t('fullName')}</Label>
                 <Input
                   id="fullName"
                   value={name}
@@ -387,7 +400,7 @@ export function ProfilePage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t('email')}</Label>
                 <Input
                   id="email"
                   value={email}
@@ -399,10 +412,10 @@ export function ProfilePage() {
               <Separator />
 
               <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number</Label>
+                <Label htmlFor="phone">{t('phoneNumber')}</Label>
                 <Input
                   id="phone"
-                  placeholder="+1 (555) 000-0000"
+                  placeholder={t('profilePhonePlaceholder')}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   disabled={loading}
@@ -410,10 +423,10 @@ export function ProfilePage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="address">Address</Label>
+                <Label htmlFor="address">{t('address')}</Label>
                 <Input
                   id="address"
-                  placeholder="123 Main Street, City"
+                  placeholder={t('profileAddressPlaceholder')}
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   disabled={loading}
@@ -431,7 +444,8 @@ export function ProfilePage() {
                   ) : (
                     <Save className="h-4 w-4" />
                   )}
-                  {saving ? 'Saving...' : 'Save Changes'}
+
+                  {saving ? t('saving') : t('saveChanges')}
                 </Button>
               </div>
             </form>
@@ -443,11 +457,11 @@ export function ProfilePage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <BellRing className="h-5 w-5 text-primary-600 dark:text-primary-400" />
-              Notification Preferences
+              {t('profileNotificationPreferences')}
             </CardTitle>
 
             <CardDescription>
-              Choose how you want to receive complaint updates and other notifications.
+              {t('profileNotificationDescription')}
             </CardDescription>
           </CardHeader>
 
@@ -456,15 +470,16 @@ export function ProfilePage() {
             <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-100 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-900/50">
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  Sound Notifications
+                  {t('profileSoundNotifications')}
                 </p>
+
                 <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  Play a sound when new complaint or status update notifications arrive.
+                  {t('profileSoundDescription')}
                 </p>
               </div>
 
               <PreferenceSwitch
-                label="Sound notifications"
+                label={t('profileSoundNotifications')}
                 checked={preferences.sound}
                 onChange={(value) =>
                   handlePreferenceChange('sound', value)
@@ -477,21 +492,22 @@ export function ProfilePage() {
             <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-100 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-900/50">
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  Browser Push Notifications
+                  {t('profileBrowserPush')}
                 </p>
+
                 <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  Receive browser alerts about complaint updates, assignments, and resolutions.
+                  {t('profileBrowserPushDescription')}
                 </p>
 
                 {permissionStatus === 'denied' && (
                   <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                    Browser permission is blocked. Change notification permissions in your browser&apos;s site settings before enabling this option.
+                    {t('profileBrowserPermissionBlocked')}
                   </p>
                 )}
 
                 {permissionStatus === 'unsupported' && (
                   <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                    This browser does not support push notifications.
+                    {t('profileBrowserPushUnsupported')}
                   </p>
                 )}
               </div>
@@ -502,7 +518,7 @@ export function ProfilePage() {
                 )}
 
                 <PreferenceSwitch
-                  label="Browser push notifications"
+                  label={t('profileBrowserPush')}
                   checked={preferences.push}
                   onChange={handlePushPreferenceChange}
                   disabled={
@@ -519,15 +535,16 @@ export function ProfilePage() {
             <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-100 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-900/50">
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  Email Digest
+                  {t('profileEmailDigest')}
                 </p>
+
                 <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  Save your preference for receiving complaint summaries by email when digest delivery is available.
+                  {t('profileEmailDigestDescription')}
                 </p>
               </div>
 
               <PreferenceSwitch
-                label="Email digest notifications"
+                label={t('profileEmailDigest')}
                 checked={preferences.emailDigest}
                 onChange={(value) =>
                   handlePreferenceChange('emailDigest', value)
@@ -538,7 +555,7 @@ export function ProfilePage() {
 
             {preferencesLoading && (
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Loading your notification preferences...
+                {t('profileLoadingPreferences')}
               </p>
             )}
           </CardContent>

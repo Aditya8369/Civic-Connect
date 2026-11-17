@@ -34,32 +34,177 @@
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
+@custom-variant warm-civic (&:where(.theme-warm-civic, .theme-warm-civic *));
+@custom-variant high-contrast (&:where(.theme-high-contrast, .theme-high-contrast *));
+
+:root {
+  color-scheme: light;
+  --civic-bg: #f9fafb;
+  --civic-surface: #ffffff;
+  --civic-surface-muted: #f3f4f6;
+  --civic-text: #111827;
+  --civic-text-muted: #4b5563;
+  --civic-border: #e5e7eb;
+  --civic-primary: #2563eb;
+  --civic-primary-fg: #ffffff;
+  --civic-focus-ring: #2563eb;
+}
+
+.dark {
+  color-scheme: dark;
+  --civic-bg: #030712;
+  --civic-surface: #111827;
+  --civic-surface-muted: #1f2937;
+  --civic-text: #f3f4f6;
+  --civic-text-muted: #9ca3af;
+  --civic-border: #1f2937;
+  --civic-primary: #3b82f6;
+  --civic-primary-fg: #ffffff;
+  --civic-focus-ring: #60a5fa;
+}
+
+/* Warm Civic Parchment — Low-glare warm paper palette for elderly & long-session readers */
+.theme-warm-civic {
+  color-scheme: light;
+  --civic-bg: #f6f1e3;
+  --civic-surface: #fffdf7;
+  --civic-surface-muted: #ede4cf;
+  --civic-text: #1f1913;
+  --civic-text-muted: #4a3f34;
+  --civic-border: #d5c7a9;
+  --civic-primary: #8c3b0c;
+  --civic-primary-fg: #fffdf7;
+  --civic-focus-ring: #8c3b0c;
+  --color-primary-500: #a14611;
+  --color-primary-600: #8c3b0c;
+  --color-primary-700: #732f08;
+  --color-sidebar: #2b2118;
+  --color-sidebar-hover: #3d2f23;
+  --color-sidebar-active: #8c3b0c;
+  --color-sidebar-text: #e6dac3;
+  --color-sidebar-text-active: #fffdf7;
+}
+
+/* Ultra High-Contrast Yellow/Black — WCAG AAA (17.4:1+ yellow on #000, 21:1 white on #000) */
+.theme-high-contrast {
+  color-scheme: dark;
+  --civic-bg: #000000;
+  --civic-surface: #000000;
+  --civic-surface-muted: #0a0a0a;
+  --civic-text: #ffea00;
+  --civic-text-muted: #ffffff;
+  --civic-border: #ffea00;
+  --civic-primary: #ffea00;
+  --civic-primary-fg: #000000;
+  --civic-focus-ring: #ffffff;
+  --color-primary-500: #ffea00;
+  --color-primary-600: #ffea00;
+  --color-primary-700: #ffd000;
+  --color-sidebar: #000000;
+  --color-sidebar-hover: #1a1a00;
+  --color-sidebar-active: #ffea00;
+  --color-sidebar-text: #ffffff;
+  --color-sidebar-text-active: #000000;
+}
 
 @layer base {
   * {
-    @apply border-gray-200 dark:border-gray-800;
+    border-color: var(--civic-border);
   }
   html {
     scroll-behavior: smooth;
   }
   body {
-    @apply bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100;
+    background-color: var(--civic-bg);
+    color: var(--civic-text);
     font-family: var(--font-sans);
   }
+}
+
+/* Warm Civic surface & text normalization across utility cards and badges */
+html.theme-warm-civic body,
+html.theme-warm-civic .bg-gray-50,
+html.theme-warm-civic .bg-slate-50 {
+  background-color: var(--civic-bg) !important;
+  color: var(--civic-text) !important;
+}
+
+html.theme-warm-civic .bg-white,
+html.theme-warm-civic .bg-gray-100 {
+  background-color: var(--civic-surface) !important;
+  color: var(--civic-text) !important;
+}
+
+html.theme-warm-civic .text-gray-900,
+html.theme-warm-civic .text-gray-800,
+html.theme-warm-civic .text-slate-900 {
+  color: #1f1913 !important;
+}
+
+html.theme-warm-civic .text-gray-600,
+html.theme-warm-civic .text-gray-500,
+html.theme-warm-civic .text-slate-600 {
+  color: #4a3f34 !important;
+}
+
+/* Ultra High-Contrast WCAG AAA enforcement across cards, text, badges, borders & focus rings */
+html.theme-high-contrast body,
+html.theme-high-contrast main,
+html.theme-high-contrast header,
+html.theme-high-contrast nav,
+html.theme-high-contrast aside,
+html.theme-high-contrast footer,
+html.theme-high-contrast [class*="bg-white"],
+html.theme-high-contrast [class*="bg-gray-"],
+html.theme-high-contrast [class*="bg-slate-"],
+html.theme-high-contrast [class*="bg-zinc-"] {
+  background-color: #000000 !important;
+  color: #ffea00 !important;
+  border-color: #ffea00 !important;
+}
+
+html.theme-high-contrast [class*="text-gray-"],
+html.theme-high-contrast [class*="text-slate-"],
+html.theme-high-contrast [class*="text-zinc-"],
+html.theme-high-contrast p,
+html.theme-high-contrast span,
+html.theme-high-contrast label,
+html.theme-high-contrast h1,
+html.theme-high-contrast h2,
+html.theme-high-contrast h3,
+html.theme-high-contrast h4 {
+  color: #ffea00 !important;
+}
+
+html.theme-high-contrast a,
+html.theme-high-contrast [role="badge"],
+html.theme-high-contrast [class*="badge"],
+html.theme-high-contrast [class*="bg-blue-"],
+html.theme-high-contrast [class*="bg-emerald-"],
+html.theme-high-contrast [class*="bg-amber-"],
+html.theme-high-contrast [class*="bg-red-"] {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border: 2px solid #ffea00 !important;
+}
+
+html.theme-high-contrast button[class*="bg-primary"],
+html.theme-high-contrast button[class*="bg-blue-"] {
+  background-color: #ffea00 !important;
+  color: #000000 !important;
+  border: 2px solid #ffffff !important;
+  font-weight: 700 !important;
+}
+
+html.theme-high-contrast *:focus-visible {
+  outline: 3px solid #ffffff !important;
+  outline-offset: 2px !important;
 }
 
 @layer components {
   .page-container {
     @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6;
   }
-}
-
-:root {
-  color-scheme: light;
-}
-
-.dark {
-  color-scheme: dark;
 }
 
 /* ThemeProvider adds this class to <html> for a moment when the theme changes,
@@ -225,3 +370,4 @@ html.high-contrast :focus-visible {
     font-size: 16px !important;
   }
 }
+

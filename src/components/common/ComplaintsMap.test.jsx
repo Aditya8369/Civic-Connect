@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { LanguageProvider } from '@/contexts/LanguageContext'
 
 // Mock Firebase services to prevent auth/invalid-api-key during node tests
 vi.mock('@/firebase/services', () => ({ auth: {}, db: {} }))
@@ -22,6 +23,11 @@ import {
   filterComplaints,
   clusterComplaints,
 } from '@/utils/mapClustering'
+import {
+  WARD_BOUNDARIES_GEOJSON,
+  getNormalizedWards,
+  getWardPolygonStyle,
+} from '@/utils/wardBoundaries'
 
 // Mock Leaflet
 vi.mock('leaflet', () => {
@@ -43,6 +49,7 @@ vi.mock('leaflet', () => {
       isValid: () => Array.isArray(pts) && pts.length > 0,
     })),
   }
+
   return { default: L, ...L }
 })
 
@@ -53,9 +60,15 @@ vi.mock('react-leaflet', () => ({
       {children}
     </div>
   ),
+
   TileLayer: ({ url, attribution }) => (
-    <div data-testid="tile-layer" data-url={url} data-attribution={attribution} />
+    <div
+      data-testid="tile-layer"
+      data-url={url}
+      data-attribution={attribution}
+    />
   ),
+
   Marker: ({ children, position, icon }) => (
     <div
       data-testid="map-marker"
@@ -66,16 +79,37 @@ vi.mock('react-leaflet', () => ({
       {children}
     </div>
   ),
+
+  Polygon: ({ children, positions, pathOptions, eventHandlers, ...rest }) => (
+    <div
+      data-testid="ward-polygon"
+      data-positions={JSON.stringify(positions)}
+      data-path-options={JSON.stringify(pathOptions)}
+      data-has-click={typeof eventHandlers?.click === 'function' ? 'true' : 'false'}
+      {...rest}
+    >
+      {children}
+    </div>
+  ),
+
+  Tooltip: ({ children, className }) => (
+    <div data-testid="map-tooltip" className={className}>
+      {children}
+    </div>
+  ),
+
   Popup: ({ children, className }) => (
     <div data-testid="map-popup" className={className}>
       {children}
     </div>
   ),
+
   useMap: () => ({
     setView: vi.fn(),
     fitBounds: vi.fn(),
     getZoom: () => 12,
   }),
+
   useMapEvents: vi.fn(),
 }))
 
@@ -87,6 +121,18 @@ vi.mock('react-router-dom', () => ({
     </a>
   ),
 }))
+
+beforeEach(() => {
+  localStorage.setItem('civic-connect-language', 'en')
+})
+
+function renderWithLanguage(component) {
+  return renderToStaticMarkup(
+    <LanguageProvider>
+      {component}
+    </LanguageProvider>
+  )
+}
 
 describe('ComplaintsMap Component and GIS Utilities', () => {
   const sampleComplaints = [
@@ -138,15 +184,32 @@ describe('ComplaintsMap Component and GIS Utilities', () => {
 
   describe('1. Marker Coordinate Calculations', () => {
     it('correctly parses and validates various coordinate formats', () => {
-      expect(parseCoordinates({ latitude: 28.6139, longitude: 77.209 })).toEqual({
+      expect(
+        parseCoordinates({
+          latitude: 28.6139,
+          longitude: 77.209,
+        })
+      ).toEqual({
         lat: 28.6139,
         lng: 77.209,
       })
-      expect(parseCoordinates({ lat: 12.9716, lng: 77.5946 })).toEqual({
+
+      expect(
+        parseCoordinates({
+          lat: 12.9716,
+          lng: 77.5946,
+        })
+      ).toEqual({
         lat: 12.9716,
         lng: 77.5946,
       })
-      expect(parseCoordinates({ latitude: '28.6139', longitude: '77.2090' })).toEqual({
+
+      expect(
+        parseCoordinates({
+          latitude: '28.6139',
+          longitude: '77.2090',
+        })
+      ).toEqual({
         lat: 28.6139,
         lng: 77.209,
       })
@@ -155,18 +218,47 @@ describe('ComplaintsMap Component and GIS Utilities', () => {
     it('rejects missing, null, or out-of-range coordinates gracefully', () => {
       expect(parseCoordinates(null)).toBeNull()
       expect(parseCoordinates({})).toBeNull()
-      expect(parseCoordinates({ latitude: null, longitude: 77.209 })).toBeNull()
-      expect(parseCoordinates({ latitude: 'bad', longitude: 77.209 })).toBeNull()
-      expect(parseCoordinates({ latitude: 120, longitude: 77.209 })).toBeNull() // Lat > 90
-      expect(parseCoordinates({ latitude: 28, longitude: 200 })).toBeNull() // Lng > 180
+
+      expect(
+        parseCoordinates({
+          latitude: null,
+          longitude: 77.209,
+        })
+      ).toBeNull()
+
+      expect(
+        parseCoordinates({
+          latitude: 'bad',
+          longitude: 77.209,
+        })
+      ).toBeNull()
+
+      expect(
+        parseCoordinates({
+          latitude: 120,
+          longitude: 77.209,
+        })
+      ).toBeNull()
+
+      expect(
+        parseCoordinates({
+          latitude: 28,
+          longitude: 200,
+        })
+      ).toBeNull()
     })
   })
 
   describe('2. Empty State Handling', () => {
     it('renders empty state when complaint list is completely empty', () => {
-      const html = renderToStaticMarkup(<ComplaintsMap complaints={[]} />)
+      const html = renderWithLanguage(
+        <ComplaintsMap complaints={[]} />
+      )
+
       expect(html).toContain('No Complaints with Location Coordinates')
-      expect(html).toContain('None of the submitted complaints have valid GPS coordinates')
+      expect(html).toContain(
+        'None of the submitted complaints have valid GPS coordinates'
+      )
     })
 
     it('renders empty state when all complaints lack valid coordinates', () => {
@@ -174,13 +266,20 @@ describe('ComplaintsMap Component and GIS Utilities', () => {
         { id: '1', title: 'A', latitude: null, longitude: null },
         { id: '2', title: 'B', latitude: 'none', longitude: 'none' },
       ]
-      const html = renderToStaticMarkup(<ComplaintsMap complaints={noCoords} />)
+
+      const html = renderWithLanguage(
+        <ComplaintsMap complaints={noCoords} />
+      )
+
       expect(html).toContain('No Complaints with Location Coordinates')
       expect(html).toContain('2 without GPS')
     })
 
     it('shows informative notice when some complaints are missing GPS', () => {
-      const html = renderToStaticMarkup(<ComplaintsMap complaints={sampleComplaints} />)
+      const html = renderWithLanguage(
+        <ComplaintsMap complaints={sampleComplaints} />
+      )
+
       expect(html).toContain('1 without GPS')
       expect(html).toContain('3 Pinned')
     })
@@ -188,30 +287,65 @@ describe('ComplaintsMap Component and GIS Utilities', () => {
 
   describe('3. Marker Color-Coding', () => {
     it('assigns red for High and Critical priorities', () => {
-      expect(getComplaintMarkerColor({ priority: 'Critical', status: 'Pending' })).toBe('red')
-      expect(getComplaintMarkerColor({ priority: 'High', status: 'Pending' })).toBe('red')
+      expect(
+        getComplaintMarkerColor({
+          priority: 'Critical',
+          status: 'Pending',
+        })
+      ).toBe('red')
+
+      expect(
+        getComplaintMarkerColor({
+          priority: 'High',
+          status: 'Pending',
+        })
+      ).toBe('red')
     })
 
     it('assigns amber for Medium priority', () => {
-      expect(getComplaintMarkerColor({ priority: 'Medium', status: 'Pending' })).toBe('amber')
+      expect(
+        getComplaintMarkerColor({
+          priority: 'Medium',
+          status: 'Pending',
+        })
+      ).toBe('amber')
     })
 
     it('assigns blue for Low priority', () => {
-      expect(getComplaintMarkerColor({ priority: 'Low', status: 'Pending' })).toBe('blue')
+      expect(
+        getComplaintMarkerColor({
+          priority: 'Low',
+          status: 'Pending',
+        })
+      ).toBe('blue')
     })
 
     it('assigns green for Resolved status regardless of original priority', () => {
-      expect(getComplaintMarkerColor({ priority: 'Critical', status: 'Resolved' })).toBe('green')
-      expect(getComplaintMarkerColor({ priority: 'High', status: 'resolved' })).toBe('green')
+      expect(
+        getComplaintMarkerColor({
+          priority: 'Critical',
+          status: 'Resolved',
+        })
+      ).toBe('green')
+
+      expect(
+        getComplaintMarkerColor({
+          priority: 'High',
+          status: 'resolved',
+        })
+      ).toBe('green')
     })
 
     it('creates SVG pin icons with appropriate fill colors', () => {
       const redPin = createPinIcon('red')
       expect(redPin.html).toContain('#ef4444')
+
       const greenPin = createPinIcon('green')
       expect(greenPin.html).toContain('#10b981')
+
       const amberPin = createPinIcon('amber')
       expect(amberPin.html).toContain('#f59e0b')
+
       const bluePin = createPinIcon('blue')
       expect(bluePin.html).toContain('#3b82f6')
     })
@@ -220,29 +354,43 @@ describe('ComplaintsMap Component and GIS Utilities', () => {
   describe('4. Marker Clustering', () => {
     it('creates cluster icon displaying the number of clustered complaints', () => {
       const clusterIcon = createClusterIcon(5, 'red')
+
       expect(clusterIcon.html).toContain('5')
       expect(clusterIcon.html).toContain('#ef4444')
     })
 
     it('clusters complaints that are physically close to prevent overlap', () => {
       const nearbyComplaints = [
-        { id: '1', latitude: 28.613901, longitude: 77.209001, priority: 'High' },
-        { id: '2', latitude: 28.613902, longitude: 77.209002, priority: 'Low' },
+        {
+          id: '1',
+          latitude: 28.613901,
+          longitude: 77.209001,
+          priority: 'High',
+        },
+        {
+          id: '2',
+          latitude: 28.613902,
+          longitude: 77.209002,
+          priority: 'Low',
+        },
       ]
+
       const clusters = clusterComplaints(nearbyComplaints, 12, 50)
+
       expect(clusters).toHaveLength(1)
       expect(clusters[0].isCluster).toBe(true)
       expect(clusters[0].count).toBe(2)
-      // Dominant color reflects highest priority (red)
       expect(clusters[0].color).toBe('red')
     })
 
     it('keeps geographically separated complaints as individual pins', () => {
       const farComplaints = [
-        { id: '1', latitude: 28.6139, longitude: 77.2090 }, // Delhi
-        { id: '2', latitude: 19.0760, longitude: 72.8777 }, // Mumbai
+        { id: '1', latitude: 28.6139, longitude: 77.2090 },
+        { id: '2', latitude: 19.0760, longitude: 72.8777 },
       ]
+
       const clusters = clusterComplaints(farComplaints, 12, 50)
+
       expect(clusters).toHaveLength(2)
       expect(clusters[0].isCluster).toBe(false)
       expect(clusters[1].isCluster).toBe(false)
@@ -251,48 +399,62 @@ describe('ComplaintsMap Component and GIS Utilities', () => {
 
   describe('5. Interactive Popups and Content Display', () => {
     it('renders popups with display ID, title, status badge, and details link', () => {
-      const html = renderToStaticMarkup(
-        <ComplaintsMap complaints={[sampleComplaints[0]]} isAdmin={false} />
+      const html = renderWithLanguage(
+        <ComplaintsMap
+          complaints={[sampleComplaints[0]]}
+          isAdmin={false}
+        />
       )
-      // Display ID
+
       expect(html).toContain('CMP-2026-0001')
-      // Title
       expect(html).toContain('Major water main leakage on Main St')
-      // Status
       expect(html).toContain('Pending')
-      // Address
       expect(html).toContain('Main St, Block A')
-      // Thumbnail image
       expect(html).toContain('https://example.com/photo1.jpg')
-      // Citizen details link
       expect(html).toContain('href="/report/c1"')
     })
 
     it('renders admin details link when isAdmin is true', () => {
-      const html = renderToStaticMarkup(
-        <ComplaintsMap complaints={[sampleComplaints[0]]} isAdmin={true} />
+      const html = renderWithLanguage(
+        <ComplaintsMap
+          complaints={[sampleComplaints[0]]}
+          isAdmin={true}
+        />
       )
+
       expect(html).toContain('href="/admin/reports/c1"')
     })
   })
 
   describe('6. Dynamic Category & Status Filters', () => {
     it('filters complaints by category', () => {
-      const waterOnly = filterComplaints(sampleComplaints, { category: 'Water Leakage' })
+      const waterOnly = filterComplaints(
+        sampleComplaints,
+        { category: 'Water Leakage' }
+      )
+
       expect(waterOnly).toHaveLength(1)
       expect(waterOnly[0].id).toBe('c1')
     })
 
     it('filters complaints by status', () => {
-      const resolvedOnly = filterComplaints(sampleComplaints, { status: 'Resolved' })
+      const resolvedOnly = filterComplaints(
+        sampleComplaints,
+        { status: 'Resolved' }
+      )
+
       expect(resolvedOnly).toHaveLength(1)
       expect(resolvedOnly[0].id).toBe('c3')
     })
 
     it('renders filtered map when initialCategory or initialStatus is supplied', () => {
-      const html = renderToStaticMarkup(
-        <ComplaintsMap complaints={sampleComplaints} initialCategory="Water Leakage" />
+      const html = renderWithLanguage(
+        <ComplaintsMap
+          complaints={sampleComplaints}
+          initialCategory="Water Leakage"
+        />
       )
+
       expect(html).toContain('CMP-2026-0001')
       expect(html).not.toContain('CMP-2026-0002')
     })
@@ -300,7 +462,10 @@ describe('ComplaintsMap Component and GIS Utilities', () => {
 
   describe('7. Complaint Heatmap Toggle', () => {
     it('renders the heatmap toggle disabled by default', () => {
-      const html = renderToStaticMarkup(<ComplaintsMap complaints={sampleComplaints} />)
+      const html = renderWithLanguage(
+        <ComplaintsMap complaints={sampleComplaints} />
+      )
+
       expect(html).toContain('Toggle complaint heatmap')
       expect(html).toContain('aria-pressed="false"')
       expect(html).toContain('Show heatmap')
@@ -317,14 +482,25 @@ describe('ComplaintsMap Component and GIS Utilities', () => {
     it('returns no heatmap points for empty, invalid, or missing inputs', () => {
       expect(buildHeatmapPoints([])).toEqual([])
       expect(buildHeatmapPoints(null)).toEqual([])
-      expect(buildHeatmapPoints([{ latitude: null, longitude: null }, null])).toEqual([])
+
+      expect(
+        buildHeatmapPoints([
+          { latitude: null, longitude: null },
+          null,
+        ])
+      ).toEqual([])
     })
   })
 
   describe('8. Error Handling & Edge Cases', () => {
     it('handles undefined or null complaints prop without throwing', () => {
-      expect(() => renderToStaticMarkup(<ComplaintsMap complaints={null} />)).not.toThrow()
-      expect(() => renderToStaticMarkup(<ComplaintsMap complaints={undefined} />)).not.toThrow()
+      expect(() =>
+        renderWithLanguage(<ComplaintsMap complaints={null} />)
+      ).not.toThrow()
+
+      expect(() =>
+        renderWithLanguage(<ComplaintsMap complaints={undefined} />)
+      ).not.toThrow()
     })
 
     it('handles malformed complaint objects without crashing', () => {
@@ -333,9 +509,78 @@ describe('ComplaintsMap Component and GIS Utilities', () => {
         undefined,
         {},
         { id: 'broken', latitude: 'not-a-number' },
-        { id: 'valid', latitude: 28.6, longitude: 77.2, title: null, status: null },
+        {
+          id: 'valid',
+          latitude: 28.6,
+          longitude: 77.2,
+          title: null,
+          status: null,
+        },
       ]
-      expect(() => renderToStaticMarkup(<ComplaintsMap complaints={malformed} />)).not.toThrow()
+
+      expect(() =>
+        renderWithLanguage(<ComplaintsMap complaints={malformed} />)
+      ).not.toThrow()
+    })
+  })
+
+  describe('9. Municipal Ward Boundaries & Zone Overlay', () => {
+    it('renders the Show Ward Boundaries tactile filter chip hidden by default', () => {
+      const html = renderWithLanguage(
+        <ComplaintsMap complaints={sampleComplaints} />
+      )
+
+      expect(html).toContain('Show Ward Boundaries')
+      expect(html).toContain('data-testid="ward-boundaries-toggle"')
+      expect(html).not.toContain('data-testid="ward-polygon"')
+    })
+
+    it('renders ward polygons with dashed SVG styling, tooltips, and administrative popups when toggled on', () => {
+      const html = renderWithLanguage(
+        <ComplaintsMap
+          complaints={sampleComplaints}
+          initialShowWardBoundaries={true}
+        />
+      )
+
+      expect(html).toContain('aria-pressed="true"')
+      expect(html).toContain('data-testid="ward-polygon"')
+      expect(html).toContain('data-has-click="true"')
+      expect(html).toContain('dashArray')
+
+      // Ward Name, Ward ID, and Zone Supervisor in administrative popup
+      expect(html).toContain('WARD-01')
+      expect(html).toContain('Central Civic Core &amp; Connaught Ward')
+      expect(html).toContain('Zone Supervisor:')
+      expect(html).toContain('Rajeshwar Kulkarni (Zonal Dy. Commissioner)')
+
+      // Interactive tooltip metadata: Councilor Office, Jurisdiction Zone, Helpline
+      expect(html).toContain('New Delhi Central Zone (Zone A)')
+      expect(html).toContain('Ward 01 Civic Kendra, Sansad Marg, Block B')
+      expect(html).toContain('1800-11-2201')
+    })
+
+    it('normalizes GeoJSON ward features into Leaflet [lat, lng] polygon rings', () => {
+      const wards = getNormalizedWards(WARD_BOUNDARIES_GEOJSON)
+      expect(wards.length).toBeGreaterThanOrEqual(4)
+
+      const first = wards[0]
+      expect(first.wardId).toBe('WARD-01')
+      expect(first.positions[0]).toEqual([28.61, 77.202])
+      expect(getNormalizedWards(null)).toEqual([])
+    })
+
+    it('applies distinct dashed and highlighted SVG styles for default vs selected wards', () => {
+      const [ward] = getNormalizedWards(WARD_BOUNDARIES_GEOJSON)
+      const defaultStyle = getWardPolygonStyle(ward, false)
+      const selectedStyle = getWardPolygonStyle(ward, true)
+
+      expect(defaultStyle.dashArray).toBe('7 6')
+      expect(defaultStyle.weight).toBe(2)
+
+      expect(selectedStyle.dashArray).toBe('10 5')
+      expect(selectedStyle.weight).toBe(3.5)
+      expect(selectedStyle.fillOpacity).toBeGreaterThan(defaultStyle.fillOpacity)
     })
   })
 })

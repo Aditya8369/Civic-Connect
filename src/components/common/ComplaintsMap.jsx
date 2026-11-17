@@ -1,9 +1,29 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import L from 'leaflet'
-import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Polygon,
+  Tooltip,
+  useMap,
+  useMapEvents,
+} from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
-import { Filter, Layers, MapPin, AlertCircle, RefreshCw, Eye } from 'lucide-react'
+import {
+  Filter,
+  Layers,
+  MapPin,
+  AlertCircle,
+  RefreshCw,
+  Eye,
+  Compass,
+  Phone,
+  Building2,
+  UserCheck,
+} from 'lucide-react'
 import { getDisplayId } from '@/firebase/complaintId'
 import { Badge } from '@/components/ui/badge'
 import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
@@ -15,6 +35,11 @@ import {
   clusterComplaints,
   buildHeatmapPoints,
 } from '@/utils/mapClustering'
+import {
+  WARD_BOUNDARIES_GEOJSON,
+  getNormalizedWards,
+  getWardPolygonStyle,
+} from '@/utils/wardBoundaries'
 
 // leaflet.heat expects Leaflet to be available on the browser global.
 if (typeof window !== 'undefined') {
@@ -52,11 +77,6 @@ const DEFAULT_STATUSES = ['Pending', 'In Progress', 'Resolved', 'Rejected', 'Reo
 
 /**
  * Creates custom SVG pin icons for color-coded complaint markers.
- * Colors:
- * - Red: High/Critical priority
- * - Amber: Medium priority
- * - Blue: Low priority
- * - Green: Resolved complaints
  */
 export function createPinIcon(color = 'blue') {
   const hex = MARKER_COLORS[color]?.hex || MARKER_COLORS.blue.hex
@@ -147,13 +167,11 @@ function MapController({ points, onZoomChange }) {
 
 /**
  * Adds/removes the Leaflet heat layer as the toggle and filtered points change.
- * Each complaint contributes one unit of weight; overlapping points build density.
  */
 function ComplaintHeatmapLayer({ points, enabled }) {
   const map = useMap()
   const [pluginReady, setPluginReady] = useState(false)
 
-  // Load the plugin only after exposing the Leaflet instance globally.
   useEffect(() => {
     let cancelled = false
 
@@ -176,7 +194,6 @@ function ComplaintHeatmapLayer({ points, enabled }) {
     }
   }, [])
 
-  // Add the heat layer only when the plugin is ready and the toggle is enabled.
   useEffect(() => {
     if (
       !pluginReady ||
@@ -217,7 +234,7 @@ function ComplaintHeatmapLayer({ points, enabled }) {
  * ComplaintsMap Component
  *
  * Interactive Leaflet GIS Map with marker clustering, color-coded priority pins,
- * dynamic category and status filtering, auto-fitting bounds, and rich popups.
+ * tactile municipal ward boundary overlays, dynamic filtering, and rich popups.
  */
 export function ComplaintsMap({
   complaints = [],
@@ -226,12 +243,21 @@ export function ComplaintsMap({
   className = '',
   initialCategory = 'All',
   initialStatus = 'All',
+  initialShowWardBoundaries = false,
+  wardBoundariesData = WARD_BOUNDARIES_GEOJSON,
 }) {
   const [selectedCategory, setSelectedCategory] = useState(initialCategory)
   const [selectedStatus, setSelectedStatus] = useState(initialStatus)
   const [searchTerm, setSearchTerm] = useState('')
   const [currentZoom, setCurrentZoom] = useState(12)
   const [heatmapEnabled, setHeatmapEnabled] = useState(false)
+  const [showWardBoundaries, setShowWardBoundaries] = useState(initialShowWardBoundaries)
+  const [selectedWardId, setSelectedWardId] = useState(null)
+
+  const municipalWards = useMemo(
+    () => getNormalizedWards(wardBoundariesData),
+    [wardBoundariesData]
+  )
 
   // Extract all categories dynamically from complaints, merged with defaults
   const availableCategories = useMemo(() => {
@@ -281,17 +307,14 @@ export function ComplaintsMap({
     return list
   }, [filteredComplaints])
 
-  // Convert filtered complaints into Leaflet heat points [latitude, longitude, weight].
   const heatmapPoints = useMemo(() => {
     return buildHeatmapPoints(validFilteredPoints)
   }, [validFilteredPoints])
 
-  // Compute marker clusters based on current zoom level
   const clusters = useMemo(() => {
     return clusterComplaints(validFilteredPoints, currentZoom, 50)
   }, [validFilteredPoints, currentZoom])
 
-  // Default map center (Centroid of valid points, or New Delhi as fallback)
   const defaultCenter = useMemo(() => {
     if (validFilteredPoints.length > 0) {
       const avgLat = validFilteredPoints.reduce((s, p) => s + p.lat, 0) / validFilteredPoints.length
@@ -307,6 +330,15 @@ export function ComplaintsMap({
     setSelectedCategory('All')
     setSelectedStatus('All')
     setSearchTerm('')
+  }
+
+  const handleToggleWardBoundaries = () => {
+    setShowWardBoundaries((prev) => {
+      if (prev) {
+        setSelectedWardId(null)
+      }
+      return !prev
+    })
   }
 
   const getDetailsUrl = (complaint) => {
@@ -379,7 +411,7 @@ export function ComplaintsMap({
               aria-label="Filter complaints by category"
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="text-xs rounded-lg border border-gray-300 dark:border-gray-700bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 py-1.5 px-2.5 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+              className="text-xs rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 py-1.5 px-2.5 focus:ring-2 focus:ring-primary-500 focus:outline-none"
             >
               {availableCategories.map((cat) => (
                 <option key={cat} value={cat}>
@@ -395,7 +427,7 @@ export function ComplaintsMap({
               aria-label="Filter complaints by status"
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="text-xs rounded-lg border border-gray-300 dark:border-gray-700bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 py-1.5 px-2.5 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+              className="text-xs rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 py-1.5 px-2.5 focus:ring-2 focus:ring-primary-500 focus:outline-none"
             >
               <option value="All">All Statuses</option>
               {DEFAULT_STATUSES.map((st) => (
@@ -429,6 +461,23 @@ export function ComplaintsMap({
             </Button>
           )}
 
+          {/* Tactile Civic Filter Chip: Show Ward Boundaries */}
+          <button
+            type="button"
+            aria-label="Show Ward Boundaries"
+            aria-pressed={showWardBoundaries}
+            data-testid="ward-boundaries-toggle"
+            onClick={handleToggleWardBoundaries}
+            className={`inline-flex items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-semibold tracking-tight transition-all duration-150 select-none ${
+              showWardBoundaries
+                ? 'border-stone-900 bg-amber-100 text-stone-950 shadow-[2px_2px_0px_0px_rgba(28,25,23,0.9)] dark:border-amber-300 dark:bg-amber-950/80 dark:text-amber-100 dark:shadow-[2px_2px_0px_0px_rgba(252,211,77,0.75)]'
+                : 'border-dashed border-stone-400 bg-stone-50 text-stone-700 hover:border-stone-700 hover:bg-stone-100 dark:border-stone-600 dark:bg-stone-800/80 dark:text-stone-200 dark:hover:border-stone-400'
+            }`}
+          >
+            <Compass className="w-3.5 h-3.5 shrink-0" />
+            <span>Show Ward Boundaries</span>
+          </button>
+
           <Button
             type="button"
             variant={heatmapEnabled ? 'default' : 'outline'}
@@ -455,7 +504,7 @@ export function ComplaintsMap({
       <div className="relative w-full overflow-hidden" style={{ height }}>
         {validFilteredPoints.length === 0 ? (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 bg-gray-50/90 dark:bg-gray-900/90 text-center backdrop-blur-xs">
-            <div className="p-3 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-400mb-3">
+            <div className="p-3 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-400 mb-3">
               <MapPin className="w-8 h-8" />
             </div>
             <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-base mb-1">
@@ -489,6 +538,84 @@ export function ComplaintsMap({
 
           <MapController points={validFilteredPoints} onZoomChange={setCurrentZoom} />
           <ComplaintHeatmapLayer points={heatmapPoints} enabled={heatmapEnabled} />
+
+          {/* Tactile Municipal Ward Boundary Polygons */}
+          {showWardBoundaries &&
+            municipalWards.map((ward) => {
+              const isSelected = selectedWardId === ward.wardId
+              const pathOptions = getWardPolygonStyle(ward, isSelected)
+
+              return (
+                <Polygon
+                  key={ward.wardId}
+                  positions={ward.positions}
+                  pathOptions={pathOptions}
+                  data-ward-id={ward.wardId}
+                  data-selected={isSelected ? 'true' : 'false'}
+                  eventHandlers={{
+                    click: () => setSelectedWardId(ward.wardId),
+                  }}
+                >
+                  <Tooltip sticky direction="top" className="civic-ward-tooltip">
+                    <div className="space-y-0.5 text-xs text-stone-900">
+                      <p className="font-bold text-stone-950">{ward.zoneName}</p>
+                      <p className="text-[11px] text-stone-700">
+                        <span className="font-medium">Office:</span> {ward.councilorOffice}
+                      </p>
+                      <p className="font-mono text-[11px] text-stone-800">
+                        Helpline: {ward.helpline}
+                      </p>
+                    </div>
+                  </Tooltip>
+
+                  <Popup className="civic-ward-popup" minWidth={250} maxWidth={320}>
+                    <div
+                      className="p-1.5 space-y-2 text-stone-900 border-l-4 pl-2.5"
+                      style={{ borderLeftColor: ward.accentColor }}
+                    >
+                      <div className="flex items-center justify-between gap-2 border-b border-stone-200 pb-1.5">
+                        <span className="font-mono text-[11px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-stone-100 text-stone-800 border border-stone-300">
+                          {ward.wardId}
+                        </span>
+                        <span className="text-[11px] font-medium text-stone-600">
+                          {ward.zoneName}
+                        </span>
+                      </div>
+
+                      <div>
+                        <h4 className="font-bold text-sm text-stone-950 leading-snug">
+                          {ward.wardName}
+                        </h4>
+                      </div>
+
+                      <div className="space-y-1.5 text-xs text-stone-700 pt-0.5">
+                        <p className="flex items-start gap-1.5">
+                          <UserCheck className="w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5" />
+                          <span>
+                            <span className="font-semibold text-stone-900">Zone Supervisor:</span>{' '}
+                            {ward.zoneSupervisor}
+                          </span>
+                        </p>
+                        <p className="flex items-start gap-1.5">
+                          <Building2 className="w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5" />
+                          <span>
+                            <span className="font-semibold text-stone-900">Councilor Office:</span>{' '}
+                            {ward.councilorOffice}
+                          </span>
+                        </p>
+                        <p className="flex items-center gap-1.5">
+                          <Phone className="w-3.5 h-3.5 text-stone-500 shrink-0" />
+                          <span>
+                            <span className="font-semibold text-stone-900">Ward Helpline:</span>{' '}
+                            <span className="font-mono font-semibold">{ward.helpline}</span>
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  </Popup>
+                </Polygon>
+              )
+            })}
 
           {clusters.map((item) => {
             if (item.isCluster) {

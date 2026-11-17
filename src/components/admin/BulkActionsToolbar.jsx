@@ -1,3 +1,4 @@
+
 import { useState, useMemo, useRef } from 'react'
 import { CheckSquare, X, Building2, CheckCircle2, Clock, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -22,9 +23,25 @@ import {
 } from '@/components/ui/dialog'
 import { executeBulkComplaintAction, normalizeComplaintsMap } from '@/firebase/bulkComplaints'
 import { getDisplayId } from '@/firebase/complaintId'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 const departments = ['Roads', 'Sanitation', 'Electricity', 'Water', 'Public Safety']
 const statuses = ['Pending', 'In Progress', 'Resolved', 'Rejected']
+
+const statusTranslationKeys = {
+  Pending: 'statusPending',
+  'In Progress': 'statusInProgress',
+  Resolved: 'statusResolved',
+  Rejected: 'statusRejected',
+}
+
+const departmentTranslationKeys = {
+  Roads: 'departmentRoads',
+  Sanitation: 'departmentSanitation',
+  Electricity: 'departmentElectricity',
+  Water: 'departmentWater',
+  'Public Safety': 'departmentPublicSafety',
+}
 
 export function BulkActionsToolbar({
   selectedIds = [],
@@ -35,6 +52,8 @@ export function BulkActionsToolbar({
   actorUid,
   className = '',
 }) {
+  const { t } = useLanguage()
+
   const [pendingAction, setPendingAction] = useState(null)
   const [remarks, setRemarks] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -70,6 +89,7 @@ export function BulkActionsToolbar({
     submittingRef.current = true
     setSubmitting(true)
     setOutcome('')
+
     try {
       const result = await executeBulkComplaintAction({
         actionType: pendingAction.type,
@@ -85,20 +105,44 @@ export function BulkActionsToolbar({
       const failedIds = result.failedIds || []
       const unchangedCount = result.unchangedIds?.length || 0
       const remainingIds = [...conflictIds, ...failedIds]
+
       if (remainingIds.length > 0) {
-        const summary = `${count} updated, ${conflictIds.length} changed or unavailable, ${failedIds.length} failed. ${unchangedCount} already had this status. Review the remaining selected reports before applying again.`
+        const summary = t('bulkPartialUpdate')
+          .replace('{updated}', String(count))
+          .replace('{conflicts}', String(conflictIds.length))
+          .replace('{failed}', String(failedIds.length))
+          .replace('{unchanged}', String(unchangedCount))
+
         setOutcome(summary)
         toast.error(summary)
+
         if (count > 0) onSuccess?.()
         onSelectionChange?.(remainingIds)
         return
       }
 
       if (pendingAction.type === 'status') {
-        const unchangedMessage = unchangedCount ? ` ${unchangedCount} already had this status.` : ''
-        toast.success(`Status updated to "${pendingAction.value}" for ${count} report${count === 1 ? '' : 's'}.${unchangedMessage}`)
+        const unchangedMessage = unchangedCount
+          ? ` ${t('bulkAlreadyHadStatus').replace('{count}', String(unchangedCount))}`
+          : ''
+
+        toast.success(
+          t('bulkStatusUpdated')
+            .replace('{status}', t(statusTranslationKeys[pendingAction.value] || pendingAction.value))
+            .replace('{count}', String(count))
+            .replace('{plural}', count === 1 ? '' : t('pluralSuffix')) +
+          `.${unchangedMessage}`
+        )
       } else {
-        toast.success(`Assigned ${count} report${count === 1 ? '' : 's'} to "${pendingAction.value}"`)
+        toast.success(
+          t('bulkDepartmentAssigned')
+            .replace('{count}', String(count))
+            .replace('{plural}', count === 1 ? '' : t('pluralSuffix'))
+            .replace(
+              '{department}',
+              t(departmentTranslationKeys[pendingAction.value] || pendingAction.value)
+            )
+        )
       }
 
       setPendingAction(null)
@@ -107,7 +151,7 @@ export function BulkActionsToolbar({
       onClearSelection?.()
     } catch (err) {
       console.error('Bulk action error:', err)
-      toast.error('Failed to perform bulk update. Please try again.')
+      toast.error(t('bulkUpdateFailed'))
     } finally {
       submittingRef.current = false
       setSubmitting(false)
@@ -115,12 +159,19 @@ export function BulkActionsToolbar({
   }
 
   const count = selectedIds.length
+  const selectedStatusKey = statusTranslationKeys[pendingAction?.value]
+  const selectedDepartmentKey = departmentTranslationKeys[pendingAction?.value]
+  const selectedValueLabel = selectedStatusKey
+    ? t(selectedStatusKey)
+    : selectedDepartmentKey
+      ? t(selectedDepartmentKey)
+      : pendingAction?.value
 
   return (
     <>
       <div
         role="region"
-        aria-label="Bulk actions toolbar"
+        aria-label={t('bulkActionsToolbar')}
         className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-[95%] max-w-4xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-2xl rounded-2xl p-3 sm:px-5 sm:py-3.5 flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-5 duration-200 ${className}`}
       >
         {/* Selection Count and Clear */}
@@ -128,20 +179,22 @@ export function BulkActionsToolbar({
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 dark:bg-primary-950 text-primary-600 dark:text-primary-400">
             <CheckSquare className="h-4 w-4" />
           </div>
+
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-gray-900 dark:text-white">
-              {count} selected
+              {t('bulkSelected').replace('{count}', String(count))}
             </span>
+
             <Button
               variant="ghost"
               size="sm"
               onClick={onClearSelection}
               className="h-7 px-2 text-xs text-gray-500 hover:text-gray-900 dark:hover:text-white"
-              aria-label="Clear selection"
+              aria-label={t('bulkClearSelection')}
               disabled={submitting}
             >
               <X className="h-3.5 w-3.5 mr-1" />
-              Deselect
+              {t('bulkDeselect')}
             </Button>
           </div>
         </div>
@@ -154,11 +207,12 @@ export function BulkActionsToolbar({
             size="sm"
             className="h-8 text-xs gap-1.5"
             onClick={() => handleOpenAction('status', 'In Progress')}
-            aria-label="Bulk mark In Progress"
+            aria-label={t('bulkMarkInProgress')}
             disabled={submitting}
           >
             <Clock className="h-3.5 w-3.5 text-amber-500" />
-            <span className="hidden sm:inline">Mark</span> In Progress
+            <span className="hidden sm:inline">{t('bulkMark')} </span>
+            {t('statusInProgress')}
           </Button>
 
           {/* Quick Mark Resolved */}
@@ -167,37 +221,46 @@ export function BulkActionsToolbar({
             size="sm"
             className="h-8 text-xs gap-1.5"
             onClick={() => handleOpenAction('status', 'Resolved')}
-            aria-label="Bulk mark Resolved"
+            aria-label={t('bulkMarkResolved')}
             disabled={submitting}
           >
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-            <span className="hidden sm:inline">Mark</span> Resolved
+            <span className="hidden sm:inline">{t('bulkMark')} </span>
+            {t('statusResolved')}
           </Button>
 
           {/* More Statuses Dropdown */}
-          <Select disabled={submitting} onValueChange={(val) => handleOpenAction('status', val)}>
-            <SelectTrigger className="h-8 w-32 text-xs" aria-label="Bulk status update">
-              <SelectValue placeholder="Set Status" />
+          <Select
+            disabled={submitting}
+            onValueChange={(val) => handleOpenAction('status', val)}
+          >
+            <SelectTrigger className="h-8 w-32 text-xs" aria-label={t('bulkStatusUpdate')}>
+              <SelectValue placeholder={t('bulkSetStatus')} />
             </SelectTrigger>
+
             <SelectContent>
               {statuses.map((st) => (
                 <SelectItem key={st} value={st}>
-                  {st}
+                  {t(statusTranslationKeys[st])}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
 
           {/* Department Dropdown */}
-          <Select disabled={submitting} onValueChange={(val) => handleOpenAction('department', val)}>
-            <SelectTrigger className="h-8 w-44 text-xs" aria-label="Bulk assign department">
+          <Select
+            disabled={submitting}
+            onValueChange={(val) => handleOpenAction('department', val)}
+          >
+            <SelectTrigger className="h-8 w-44 text-xs" aria-label={t('bulkAssignDepartment')}>
               <Building2 className="h-3.5 w-3.5 mr-1.5 text-gray-400" />
-              <SelectValue placeholder="Assign Department" />
+              <SelectValue placeholder={t('bulkAssignDepartment')} />
             </SelectTrigger>
+
             <SelectContent>
               {departments.map((dept) => (
                 <SelectItem key={dept} value={dept}>
-                  {dept}
+                  {t(departmentTranslationKeys[dept])}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -206,38 +269,42 @@ export function BulkActionsToolbar({
       </div>
 
       {/* Confirmation Modal */}
-      <Dialog open={Boolean(pendingAction)} onOpenChange={(open) => !open && handleCloseModal()}>
+      <Dialog
+        open={Boolean(pendingAction)}
+        onOpenChange={(open) => !open && handleCloseModal()}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
               {pendingAction?.type === 'status'
-                ? `Confirm Bulk Status Update`
-                : `Confirm Department Assignment`}
+                ? t('bulkConfirmStatusUpdate')
+                : t('bulkConfirmDepartmentAssignment')}
             </DialogTitle>
+
             <DialogDescription>
               {pendingAction?.type === 'status' ? (
                 <span>
-                  Update status to{' '}
+                  {t('bulkUpdateStatusTo')}{' '}
                   <strong className="text-gray-900 dark:text-white font-semibold">
-                    "{pendingAction?.value}"
+                    "{selectedValueLabel}"
                   </strong>{' '}
-                  for{' '}
+                  {t('bulkFor')}{' '}
                   <strong className="text-gray-900 dark:text-white font-semibold">
                     {count}
                   </strong>{' '}
-                  selected {count === 1 ? 'complaint' : 'complaints'}?
+                  {count === 1 ? t('bulkSelectedComplaint') : t('bulkSelectedComplaints')}?
                 </span>
               ) : (
                 <span>
-                  Assign{' '}
+                  {t('bulkAssign')}{' '}
                   <strong className="text-gray-900 dark:text-white font-semibold">
                     {count}
                   </strong>{' '}
-                  selected {count === 1 ? 'complaint' : 'complaints'} to the{' '}
+                  {count === 1 ? t('bulkSelectedComplaint') : t('bulkSelectedComplaints')}{' '}
+                  {t('bulkToDepartment')}{' '}
                   <strong className="text-gray-900 dark:text-white font-semibold">
-                    "{pendingAction?.value}"
-                  </strong>{' '}
-                  department?
+                    "{selectedValueLabel}"
+                  </strong>?
                 </span>
               )}
             </DialogDescription>
@@ -249,29 +316,38 @@ export function BulkActionsToolbar({
                 {outcome}
               </p>
             )}
+
             {/* Selected items preview */}
             <div className="rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30 p-3 max-h-48 overflow-y-auto space-y-2">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-                Affected Complaints ({count})
+                {t('bulkAffectedComplaints').replace('{count}', String(count))}
               </p>
+
               {selectedComplaints.slice(0, 5).map((c) => (
                 <div key={c.id} className="flex items-center justify-between text-xs py-1">
                   <div className="min-w-0 flex-1 pr-2">
                     <span className="font-mono font-medium text-primary-600 dark:text-primary-400 mr-2">
                       {getDisplayId(c)}
                     </span>
+
                     <span className="text-gray-700 dark:text-gray-300 truncate">
-                      {c.title || 'Untitled Complaint'}
+                      {c.title || t('untitledComplaint')}
                     </span>
                   </div>
+
                   <Badge variant="outline" className="text-[10px] shrink-0">
-                    {pendingAction?.type === 'status' ? c.status || 'Pending' : c.department || 'Unassigned'}
+                    {pendingAction?.type === 'status'
+                      ? t(statusTranslationKeys[c.status] || 'statusPending')
+                      : c.department
+                        ? t(departmentTranslationKeys[c.department] || c.department)
+                        : t('unassigned')}
                   </Badge>
                 </div>
               ))}
+
               {count > 5 && (
                 <p className="text-xs text-gray-400 italic pt-1">
-                  ... and {count - 5} more complaint{count - 5 === 1 ? '' : 's'}
+                  {t('bulkAndMoreComplaints').replace('{count}', String(count - 5))}
                 </p>
               )}
             </div>
@@ -279,16 +355,20 @@ export function BulkActionsToolbar({
             {/* Optional remarks */}
             <div className="space-y-1.5">
               <Label htmlFor="bulk-remarks" className="text-xs font-medium">
-                Audit Event Remarks <span className="text-gray-400 font-normal">(optional)</span>
+                {t('bulkAuditRemarks')}{' '}
+                <span className="text-gray-400 font-normal">
+                  ({t('optional')})
+                </span>
               </Label>
+
               <Input
                 id="bulk-remarks"
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 placeholder={
                   pendingAction?.type === 'status'
-                    ? `e.g. Bulk updated to ${pendingAction?.value} during triage`
-                    : `e.g. Bulk reassigned to ${pendingAction?.value}`
+                    ? t('bulkStatusRemarksPlaceholder').replace('{status}', selectedValueLabel)
+                    : t('bulkDepartmentRemarksPlaceholder').replace('{department}', selectedValueLabel)
                 }
                 className="text-xs h-9"
                 disabled={submitting}
@@ -303,8 +383,9 @@ export function BulkActionsToolbar({
               disabled={submitting}
               type="button"
             >
-              Cancel
+              {t('cancel')}
             </Button>
+
             <Button
               onClick={handleConfirm}
               disabled={submitting}
@@ -312,7 +393,7 @@ export function BulkActionsToolbar({
               type="button"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              {submitting ? 'Applying...' : 'Confirm & Apply'}
+              {submitting ? t('bulkApplying') : t('bulkConfirmApply')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -67,6 +67,33 @@ export function normalizePhotoFile(complaint) {
   return blob
 }
 
+// Normalize audio evidence from queue record to a valid Blob
+export function normalizeAudioBlob(complaint) {
+  const audio = complaint?.audioBlob || complaint?.audioFile || complaint?.voiceNote?.blob
+  if (!audio) return null
+
+  const type = audio.type || complaint?.audioMimeType || complaint?.audioContentType || 'audio/webm'
+  const blob = audio.blob || audio
+
+  if (typeof Blob !== 'undefined') {
+    if (blob instanceof Blob && blob.type === type) {
+      return blob
+    }
+    try {
+      return new Blob([blob], { type })
+    } catch {
+      // Continue to fallback if constructor fails
+    }
+  }
+
+  if (!blob.type) {
+    try {
+      Object.defineProperty(blob, 'type', { value: type, configurable: true, writable: true })
+    } catch {}
+  }
+  return blob
+}
+
 // Save a complaint for later submission.
 export async function saveOfflineComplaint(complaint) {
   const db = await openDatabase()
@@ -75,11 +102,18 @@ export async function saveOfflineComplaint(complaint) {
   const photoName = photoFile?.name || complaint.photoName || null
   const photoType = photoFile?.type || complaint.photoType || null
 
+  const audioBlob = complaint.audioBlob || complaint.audioFile || complaint.voiceNote?.blob || null
+  const audioDuration = complaint.audioDuration ?? complaint.voiceNote?.durationSeconds ?? null
+  const audioMimeType = audioBlob?.type || complaint.audioMimeType || complaint.audioContentType || complaint.voiceNote?.contentType || null
+
   const record = {
     ...complaint,
     photoFile,
     photoName,
     photoType,
+    audioBlob,
+    audioDuration,
+    audioMimeType,
     localId: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
     syncStatus: 'pending',
@@ -117,10 +151,15 @@ export async function getPendingComplaints(userId) {
     const request = store.getAll()
 
     request.onsuccess = () => {
+      const now = Date.now()
       const complaints = request.result.filter(
-        (complaint) =>
-          complaint.syncStatus === 'pending' &&
-          (!userId || complaint.userId === userId)
+        (complaint) => {
+          const isPending = complaint.syncStatus === 'pending'
+          // Auto-recover stale syncing complaints if sync timed out (e.g. tab closed mid-sync)
+          const isStaleSyncing = complaint.syncStatus === 'syncing' &&
+            (!complaint.syncAttemptAt || (now - new Date(complaint.syncAttemptAt).getTime() > 120000))
+          return (isPending || isStaleSyncing) && (!userId || complaint.userId === userId)
+        }
       )
 
       resolve(complaints)
@@ -130,6 +169,100 @@ export async function getPendingComplaints(userId) {
     request.onerror = () => {
       db.close()
       reject(request.error)
+    }
+  })
+}
+
+// Update the sync status of an offline complaint ('pending' | 'syncing')
+export async function updateOfflineComplaintStatus(localId, syncStatus) {
+  const db = await openDatabase()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(STORE_NAME)
+    const request = store.get ? store.get(localId) : null
+
+    if (!request) {
+      db.close()
+      resolve(false)
+      return
+    }
+
+    request.onsuccess = () => {
+      const record = request.result
+      if (!record) {
+        resolve(false)
+        return
+      }
+      record.syncStatus = syncStatus
+      if (syncStatus === 'syncing') {
+        record.syncAttemptAt = new Date().toISOString()
+      }
+      if (store.put) store.put(record)
+    }
+
+    transaction.oncomplete = () => {
+      db.close()
+      resolve(true)
+    }
+
+    transaction.onerror = () => {
+      db.close()
+      reject(transaction.error)
+    }
+
+    transaction.onabort = () => {
+      db.close()
+      reject(transaction.error)
+    }
+  })
+}
+
+export async function markComplaintSyncing(localId) {
+  return await updateOfflineComplaintStatus(localId, 'syncing')
+}
+
+export async function markComplaintPending(localId) {
+  return await updateOfflineComplaintStatus(localId, 'pending')
+}
+
+// Reset complaints stuck in 'syncing' beyond staleThresholdMs (e.g., if a previous tab crashed mid-sync)
+export async function resetStaleSyncingComplaints(userId, staleThresholdMs = 120000) {
+  const db = await openDatabase()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(STORE_NAME)
+    const request = store.getAll()
+
+    request.onsuccess = () => {
+      const now = Date.now()
+      const records = request.result || []
+      let resetCount = 0
+
+      for (const record of records) {
+        if (
+          record.syncStatus === 'syncing' &&
+          (!userId || record.userId === userId)
+        ) {
+          const attemptTime = record.syncAttemptAt ? new Date(record.syncAttemptAt).getTime() : 0
+          if (now - attemptTime > staleThresholdMs) {
+            record.syncStatus = 'pending'
+            if (store.put) store.put(record)
+            resetCount++
+          }
+        }
+      }
+      resolve(resetCount)
+    }
+
+    transaction.oncomplete = () => {
+      db.close()
+    }
+
+    transaction.onerror = () => {
+      db.close()
+      reject(transaction.error)
     }
   })
 }
