@@ -27,3 +27,5 @@ export {
   createV1ComplaintTriggers,
 } from './triggers.js'
 
+export { api } from './lib/index.js'
+
