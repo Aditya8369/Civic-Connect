@@ -108,7 +108,10 @@ export function AuthPage() {
       }
     } catch (err) {
       if (err.code === 'auth/session-changed') return
-      if (mode === 'signin') {
+      if (
+        mode === 'signin' &&
+        ['auth/user-not-found', 'auth/invalid-credential', 'auth/wrong-password'].includes(err.code)
+      ) {
         const next = recordLoginFailure({ failedAttempts })
         setFailedAttempts(next.failedAttempts)
         setRetrySeconds(Math.ceil(next.retryDelayMs / 1_000))
