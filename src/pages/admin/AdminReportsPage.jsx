@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/select'
 import { SlaBadge } from '@/components/common/SlaBadge'
 import { SlaEscalationBanner } from '@/components/admin/SlaEscalationBanner'
+import { DepartmentCsatWidget } from '@/components/admin/DepartmentCsatWidget'
 import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { getSlaTargetDate, isSlaBreached } from '@/utils/sla'
 import { BulkActionsToolbar } from '@/components/admin/BulkActionsToolbar'
@@ -560,6 +561,14 @@ export function AdminReportsPage() {
       <SlaEscalationBanner
         complaints={complaints}
         onShowUrgentTickets={() => setShowUrgentOnly(true)}
+      />
+
+      <DepartmentCsatWidget
+        complaints={complaints}
+        onSelectDepartment={(dept) => {
+          setDepartmentFilter(dept)
+          setPageIndex(0)
+        }}
       />
 
       <div className="flex flex-wrap gap-3 mb-6">
