@@ -100,26 +100,6 @@ export function ProfilePage() {
     loading: gamificationLoading,
   } = useCivicGamification(user)
 
-  const handleEnablePush = async () => {
-    setRequestingPush(true)
-
-    try {
-      const res = await requestPushPermission(user?.uid)
-      setPermissionStatus(res.status)
-
-      if (res.status === 'granted') {
-        toast.success(t('profilePushEnabled'))
-      } else if (res.status === 'denied') {
-        toast(t('profilePushNotEnabled'), { icon: 'ℹ️' })
-      }
-    } catch (err) {
-      console.error('Error enabling push notifications:', err)
-      toast.error(t('profilePushError'))
-    } finally {
-      setRequestingPush(false)
-    }
-  }
-
   // Load the user's personal profile information.
   useEffect(() => {
     if (!user?.uid) {
