@@ -1,3 +1,4 @@
+
 // @vitest-environment jsdom
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -41,7 +42,6 @@ vi.mock('firebase/firestore', () => ({
   limit: vi.fn(),
   getDocs: vi.fn(() => Promise.resolve({ empty: true, docs: [] })),
   getDoc: vi.fn((ref) => {
-    // The complaint reference is resolved before the page subscribes.
     if (typeof ref === 'string' && ref.startsWith('issues/')) {
       if (!mockComplaintData) {
         return Promise.resolve({ exists: () => false })
@@ -65,7 +65,6 @@ vi.mock('firebase/firestore', () => ({
     })
   }),
   onSnapshot: vi.fn((ref, callback) => {
-    // If it's the events subcollection
     if (typeof ref === 'string' && ref.includes('events')) {
       callback({ docs: [] })
     } else if (mockComplaintData) {
@@ -133,7 +132,6 @@ describe('ComplaintDetailsPage Print Integration (#161)', () => {
 
     expect(printButton).toBeTruthy()
     expect(printButton.innerHTML).toContain('Print Official Receipt')
-    // Printer icon SVG should be inside button
     expect(printButton.querySelector('svg')).toBeTruthy()
   }, 20000)
 
@@ -164,10 +162,9 @@ describe('ComplaintDetailsPage Print Integration (#161)', () => {
     expect(printWrapper.className).toContain('hidden')
     expect(printWrapper.className).toContain('print:block')
 
-    // The receipt component inside print container
     const receipt = printWrapper.querySelector('[data-testid="printable-grievance-receipt"]')
     expect(receipt).toBeTruthy()
-    expect(receipt.textContent).toContain('MUNICIPAL GRIEVANCE RECEIPT')
+    expect(receipt.textContent).toContain('Municipal Grievance Receipt')
     expect(receipt.textContent).toContain('CMP-2026-0888')
     expect(receipt.textContent).toContain('Broken Stormwater Drain Cover')
     expect(receipt.textContent).toContain('Stormwater Drainage')
@@ -182,11 +179,8 @@ describe('ComplaintDetailsPage Print Integration (#161)', () => {
     const screenContainer = container.querySelector('.print\\:hidden')
     expect(screenContainer).toBeTruthy()
 
-    // Back to My Reports button is inside screen-only container
     const backBtn = screenContainer.querySelector('button')
     expect(backBtn.textContent).toContain('Back to My Reports')
-
-    // Status Timeline is inside screen container
     expect(screenContainer.textContent).toContain('Status Timeline')
   }, 20000)
 
@@ -202,5 +196,109 @@ describe('ComplaintDetailsPage Print Integration (#161)', () => {
     )
     expect(printButton).toBeFalsy()
     expect(container.textContent).toContain('Complaint not found')
+  }, 20000)
+
+  it('shows Submitted as completed and In Progress as the current step', async () => {
+    mockComplaintData.status = 'In Progress'
+
+    await act(async () => {
+      root.render(<ComplaintDetailsPage />)
+    })
+
+    const progress = container.querySelector('[aria-label="Complaint progress"]')
+
+    expect(progress).toBeTruthy()
+    expect(progress.textContent).toContain('Submitted')
+    expect(progress.textContent).toContain('In Progress')
+    expect(progress.textContent).toContain('Completed')
+    expect(progress.textContent).toContain('Current step')
+
+    const currentStep = progress.querySelector(
+      'button[aria-label="In Progress. Current status. Show details"]'
+    )
+    expect(currentStep).toBeTruthy()
+    expect(currentStep.getAttribute('aria-expanded')).toBe('false')
+  }, 20000)
+
+  it('shows all three steps with Resolved as the current step', async () => {
+    mockComplaintData.status = 'Resolved'
+
+    await act(async () => {
+      root.render(<ComplaintDetailsPage />)
+    })
+
+    const progress = container.querySelector('[aria-label="Complaint progress"]')
+
+    expect(progress).toBeTruthy()
+    expect(progress.textContent).toContain('Submitted')
+    expect(progress.textContent).toContain('In Progress')
+    expect(progress.textContent).toContain('Resolved')
+
+    expect(
+      progress.querySelector(
+        'button[aria-label="Resolved. Current status. Show details"]'
+      )
+    ).toBeTruthy()
+
+    expect(
+      progress.querySelector(
+        'button[aria-label="Submitted. Completed. Show details"]'
+      )
+    ).toBeTruthy()
+
+    expect(
+      progress.querySelector(
+        'button[aria-label="In Progress. Completed. Show details"]'
+      )
+    ).toBeTruthy()
+  }, 20000)
+
+  it('opens and closes step details when a step button is clicked', async () => {
+    await act(async () => {
+      root.render(<ComplaintDetailsPage />)
+    })
+
+    const progress = container.querySelector('[aria-label="Complaint progress"]')
+    const submittedButton = progress.querySelector(
+      'button[aria-label="Submitted. Completed. Show details"]'
+    )
+
+    expect(submittedButton).toBeTruthy()
+    expect(submittedButton.getAttribute('aria-expanded')).toBe('false')
+
+    await act(async () => {
+      submittedButton.click()
+    })
+
+    expect(submittedButton.getAttribute('aria-expanded')).toBe('true')
+
+    const tooltipId = submittedButton.getAttribute('aria-controls')
+    const tooltip = progress.querySelector(`#${tooltipId}`)
+
+    expect(tooltip).toBeTruthy()
+    expect(tooltip.getAttribute('role')).toBe('tooltip')
+    expect(tooltip.textContent).toContain('Submitted')
+
+    await act(async () => {
+      submittedButton.click()
+    })
+
+    expect(submittedButton.getAttribute('aria-expanded')).toBe('false')
+  }, 20000)
+
+  it('shows the correct reopened status message', async () => {
+    mockComplaintData.status = 'Reopened'
+
+    await act(async () => {
+      root.render(<ComplaintDetailsPage />)
+    })
+
+    const progress = container.querySelector('[aria-label="Complaint progress"]')
+
+    expect(progress).toBeTruthy()
+    expect(progress.textContent).toContain('Reopened')
+    expect(progress.textContent).toContain(
+      'Your complaint has been reopened and is back with the concerned department for further action.'
+    )
   }, 20000)
 })

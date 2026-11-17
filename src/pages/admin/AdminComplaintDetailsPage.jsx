@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
@@ -383,7 +382,7 @@ export function AdminComplaintDetailsPage() {
             ? {
                 recipientUid: current.reportedBy,
                 recipientRole: 'citizen',
-                senderUid: '',
+                senderUid: actorUid || '',
                 issueId: current.complaintId || id,
                 type: 'status_update',
                 title: 'Complaint Status Updated',
@@ -450,7 +449,7 @@ export function AdminComplaintDetailsPage() {
             ? {
                 recipientUid: current.reportedBy,
                 recipientRole: 'citizen',
-                senderUid: '',
+                senderUid: actorUid || '',
                 issueId: current.complaintId || id,
                 type: 'status_update',
                 title: 'Complaint Rejected',
