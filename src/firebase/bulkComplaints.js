@@ -3,7 +3,10 @@ import { db } from './services'
 import { addComplaintEventToBatch } from './complaintEvents'
 import { addNotificationToBatch } from './notifications'
 
-export const BATCH_CHUNK_SIZE = 150
+export const FIRESTORE_MAX_OPS_PER_TRANSACTION = 500
+export const ESTIMATED_OPS_PER_COMPLAINT = 4 // 1 read (get) + 1 update + 1 audit event write + 1 notification write
+export const SAFE_TRANSACTION_OP_BUDGET = 450
+export const BATCH_CHUNK_SIZE = 100 // At most 100 * 4 = 400 operations, leaving 100-op safety margin under Firestore 500 limit
 
 /**
  * Normalizes an array or map of complaints into an id-indexed object
