@@ -10,6 +10,10 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { useAuth } from '@/hooks/useAuth'
 import { useLanguage } from '@/contexts/LanguageContext'
 import toast from 'react-hot-toast'
+import {
+  recordLoginFailure,
+  resetLoginProtection,
+} from '@/utils/loginProtection'
 
 export function AuthPage() {
   const { login, register, resetPassword } = useAuth()
@@ -25,10 +29,21 @@ export function AuthPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [failedAttempts, setFailedAttempts] = useState(0)
+  const [retrySeconds, setRetrySeconds] = useState(0)
+
+  useEffect(() => {
+    if (retrySeconds <= 0) return undefined
+    const timer = window.setTimeout(() => {
+      setRetrySeconds((remaining) => Math.max(0, remaining - 1))
+    }, 1_000)
+    return () => window.clearTimeout(timer)
+  }, [retrySeconds])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (submitting) return
+    if (mode === 'signin' && retrySeconds > 0) return
 
     if (mode === 'reset') {
       if (!email.trim()) {
