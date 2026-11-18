@@ -40,7 +40,7 @@ import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentC
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { findNearbyComplaints, parseCoordinates } from '@/utils/geo'
+import { findNearbyComplaints, parseCoordinates, findWardForCoordinates } from '@/utils/geo'
 import { ComplaintLocationMap } from '@/components/common/ComplaintLocationMap'
 import toast from 'react-hot-toast'
 
@@ -178,6 +178,46 @@ export function ReportPage() {
   const [endorsingMap, setEndorsingMap] = useState({})
   const pendingEndorsements = useRef(new Set())
   const lastCheckRequestId = useRef(0)
+
+  const [resolvedJurisdiction, setResolvedJurisdiction] = useState(null)
+  const [jurisdictionState, setJurisdictionState] = useState('idle') // 'idle' | 'detecting' | 'resolved' | 'out_of_bounds' | 'invalid'
+  const locationRequestIdRef = useRef(0)
+
+  useEffect(() => {
+    const currentRequestId = ++locationRequestIdRef.current
+
+    if (!latitude && !longitude) {
+      setResolvedJurisdiction(null)
+      setJurisdictionState('idle')
+      return
+    }
+
+    setJurisdictionState('detecting')
+
+    const timer = setTimeout(() => {
+      if (locationRequestIdRef.current !== currentRequestId) return
+
+      const coords = parseCoordinates({ latitude, longitude })
+      if (!coords) {
+        setResolvedJurisdiction(null)
+        setJurisdictionState('invalid')
+        return
+      }
+
+      const ward = findWardForCoordinates(coords)
+      if (ward) {
+        setResolvedJurisdiction(ward)
+        setJurisdictionState('resolved')
+      } else {
+        setResolvedJurisdiction(null)
+        setJurisdictionState('out_of_bounds')
+      }
+    }, 150)
+
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [latitude, longitude])
 
   useEffect(() => {
     return () => {
@@ -390,6 +430,11 @@ export function ReportPage() {
           audioBlob: voiceNote?.blob || null,
           audioDuration: voiceNote?.durationSeconds || null,
           audioMimeType: voiceNote?.contentType || null,
+          wardId: resolvedJurisdiction?.wardId || null,
+          ward: resolvedJurisdiction?.wardId || null,
+          wardName: resolvedJurisdiction?.wardName || null,
+          zoneName: resolvedJurisdiction?.zoneName || null,
+          jurisdictionMeta: resolvedJurisdiction || null,
         })
 
         recordSubmissionTimestamp(user.uid, Date.now())
@@ -464,7 +509,7 @@ export function ReportPage() {
         await runTransaction(db, async (transaction) => {
           complaintId = await allocateComplaintId(transaction)
 
-          transaction.set(issueRef, {
+          const issuePayload = {
             complaintId,
             title,
             description,
@@ -482,7 +527,16 @@ export function ReportPage() {
             endorsementCount: 0,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
-          })
+          }
+
+          if (resolvedJurisdiction?.wardId) {
+            issuePayload.wardId = resolvedJurisdiction.wardId
+            issuePayload.ward = resolvedJurisdiction.wardId
+            issuePayload.wardName = resolvedJurisdiction.wardName
+            issuePayload.zoneName = resolvedJurisdiction.zoneName
+          }
+
+          transaction.set(issueRef, issuePayload)
 
           addComplaintEventToBatch(transaction, issueRef.id, {
             actorUid: user.uid,
@@ -826,6 +880,79 @@ export function ReportPage() {
                   />
                 </div>
               </div>
+
+              {/* Automated Municipal Ward & Jurisdiction Detection Badge (Issue #251) */}
+              {jurisdictionState !== 'idle' && (
+                <div
+                  className="rounded-lg border p-3.5 transition-all text-xs"
+                  data-testid="jurisdiction-routing-badge"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {jurisdictionState === 'detecting' && (
+                    <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary-500" />
+                      <span>Detecting administrative ward & municipal jurisdiction...</span>
+                    </div>
+                  )}
+
+                  {jurisdictionState === 'resolved' && resolvedJurisdiction && (
+                    <div className="space-y-2 border-primary-200 bg-primary-50/50 dark:border-primary-900/40 dark:bg-primary-950/20 rounded-md p-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="font-mono bg-primary-100 text-primary-800 dark:bg-primary-900/60 dark:text-primary-200 border-primary-300">
+                            {resolvedJurisdiction.wardId}
+                          </Badge>
+                          <span className="font-semibold text-gray-900 dark:text-gray-100">
+                            {resolvedJurisdiction.wardName}
+                          </span>
+                        </div>
+                        <span className="text-gray-500 dark:text-gray-400 font-medium">
+                          {resolvedJurisdiction.zoneName}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-primary-100 dark:border-primary-900/30 text-gray-600 dark:text-gray-300">
+                        {resolvedJurisdiction.councilorOffice && (
+                          <div>
+                            <span className="font-medium text-gray-700 dark:text-gray-200">Zonal Office: </span>
+                            {resolvedJurisdiction.councilorOffice}
+                          </div>
+                        )}
+                        {resolvedJurisdiction.zoneSupervisor && (
+                          <div>
+                            <span className="font-medium text-gray-700 dark:text-gray-200">Supervisor: </span>
+                            {resolvedJurisdiction.zoneSupervisor}
+                          </div>
+                        )}
+                        {resolvedJurisdiction.helpline && (
+                          <div>
+                            <span className="font-medium text-gray-700 dark:text-gray-200">Helpline: </span>
+                            <span className="font-mono">{resolvedJurisdiction.helpline}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {jurisdictionState === 'out_of_bounds' && (
+                    <div className="flex items-start gap-2 text-amber-700 dark:text-amber-400 bg-amber-50/70 dark:bg-amber-950/20 p-2.5 rounded-md border border-amber-200 dark:border-amber-900/30">
+                      <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-medium">Location outside mapped ward boundaries. </span>
+                        <span>This complaint will be routed to the Central Municipal Headquarters. You may still submit this complaint.</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {jurisdictionState === 'invalid' && (
+                    <div className="flex items-center gap-2 text-red-600 dark:text-red-400 bg-red-50/70 dark:bg-red-950/20 p-2 rounded-md border border-red-200 dark:border-red-900/30">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <span>Invalid coordinates entered. Latitude must be [-90, 90] and longitude [-180, 180].</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex items-center justify-end">
                 {checkingDuplicates && (
