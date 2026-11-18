@@ -515,5 +515,12 @@ service cloud.firestore {
                             isValidLeaderboardEntry();
       allow delete: if isAdmin();
     }
+
+    // Field Officers collection (/officers/{officerId})
+    // Only authorized municipal administrators may read and manage officer records.
+    // Protects officer personal information (phone, email) and prevents unauthorized tampering.
+    match /officers/{officerId} {
+      allow read, write: if isAdmin();
+    }
   }
 }
