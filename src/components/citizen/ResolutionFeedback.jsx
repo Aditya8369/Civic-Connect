@@ -5,6 +5,8 @@ import {
 } from '@/components/ui/dialog'
 import VoiceRecorder from '@/components/citizen/VoiceRecorder'
 import { FEEDBACK_TAGS, submitResolutionFeedback } from '@/firebase/resolutionFeedback'
+import { SafeMarkdown } from '@/components/common/SafeMarkdown'
+import { sanitizeMarkdown } from '@/utils/sanitize'
 
 const REACTIONS = ['Very dissatisfied', 'Dissatisfied', 'Okay', 'Satisfied', 'Very satisfied']
 
@@ -41,7 +43,7 @@ export function ResolutionFeedback({ issueId, title, feedback }) {
     setError('')
     try {
       await submitResolutionFeedback(issueId, { rating, tags, comment, photo, voice })
-      setSaved({ rating, tags, comment: comment.trim() })
+      setSaved({ rating, tags, comment: sanitizeMarkdown(comment) })
     } catch (failure) {
       setError(failure.code === 'unavailable' ? 'Couldn’t reach the server. Reconnect and try again.' :
         failure.code ? 'Couldn’t save your feedback. Please try again.' :
@@ -59,7 +61,7 @@ export function ResolutionFeedback({ issueId, title, feedback }) {
         <p className="font-semibold">Thank you! Your feedback was submitted.</p>
         {REACTIONS[submitted.rating - 1] && <p>{REACTIONS[submitted.rating - 1]}</p>}
         {submitted.tags?.length > 0 && <p>{submitted.tags.join(' · ')}</p>}
-        {submitted.comment && <p className="whitespace-pre-wrap break-words">{submitted.comment}</p>}
+        {submitted.comment && <SafeMarkdown content={submitted.comment} as="p" className="whitespace-pre-wrap break-words" />}
       </div>
     )
   }

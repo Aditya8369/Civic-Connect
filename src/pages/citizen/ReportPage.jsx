@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/select'
 import { findNearbyComplaints, parseCoordinates, findWardForCoordinates } from '@/utils/geo'
 import { ComplaintLocationMap } from '@/components/common/ComplaintLocationMap'
+import { sanitizeText, sanitizeMarkdown } from '@/utils/sanitize'
 import toast from 'react-hot-toast'
 
 const categories = [
@@ -393,7 +394,11 @@ export function ReportPage() {
       return
     }
 
-    if (!category || !title || !description || !address) {
+    const cleanTitle = sanitizeText(title)
+    const cleanDescription = sanitizeMarkdown(description)
+    const cleanAddress = sanitizeText(address)
+
+    if (!category || !cleanTitle || !cleanDescription || !cleanAddress) {
       toast.error(t('fillRequiredFields'))
       return
     }
@@ -419,10 +424,10 @@ export function ReportPage() {
         }
 
         await saveOfflineComplaint({
-          title,
-          description,
+          title: cleanTitle,
+          description: cleanDescription,
           category,
-          address,
+          address: cleanAddress,
           latitude: latitude ? parseFloat(latitude) : null,
           longitude: longitude ? parseFloat(longitude) : null,
           userId: user.uid,
@@ -511,10 +516,10 @@ export function ReportPage() {
 
           const issuePayload = {
             complaintId,
-            title,
-            description,
+            title: cleanTitle,
+            description: cleanDescription,
             category,
-            address,
+            address: cleanAddress,
             latitude: latitude ? parseFloat(latitude) : null,
             longitude: longitude ? parseFloat(longitude) : null,
             status: 'Pending',

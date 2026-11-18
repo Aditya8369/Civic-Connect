@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import {
   Flag, FileText, Building2, CheckCircle2, ArrowRight,
-  ChevronRight, Landmark, MapPin, HeartHandshake,
+  Landmark, MapPin, HeartHandshake,
   Activity, ArrowUpRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'

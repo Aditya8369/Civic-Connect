@@ -31,6 +31,7 @@ import { useCivicGamification } from '@/hooks/useCivicGamification'
 import { BadgesShowcaseCard } from '@/components/citizen/BadgesShowcaseCard'
 import { CivicChampionLeaderboardCard } from '@/components/citizen/CivicChampionLeaderboardCard'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { sanitizeText } from '@/utils/sanitize'
 import toast from 'react-hot-toast'
 
 function PreferenceSwitch({
@@ -99,26 +100,6 @@ export function ProfilePage() {
     currentUserRank,
     loading: gamificationLoading,
   } = useCivicGamification(user)
-
-  const handleEnablePush = async () => {
-    setRequestingPush(true)
-
-    try {
-      const res = await requestPushPermission(user?.uid)
-      setPermissionStatus(res.status)
-
-      if (res.status === 'granted') {
-        toast.success(t('profilePushEnabled'))
-      } else if (res.status === 'denied') {
-        toast(t('profilePushNotEnabled'), { icon: 'ℹ️' })
-      }
-    } catch (err) {
-      console.error('Error enabling push notifications:', err)
-      toast.error(t('profilePushError'))
-    } finally {
-      setRequestingPush(false)
-    }
-  }
 
   // Load the user's personal profile information.
   useEffect(() => {
@@ -279,8 +260,9 @@ export function ProfilePage() {
 
     if (saving) return
 
-    const cleanName = name.trim()
-    const cleanPhone = phone.trim()
+    const cleanName = sanitizeText(name)
+    const cleanPhone = sanitizeText(phone)
+    const cleanAddress = sanitizeText(address)
 
     if (!cleanName) {
       toast.error(t('profileEnterName'))
@@ -298,7 +280,7 @@ export function ProfilePage() {
       await updateUserProfile({
         name: cleanName,
         phone: cleanPhone,
-        address: address.trim(),
+        address: cleanAddress,
       })
 
       setName(cleanName)

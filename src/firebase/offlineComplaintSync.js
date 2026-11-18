@@ -184,10 +184,10 @@ export function syncOfflineComplaint(complaint, session, options = {}) {
 
         const issueData = {
           complaintId,
-          title: complaint.title,
-          description: complaint.description,
+          title: sanitizeText(complaint.title),
+          description: sanitizeMarkdown(complaint.description),
           category: complaint.category,
-          address: complaint.address,
+          address: sanitizeText(complaint.address),
           latitude: complaint.latitude ?? null,
           longitude: complaint.longitude ?? null,
           status: 'Pending',
