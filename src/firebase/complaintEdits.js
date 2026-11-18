@@ -1,11 +1,14 @@
 import { doc, runTransaction, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from './services'
 import { getComplaintEditError } from '@/utils/complaintEdit'
+import { sanitizeText, sanitizeMarkdown } from '@/utils/sanitize'
 
 export class ComplaintEditError extends Error {}
 
-function normalizedField(value) {
-  return typeof value === 'string' ? value.trim() : value
+function normalizedField(field, value) {
+  if (typeof value !== 'string') return value
+  if (field === 'description') return sanitizeMarkdown(value)
+  return sanitizeText(value)
 }
 
 export function saveComplaintEdits(baseline, draft, ownerUid) {
@@ -20,8 +23,8 @@ export function saveComplaintEdits(baseline, draft, ownerUid) {
   // The form validates strings before saving. Trimming both sides keeps a
   // formatting-only edit from rewriting a field from an older snapshot.
   const changes = ['title', 'description', 'address']
-    .map(field => [field, normalizedField(draft[field])])
-    .filter(([field, value]) => value !== normalizedField(baseline[field]))
+    .map(field => [field, normalizedField(field, draft[field])])
+    .filter(([field, value]) => value !== normalizedField(field, baseline[field]))
 
   return runTransaction(db, async transaction => {
     assertCurrentSession()
@@ -37,9 +40,9 @@ export function saveComplaintEdits(baseline, draft, ownerUid) {
 
     const patch = {}
     for (const [field, value] of changes) {
-      const persisted = normalizedField(current[field])
+      const persisted = normalizedField(field, current[field])
       if (persisted === value) continue
-      if (persisted !== normalizedField(baseline[field])) {
+      if (persisted !== normalizedField(field, baseline[field])) {
         throw new ComplaintEditError(
           `The complaint ${field} changed elsewhere. Copy your draft and reopen the complaint to review the latest details.`,
         )

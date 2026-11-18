@@ -7,6 +7,7 @@ import { allocateComplaintId } from './complaintId'
 import { addComplaintEventToBatch } from './complaintEvents'
 import { addNotificationToBatch } from './notifications'
 import { uploadComplaintPhoto, uploadComplaintAudio, deleteComplaintEvidence } from './storage'
+import { sanitizeText, sanitizeMarkdown } from '@/utils/sanitize'
 
 export function normalizePhotoFile(complaint) {
   const photo = complaint?.photoFile || complaint?.photoBlob
@@ -157,10 +158,10 @@ export function syncOfflineComplaint(complaint, session, options = {}) {
         assertCurrentSession()
         transaction.set(issueRef, {
           complaintId,
-          title: complaint.title,
-          description: complaint.description,
+          title: sanitizeText(complaint.title),
+          description: sanitizeMarkdown(complaint.description),
           category: complaint.category,
-          address: complaint.address,
+          address: sanitizeText(complaint.address),
           latitude: complaint.latitude ?? null,
           longitude: complaint.longitude ?? null,
           status: 'Pending',
