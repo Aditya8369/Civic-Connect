@@ -2,6 +2,7 @@ import { doc, getDocFromServer, runTransaction, serverTimestamp } from 'firebase
 import { deleteObject, ref, uploadBytes } from 'firebase/storage'
 import { auth, db, storage } from './services'
 import { validateComplaintAudio, validateComplaintPhoto } from './storage'
+import { sanitizeMarkdown } from '@/utils/sanitize'
 
 export const FEEDBACK_TAGS = ['Quick response', 'Courteous staff', 'Clean finish']
 const MAX_VOICE_SIZE_BYTES = 5 * 1024 * 1024
@@ -48,7 +49,13 @@ export async function submitResolutionFeedback(id, { rating, tags, comment, phot
       if (auth.currentUser?.uid !== uid) throw new Error('Your sign-in changed. Try again.')
       assertFeedbackEligible(snapshot.data(), uid)
       transaction.update(issueRef, {
-        feedback: { rating, tags, comment: comment.trim(), attachment, submittedAt: serverTimestamp() },
+        feedback: {
+          rating,
+          tags,
+          comment: sanitizeMarkdown(comment),
+          attachment,
+          submittedAt: serverTimestamp(),
+        },
         updatedAt: serverTimestamp(),
       })
     })

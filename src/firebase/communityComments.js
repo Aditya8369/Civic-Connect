@@ -7,6 +7,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore'
 import { db } from './services'
+import { sanitizeMarkdown, sanitizeText } from '@/utils/sanitize'
 
 /**
  * Subscribes to real-time comments for a specific issue.
@@ -141,14 +142,20 @@ export async function postIssueComment({
   if (!trimmed) {
     throw new Error('Comment text cannot be empty')
   }
+  const cleanText = sanitizeMarkdown(trimmed)
+  if (!cleanText) {
+    throw new Error('Comment text cannot be empty')
+  }
   if (!authorId) {
     throw new Error('authorId is required to post a comment')
   }
 
+  const cleanAuthorName = sanitizeText(authorName) || 'Citizen'
+
   const commentsRef = collection(customDb, 'issues', issueId, 'comments')
   return addDoc(commentsRef, {
-    text: trimmed,
-    authorName: authorName || 'Citizen',
+    text: cleanText,
+    authorName: cleanAuthorName,
     authorId,
     createdAt: serverTimestamp(),
   })

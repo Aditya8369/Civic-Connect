@@ -47,6 +47,8 @@ import {
 import toast from 'react-hot-toast'
 import ComplaintAudioPlayer from '@/components/citizen/ComplaintAudioPlayer'
 import ResolutionProofSlider, { getResolutionPhoto } from '@/components/citizen/ResolutionProofSlider'
+import { SafeMarkdown } from '@/components/common/SafeMarkdown'
+import { sanitizeMarkdown } from '@/utils/sanitize'
 
 const statusVariant = {
   Resolved: 'success',
@@ -592,7 +594,7 @@ export function ComplaintDetailsPage() {
       toast.error('This complaint is no longer eligible for reopening')
       return
     }
-    const reason = feedback.trim()
+    const reason = sanitizeMarkdown(feedback)
     if (!reason) {
       toast.error('Please tell us what is still not fixed')
       return
@@ -783,7 +785,7 @@ export function ComplaintDetailsPage() {
 
                   <div className="mt-4">
                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">{complaint.description}</p>
+                    <SafeMarkdown content={complaint.description} as="div" className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed" />
                   </div>
 
                   {(initialPhoto || resolutionPhoto) && (
@@ -821,7 +823,7 @@ export function ComplaintDetailsPage() {
                   {complaint.status === 'Reopened' && complaint.reopenReason && (
                     <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-900/20">
                       <p className="font-medium text-amber-800 dark:text-amber-300">Your reopen feedback</p>
-                      <p className="mt-1 text-gray-700 dark:text-gray-300">{complaint.reopenReason}</p>
+                      <SafeMarkdown content={complaint.reopenReason} as="div" className="mt-1 text-gray-700 dark:text-gray-300" />
                     </div>
                   )}
 

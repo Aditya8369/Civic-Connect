@@ -30,6 +30,8 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { EmptyState } from '@/components/common/EmptyState'
+import { SafeMarkdown } from '@/components/common/SafeMarkdown'
+import { sanitizeMarkdown } from '@/utils/sanitize'
 
 export default function CommunityFeed() {
   const { user } = useAuth()
@@ -176,7 +178,7 @@ export default function CommunityFeed() {
       return
     }
 
-    const text = (newComment[issueId] || '').trim()
+    const text = sanitizeMarkdown((newComment[issueId] || '').trim())
 
     if (!text) return
 
@@ -406,9 +408,11 @@ export default function CommunityFeed() {
                       {issue.title || issue.subject || t('civicIssue')}
                     </h3>
 
-                    <p className="text-sm text-gray-600 mb-3 whitespace-pre-line dark:text-gray-400">
-                      {issue.description || t('noDescriptionProvided')}
-                    </p>
+                    <SafeMarkdown
+                      content={issue.description || t('noDescriptionProvided')}
+                      as="div"
+                      className="text-sm text-gray-600 mb-3 whitespace-pre-line dark:text-gray-400"
+                    />
 
                     {issue.location && (
                       <p className="text-xs text-gray-500 mb-3 dark:text-gray-400">
@@ -467,9 +471,11 @@ export default function CommunityFeed() {
                               </span>
                             </div>
 
-                            <p className="text-gray-700 dark:text-gray-300">
-                              {c.text}
-                            </p>
+                            <SafeMarkdown
+                              content={c.text}
+                              as="div"
+                              className="text-gray-700 dark:text-gray-300"
+                            />
                           </div>
                         ))
                       )}
