@@ -229,6 +229,36 @@ service cloud.firestore {
                request.resource.data.get('updatedAt', null) == request.time;
       }
 
+      function isCitizenAcceptResolution() {
+        let deadline = resource.data.get('verificationDeadline', null);
+        let diff = request.resource.data.diff(resource.data);
+        return resource.data.status == 'Pending Verification' &&
+               request.resource.data.status == 'Resolved' &&
+               (deadline == null || request.time <= deadline) &&
+               diff.affectedKeys().hasOnly(['status', 'resolvedAt', 'updatedAt', 'acceptedBy', 'acceptedAt', 'feedback']) &&
+               request.resource.data.get('acceptedBy', null) == request.auth.uid &&
+               request.resource.data.get('acceptedAt', null) == request.time &&
+               request.resource.data.get('resolvedAt', null) == request.time &&
+               request.resource.data.get('updatedAt', null) == request.time;
+      }
+
+      function isCitizenDisputeResolution() {
+        let deadline = resource.data.get('verificationDeadline', null);
+        let diff = request.resource.data.diff(resource.data);
+        let disputeData = request.resource.data.get('dispute', {});
+        let allowedReasons = ['WORK_INCOMPLETE', 'INCORRECT_LOCATION', 'POOR_QUALITY', 'OTHER'];
+        return resource.data.status == 'Pending Verification' &&
+               request.resource.data.status == 'Disputed' &&
+               (deadline == null || request.time <= deadline) &&
+               diff.affectedKeys().hasOnly(['status', 'dispute', 'disputedAt', 'updatedAt', 'disputeCount']) &&
+               disputeData is map &&
+               disputeData.get('reason', '') in allowedReasons &&
+               isNonEmptyString(disputeData.get('explanation', ''), 2000) &&
+               disputeData.get('disputedBy', '') == request.auth.uid &&
+               request.resource.data.get('disputedAt', null) == request.time &&
+               request.resource.data.get('updatedAt', null) == request.time;
+      }
+
       function isCitizenUpvote() {
         let diff = request.resource.data.diff(resource.data);
         let currentCount = resource.data.get('upvotesCount', 0);
@@ -282,10 +312,10 @@ service cloud.firestore {
       // Complaint creation is strictly Pending and owned by the author
       allow create: if isAuthenticated() && isValidComplaintCreate();
 
-      // Citizen updates are restricted to Pending edits, appeals, feedback, or voting; admins have full workflow access
+      // Citizen updates are restricted to Pending edits, appeals, feedback, resolution acceptance/dispute, or voting; admins have full workflow access
       allow update: if (isAuthenticated() && (
                         (resource.data.reportedBy == request.auth.uid &&
-                          (isValidCitizenPendingEdit() || isCitizenAppeal() || isResolutionFeedback())) ||
+                          (isValidCitizenPendingEdit() || isCitizenAppeal() || isResolutionFeedback() || isCitizenAcceptResolution() || isCitizenDisputeResolution())) ||
                         isCitizenUpvote() ||
                         isCitizenEndorsement()
                       )) || isAdmin();
@@ -327,7 +357,12 @@ service cloud.firestore {
             'Resolution notes updated',
             'Complaint merged',
             'Duplicate complaint consolidated',
-            'Citizen appeal'
+            'Citizen appeal',
+            'Resolution submitted for verification',
+            'Resolution accepted',
+            'Resolution disputed',
+            'Resolution auto-verified',
+            'Dispute reviewed'
           ];
           return data.keys().hasOnly(['timestamp', 'actorUid', 'action', 'previousStatus', 'newStatus', 'remarks']) &&
                  data.keys().hasAll(['timestamp', 'action', 'actorUid']) &&
@@ -349,7 +384,7 @@ service cloud.firestore {
           let data = request.resource.data;
           let action = data.action;
           // Citizens may only append events that mirror the lifecycle transition
-          // committed in the same write (creation or a Resolved -> Reopened appeal).
+          // committed in the same write (creation, a Resolved -> Reopened appeal, or resolution acceptance/dispute).
           let citizenAllowed = isComplaintAuthor() && (
             (action == 'Complaint submitted' &&
               data.get('newStatus', null) == 'Pending' &&
@@ -358,7 +393,17 @@ service cloud.firestore {
               data.get('newStatus', null) == 'Reopened' &&
               getAfter(issuePath).data.status == 'Reopened' &&
               exists(issuePath) &&
-              get(issuePath).data.status == 'Resolved')
+              get(issuePath).data.status == 'Resolved') ||
+            ((action == 'Resolution accepted' || action == 'Status changed') &&
+              data.get('newStatus', null) == 'Resolved' &&
+              getAfter(issuePath).data.status == 'Resolved' &&
+              exists(issuePath) &&
+              get(issuePath).data.status == 'Pending Verification') ||
+            ((action == 'Resolution disputed' || action == 'Status changed') &&
+              data.get('newStatus', null) == 'Disputed' &&
+              getAfter(issuePath).data.status == 'Disputed' &&
+              exists(issuePath) &&
+              get(issuePath).data.status == 'Pending Verification')
           );
           return isAdmin() || citizenAllowed;
         }

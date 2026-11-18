@@ -18,14 +18,26 @@ import {
   Check,
   ChevronDown,
   CircleCheck,
+  Clock,
+  ShieldCheck,
+  CheckCircle2,
+  XCircle,
+  Upload,
 } from 'lucide-react'
 import { doc, getDoc, collection, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
 import { db } from '@/firebase/services'
 import { getDisplayId } from '@/firebase/complaintId'
 import { sortEvents, formatEventDate } from '@/firebase/complaintEvents'
-import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
+import {
+  commitComplaintTransition,
+  acceptComplaintResolution,
+  disputeComplaintResolution,
+  DISPUTE_REASONS,
+} from '@/firebase/complaintLifecycle'
+import { uploadDisputePhoto, uploadDisputeAudio, deleteComplaintEvidence } from '@/firebase/storage'
 import { ResolutionFeedback } from '@/components/citizen/ResolutionFeedback'
+import VoiceRecorder from '@/components/citizen/VoiceRecorder'
 import { MilestoneCelebrationBanner } from '@/components/citizen/MilestoneCelebrationBanner'
 import { PrintableGrievanceReceipt } from '@/components/citizen/PrintableGrievanceReceipt'
 import { ComplaintLocationMap } from '@/components/common/ComplaintLocationMap'
@@ -56,6 +68,8 @@ const statusVariant = {
   Pending: 'destructive',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Pending Verification': 'warning',
+  Disputed: 'destructive',
   'Merged - Duplicate': 'secondary',
 }
 
@@ -75,16 +89,25 @@ const STEPS = [
       'Your complaint has been assigned to the concerned department and work is underway.',
   },
   {
+    id: 'pending-verification',
+    title: 'Under Verification',
+    description:
+      'Officer has completed the work and submitted resolution proof for your review.',
+  },
+  {
     id: 'resolved',
     title: 'Resolved',
     description:
-      'The concerned department has completed the work and your complaint has been resolved.',
+      'The resolution has been verified and your complaint is successfully resolved.',
   },
 ]
 
 function getActiveStep(status) {
   switch (status) {
     case 'Resolved':
+      return 3
+    case 'Pending Verification':
+    case 'Disputed':
       return 2
     case 'In Progress':
     case 'Reopened':
@@ -164,7 +187,7 @@ function ComplaintStatusStepper({ status }) {
           />
         </div>
 
-        <div className="relative grid grid-cols-3">
+        <div className="relative grid grid-cols-4">
           {STEPS.map((step, index) => {
             const completed = index < activeStep
             const active = index === activeStep
@@ -400,6 +423,18 @@ export function ComplaintDetailsPage() {
   const [zoomScale, setZoomScale] = useState(1)
   const transitionPending = useRef(false)
 
+  // Verification & Dispute States (#253)
+  const [acceptDialogOpen, setAcceptDialogOpen] = useState(false)
+  const [disputeDialogOpen, setDisputeDialogOpen] = useState(false)
+  const [acceptRating, setAcceptRating] = useState(5)
+  const [acceptComment, setAcceptComment] = useState('')
+  const [disputeReason, setDisputeReason] = useState(DISPUTE_REASONS[0])
+  const [disputeExplanation, setDisputeExplanation] = useState('')
+  const [disputePhotoFile, setDisputePhotoFile] = useState(null)
+  const [disputePhotoPreview, setDisputePhotoPreview] = useState(null)
+  const [disputeVoiceNote, setDisputeVoiceNote] = useState(null)
+  const disputeFileInputRef = useRef(null)
+
   useEffect(() => {
     if (!complaint?.reportedBy) return
     if (user?.uid === complaint.reportedBy) {
@@ -571,6 +606,12 @@ export function ComplaintDetailsPage() {
   const lastUpdated = complaint.updatedAt?.toDate?.() || complaint.createdAt?.toDate?.()
   const slaTarget = getSlaTargetDate(complaint.createdAt, complaint.category, complaint.department)
   const isOwner = Boolean(user?.uid && complaint?.reportedBy === user?.uid)
+  const isPendingVerification = complaint.status === 'Pending Verification'
+  const isVerificationExpired = Boolean(
+    complaint.verificationDeadline?.toDate &&
+    complaint.verificationDeadline.toDate().getTime() <= Date.now()
+  )
+  const canVerifyOrDispute = isOwner && isPendingVerification && !isVerificationExpired
   const mergedUids = complaint?.mergedReporters || complaint?.mergedFromUids || []
   const isMergedViewer = Boolean(
     user?.uid &&
@@ -635,6 +676,113 @@ export function ComplaintDetailsPage() {
     } catch (err) {
       toast.error('Failed to reopen complaint')
       console.error(err)
+    } finally {
+      transitionPending.current = false
+      setSaving(false)
+    }
+  }
+
+  const handleAcceptResolution = async () => {
+    if (transitionPending.current) return
+    if (!canVerifyOrDispute) {
+      toast.error('This complaint is not eligible for resolution acceptance')
+      return
+    }
+
+    transitionPending.current = true
+    setSaving(true)
+    try {
+      await acceptComplaintResolution(
+        id,
+        { uid: user.uid, role: 'citizen' },
+        {
+          rating: acceptRating || 5,
+          comment: acceptComment ? sanitizeMarkdown(acceptComment) : '',
+        }
+      )
+      toast.success('Resolution accepted! Thank you for verifying.')
+      setAcceptDialogOpen(false)
+    } catch (err) {
+      console.error('Accept resolution error:', err)
+      toast.error(err.message || 'Failed to accept resolution')
+    } finally {
+      transitionPending.current = false
+      setSaving(false)
+    }
+  }
+
+  const handleDisputePhotoChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setDisputePhotoFile(file)
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      setDisputePhotoPreview(event.target?.result)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleDisputeResolution = async () => {
+    if (transitionPending.current) return
+    if (!canVerifyOrDispute) {
+      toast.error('This complaint is not eligible for dispute')
+      return
+    }
+
+    const explanation = sanitizeMarkdown(disputeExplanation).trim()
+    if (!explanation) {
+      toast.error('Please describe what remains unresolved')
+      return
+    }
+
+    transitionPending.current = true
+    setSaving(true)
+    const uploadedArtifacts = []
+    try {
+      const evidence = []
+
+      if (disputePhotoFile) {
+        const photoResult = await uploadDisputePhoto(disputePhotoFile, id)
+        if (photoResult) {
+          evidence.push(photoResult)
+          if (photoResult.path) uploadedArtifacts.push(photoResult.path)
+        }
+      }
+
+      if (disputeVoiceNote?.blob) {
+        const audioResult = await uploadDisputeAudio(
+          disputeVoiceNote.blob,
+          id,
+          disputeVoiceNote.durationSeconds
+        )
+        if (audioResult) {
+          evidence.push(audioResult)
+          if (audioResult.path) uploadedArtifacts.push(audioResult.path)
+        }
+      }
+
+      await disputeComplaintResolution(
+        id,
+        {
+          reason: disputeReason,
+          explanation,
+          evidence,
+        },
+        { uid: user.uid, role: 'citizen' }
+      )
+
+      toast.success('Dispute submitted for administrative review')
+      setDisputeDialogOpen(false)
+      setDisputeExplanation('')
+      setDisputePhotoFile(null)
+      setDisputePhotoPreview(null)
+      setDisputeVoiceNote(null)
+    } catch (err) {
+      console.error('Dispute resolution error:', err)
+      if (uploadedArtifacts.length > 0) {
+        await deleteComplaintEvidence(uploadedArtifacts).catch(() => {})
+      }
+      toast.error(err.message || 'Failed to submit dispute')
     } finally {
       transitionPending.current = false
       setSaving(false)
@@ -720,6 +868,27 @@ export function ComplaintDetailsPage() {
                       )}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      {canVerifyOrDispute && (
+                        <>
+                          <Button
+                            size="sm"
+                            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => setAcceptDialogOpen(true)}
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            Accept Resolution
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                            onClick={() => setDisputeDialogOpen(true)}
+                          >
+                            <XCircle className="h-4 w-4" />
+                            Dispute Resolution
+                          </Button>
+                        </>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -782,6 +951,94 @@ export function ComplaintDetailsPage() {
                   </div>
 
                   <SlaCountdown complaint={complaint} className="mt-4" />
+
+                  {complaint.status === 'Pending Verification' && (
+                    <div className="mt-4 rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 p-4 shadow-sm dark:border-amber-900/40 dark:from-amber-950/30 dark:to-orange-950/20">
+                      <div className="flex items-start gap-3">
+                        <div className="rounded-full bg-amber-100 p-2 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300">
+                          <ShieldCheck className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                              Resolution Verification Required
+                            </h4>
+                            {complaint.verificationDeadline?.toDate && (
+                              <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-100/80 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                                <Clock className="h-3.5 w-3.5" />
+                                <span>
+                                  {complaint.verificationDeadline.toDate().getTime() > Date.now()
+                                    ? `Review window: ${Math.max(1, Math.ceil((complaint.verificationDeadline.toDate().getTime() - Date.now()) / (24 * 60 * 60 * 1000)))} day(s) remaining`
+                                    : 'Auto-verification pending'}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <p className="mt-1 text-xs leading-relaxed text-amber-800/90 dark:text-amber-300/90">
+                            The department has submitted proof of work completion. Please inspect the resolution photo and notes below. If satisfied, accept the resolution or submit a dispute within 5 days.
+                          </p>
+                          {canVerifyOrDispute && (
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <Button
+                                size="sm"
+                                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                onClick={() => setAcceptDialogOpen(true)}
+                              >
+                                <CheckCircle2 className="h-4 w-4" />
+                                Accept Resolution
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1.5 border-amber-400 bg-white/80 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-gray-900 dark:text-amber-300"
+                                onClick={() => setDisputeDialogOpen(true)}
+                              >
+                                <XCircle className="h-4 w-4" />
+                                Dispute Resolution
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {complaint.status === 'Disputed' && (
+                    <div className="mt-4 rounded-xl border border-red-200 bg-gradient-to-r from-red-50 to-rose-50 p-4 shadow-sm dark:border-red-900/40 dark:from-red-950/30 dark:to-rose-950/20">
+                      <div className="flex items-start gap-3">
+                        <div className="rounded-full bg-red-100 p-2 text-red-700 dark:bg-red-900/60 dark:text-red-300">
+                          <AlertTriangle className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-bold text-red-900 dark:text-red-200">
+                            Resolution Under Administrative Dispute Review
+                          </h4>
+                          <p className="mt-1 text-xs text-red-800/90 dark:text-red-300/90">
+                            You disputed this resolution. A municipal administrator is independently evaluating your evidence against officer completion records.
+                          </p>
+                          {complaint.dispute && (
+                            <div className="mt-2.5 rounded-lg border border-red-200 bg-white/70 p-3 text-xs dark:border-red-900/40 dark:bg-gray-900/60">
+                              <p className="font-semibold text-red-900 dark:text-red-200">
+                                Dispute Reason: <span className="font-normal">{complaint.dispute.reason}</span>
+                              </p>
+                              {complaint.dispute.explanation && (
+                                <p className="mt-1 text-gray-700 dark:text-gray-300">
+                                  {complaint.dispute.explanation}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {complaint.autoVerified && (
+                    <div className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
+                      <Clock className="h-3.5 w-3.5" />
+                      <span>Auto-verified upon expiration of the 5-day citizen review window</span>
+                    </div>
+                  )}
 
                   <div className="mt-4">
                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
@@ -1002,6 +1259,169 @@ export function ComplaintDetailsPage() {
               <Button variant="outline" onClick={() => setReopenOpen(false)}>Cancel</Button>
               <Button onClick={handleReopen} disabled={saving}>
                 {saving ? 'Submitting...' : 'Reopen'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Accept Resolution Dialog (#253) */}
+        <Dialog open={acceptDialogOpen} onOpenChange={setAcceptDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Accept Resolution</DialogTitle>
+              <DialogDescription>
+                Confirm that the reported civic grievance has been satisfactorily resolved by the municipal field team.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Satisfaction Rating (Optional)
+                </label>
+                <div className="mt-1 flex items-center gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setAcceptRating(star)}
+                      className={`text-2xl transition-colors ${
+                        star <= acceptRating ? 'text-amber-400' : 'text-gray-300 dark:text-gray-600'
+                      }`}
+                      aria-label={`${star} star`}
+                    >
+                      ★
+                    </button>
+                  ))}
+                  <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                    {acceptRating === 5 ? 'Excellent' : acceptRating === 4 ? 'Good' : acceptRating === 3 ? 'Average' : 'Needs improvement'}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Feedback or Comments (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={acceptComment}
+                  onChange={(e) => setAcceptComment(e.target.value)}
+                  placeholder="Share any comments regarding the work done..."
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAcceptDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleAcceptResolution} disabled={saving} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                {saving ? 'Verifying...' : 'Confirm Resolution'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dispute Resolution Dialog (#253) */}
+        <Dialog open={disputeDialogOpen} onOpenChange={setDisputeDialogOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Dispute Complaint Resolution</DialogTitle>
+              <DialogDescription>
+                If the grievance was not resolved or the quality is unacceptable, submit structured dispute evidence for administrative escalation.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Dispute Reason <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={disputeReason}
+                  onChange={(e) => setDisputeReason(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                >
+                  <option value="WORK_INCOMPLETE">Work Incomplete - Issue persists partially or fully</option>
+                  <option value="INCORRECT_LOCATION">Incorrect Location - Officer resolved wrong site</option>
+                  <option value="POOR_QUALITY">Poor Quality - Repair is substandard or temporary</option>
+                  <option value="OTHER">Other - See detailed explanation</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Detailed Explanation <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  rows={4}
+                  value={disputeExplanation}
+                  onChange={(e) => setDisputeExplanation(e.target.value)}
+                  placeholder="Explain why this resolution is unacceptable and what remains to be fixed..."
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Dispute Photo Proof (Optional, Recommended)
+                </label>
+                <input
+                  ref={disputeFileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/jpg"
+                  className="hidden"
+                  onChange={handleDisputePhotoChange}
+                  disabled={saving}
+                />
+                {!disputePhotoPreview ? (
+                  <button
+                    type="button"
+                    onClick={() => disputeFileInputRef.current?.click()}
+                    disabled={saving}
+                    className="mt-1 w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 p-3 text-xs text-gray-600 hover:border-primary-500 dark:border-gray-700 dark:text-gray-400"
+                  >
+                    <Upload className="h-4 w-4" />
+                    <span>Upload photo of current site condition</span>
+                  </button>
+                ) : (
+                  <div className="mt-1 relative inline-block">
+                    <img
+                      src={disputePhotoPreview}
+                      alt="Dispute evidence preview"
+                      className="h-24 w-32 rounded-md object-cover border border-gray-200 dark:border-gray-700"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDisputePhotoFile(null)
+                        setDisputePhotoPreview(null)
+                      }}
+                      className="absolute -top-1.5 -right-1.5 rounded-full bg-red-600 p-0.5 text-white shadow hover:bg-red-700"
+                    >
+                      <XCircle className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Voice Note (Optional)
+                </label>
+                <div className="mt-1">
+                  <VoiceRecorder
+                    onRecordingComplete={setDisputeVoiceNote}
+                    disabled={saving}
+                  />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDisputeDialogOpen(false)}>Cancel</Button>
+              <Button
+                onClick={handleDisputeResolution}
+                disabled={saving || !disputeExplanation.trim()}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                {saving ? 'Submitting...' : 'Submit Dispute'}
               </Button>
             </DialogFooter>
           </DialogContent>

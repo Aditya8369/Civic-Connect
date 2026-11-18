@@ -51,6 +51,42 @@ service firebase.storage {
       allow delete: if isAdmin() || isComplaintOwner(complaintId);
     }
 
+    // Resolution proof uploaded by assigned officer or admin (Issue #253)
+    // Path: complaint-resolution-proof/{complaintId}/{fileName}
+    match /complaint-resolution-proof/{complaintId}/{fileName} {
+      allow read: if isAuthenticated();
+
+      allow create: if isAuthenticated()
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|jpg|png)');
+
+      allow update: if false;
+
+      allow delete: if isAdmin();
+    }
+
+    // Dispute evidence uploaded by complaint reporter or admin (Issue #253)
+    // Path: complaint-disputes/{complaintId}/{fileName}
+    match /complaint-disputes/{complaintId}/{fileName} {
+      allow read: if isAuthenticated();
+
+      allow create: if isAuthenticated()
+        && isComplaintOwner(complaintId)
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/(jpeg|jpg|png)') ||
+          request.resource.contentType.matches(
+            'audio/(webm|ogg|mp4|wav|x-wav|mpeg|aac)'
+          )
+        );
+
+      allow update: if false;
+
+      allow delete: if isAdmin() || isComplaintOwner(complaintId);
+    }
+
     // Resolution feedback attachments (photo or audio evidence)
     match /resolution-feedback/{userId}/{issueId}/{fileName} {
       allow read: if isAuthenticated() && (

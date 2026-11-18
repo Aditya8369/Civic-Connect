@@ -58,6 +58,8 @@
   "statusResolved": "हल की गई",
   "statusRejected": "अस्वीकृत",
   "statusReopened": "दोबारा खोली गई",
+  "statusPendingVerification": "सत्यापन लंबित",
+  "statusDisputed": "विवादित",
   "statusMerged": "डुप्लिकेट शिकायत में शामिल",
   "filters": "फ़िल्टर",
   "allCategories": "सभी श्रेणियाँ",

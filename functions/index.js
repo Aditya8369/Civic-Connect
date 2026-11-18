@@ -29,3 +29,8 @@ export {
 
 export { api } from './lib/index.js'
 
+export {
+  autoVerifyExpiredResolutions,
+  processExpiredPendingVerifications,
+} from './autoVerifyScheduler.js'
+

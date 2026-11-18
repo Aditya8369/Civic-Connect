@@ -58,6 +58,8 @@
   "statusResolved": "Resolved",
   "statusRejected": "Rejected",
   "statusReopened": "Reopened",
+  "statusPendingVerification": "Pending Verification",
+  "statusDisputed": "Disputed",
   "statusMerged": "Merged - Duplicate",
   "filters": "Filters",
   "allCategories": "All Categories",

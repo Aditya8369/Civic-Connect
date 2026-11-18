@@ -24,6 +24,8 @@ export const STATUS_FILTER_TO_FIELD_VALUE = {
   resolved: 'Resolved',
   rejected: 'Rejected',
   reopened: 'Reopened',
+  'pending-verification': 'Pending Verification',
+  disputed: 'Disputed',
   'merged - duplicate': 'Merged - Duplicate',
 }
 

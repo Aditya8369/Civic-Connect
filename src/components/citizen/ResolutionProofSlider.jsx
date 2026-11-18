@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 
 export function getResolutionPhoto(complaint) {
+  if (complaint?.resolutionProof?.downloadUrl) {
+    return complaint.resolutionProof.downloadUrl
+  }
+
   const photos =
     complaint?.resolutionPhotos ||
     complaint?.resolutionEvidence ||

@@ -51,6 +51,8 @@ const statusVariant = {
   Resolved: 'success',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Pending Verification': 'warning',
+  Disputed: 'destructive',
   'Merged - Duplicate': 'secondary',
 }
 
@@ -60,6 +62,8 @@ const statusTranslationKeys = {
   Resolved: 'statusResolved',
   Rejected: 'statusRejected',
   Reopened: 'statusReopened',
+  'Pending Verification': 'statusPendingVerification',
+  Disputed: 'statusDisputed',
   'Merged - Duplicate': 'statusMerged',
 }
 
@@ -664,6 +668,8 @@ export function AdminReportsPage() {
             <SelectItem value="all">{t('allStatus')}</SelectItem>
             <SelectItem value="pending">{t('statusPending')}</SelectItem>
             <SelectItem value="in-progress">{t('statusInProgress')}</SelectItem>
+            <SelectItem value="pending-verification">{t('statusPendingVerification')}</SelectItem>
+            <SelectItem value="disputed">{t('statusDisputed')}</SelectItem>
             <SelectItem value="resolved">{t('statusResolved')}</SelectItem>
             <SelectItem value="rejected">{t('statusRejected')}</SelectItem>
             <SelectItem value="reopened">{t('statusReopened')}</SelectItem>

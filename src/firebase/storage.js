@@ -344,3 +344,206 @@ export async function deleteComplaintEvidence(uploads = [], customStorage = stor
     })
   )
 }
+
+/**
+ * Uploads resolution proof photograph for Issue #253.
+ * Storage path: complaint-resolution-proof/{complaintId}/{filename}
+ *
+ * @param {File} file - Resolution proof photo
+ * @param {string} complaintId - Document ID in `issues`
+ * @param {object} [customStorage] - Optional storage instance
+ * @returns {Promise<{ downloadUrl: string, path: string, filename: string, contentType: string, size: number, uploadedAt: string }>}
+ */
+export async function uploadResolutionProof(file, complaintId, customStorage = storage) {
+  if (!complaintId) {
+    throw new Error('A valid complaint ID is required for resolution proof upload.')
+  }
+  const validation = validateComplaintPhoto(file)
+  if (!validation.valid) {
+    throw new Error(validation.error)
+  }
+
+  const cleanFilename = sanitizeFilename(file.name)
+  const storagePath = `complaint-resolution-proof/${complaintId}/${cleanFilename}`
+  const contentType = file.type || 'image/jpeg'
+
+  const isDevFixture =
+    import.meta.env.VITE_MOCK_STORAGE === 'true' &&
+    (import.meta.env.MODE !== 'test' || customStorage === storage || !customStorage)
+
+  if (isDevFixture) {
+    const downloadUrl = await readFileAsDataURL(file)
+    return {
+      downloadUrl,
+      path: storagePath,
+      filename: cleanFilename,
+      contentType,
+      size: file.size,
+      uploadedAt: new Date().toISOString(),
+    }
+  }
+
+  try {
+    const storageRef = ref(customStorage, storagePath)
+    await uploadBytes(storageRef, file, { contentType })
+    const downloadUrl = await getDownloadURL(storageRef)
+    return {
+      downloadUrl,
+      path: storagePath,
+      filename: cleanFilename,
+      contentType,
+      size: file.size,
+      uploadedAt: new Date().toISOString(),
+    }
+  } catch (err) {
+    if (
+      import.meta.env.DEV &&
+      import.meta.env.MODE !== 'test' &&
+      import.meta.env.VITE_USE_EMULATORS !== 'true'
+    ) {
+      const downloadUrl = await readFileAsDataURL(file)
+      return {
+        downloadUrl,
+        path: storagePath,
+        filename: cleanFilename,
+        contentType,
+        size: file.size,
+        uploadedAt: new Date().toISOString(),
+      }
+    }
+    throw err
+  }
+}
+
+/**
+ * Uploads citizen dispute photo evidence for Issue #253.
+ * Storage path: complaint-disputes/{complaintId}/{filename}
+ *
+ * @param {File} file - Dispute evidence photo
+ * @param {string} complaintId - Document ID in `issues`
+ * @param {object} [customStorage] - Optional storage instance
+ * @returns {Promise<{ downloadUrl: string, path: string, filename: string, contentType: string, size: number, uploadedAt: string }>}
+ */
+export async function uploadDisputePhoto(file, complaintId, customStorage = storage) {
+  if (!complaintId) {
+    throw new Error('A valid complaint ID is required for dispute photo upload.')
+  }
+  const validation = validateComplaintPhoto(file)
+  if (!validation.valid) {
+    throw new Error(validation.error)
+  }
+
+  const cleanFilename = sanitizeFilename(file.name)
+  const storagePath = `complaint-disputes/${complaintId}/${cleanFilename}`
+  const contentType = file.type || 'image/jpeg'
+
+  const isDevFixture =
+    import.meta.env.VITE_MOCK_STORAGE === 'true' &&
+    (import.meta.env.MODE !== 'test' || customStorage === storage || !customStorage)
+
+  if (isDevFixture) {
+    const downloadUrl = await readFileAsDataURL(file)
+    return {
+      downloadUrl,
+      path: storagePath,
+      filename: cleanFilename,
+      contentType,
+      size: file.size,
+      uploadedAt: new Date().toISOString(),
+    }
+  }
+
+  try {
+    const storageRef = ref(customStorage, storagePath)
+    await uploadBytes(storageRef, file, { contentType })
+    const downloadUrl = await getDownloadURL(storageRef)
+    return {
+      downloadUrl,
+      path: storagePath,
+      filename: cleanFilename,
+      contentType,
+      size: file.size,
+      uploadedAt: new Date().toISOString(),
+    }
+  } catch (err) {
+    if (
+      import.meta.env.DEV &&
+      import.meta.env.MODE !== 'test' &&
+      import.meta.env.VITE_USE_EMULATORS !== 'true'
+    ) {
+      const downloadUrl = await readFileAsDataURL(file)
+      return {
+        downloadUrl,
+        path: storagePath,
+        filename: cleanFilename,
+        contentType,
+        size: file.size,
+        uploadedAt: new Date().toISOString(),
+      }
+    }
+    throw err
+  }
+}
+
+/**
+ * Uploads citizen dispute audio recording for Issue #253.
+ * Storage path: complaint-disputes/{complaintId}/{filename}
+ */
+export async function uploadDisputeAudio(
+  audioBlob,
+  complaintId,
+  durationSeconds,
+  customStorage = storage
+) {
+  if (!complaintId) {
+    throw new Error('A valid complaint ID is required for dispute audio upload.')
+  }
+
+  const validation = validateComplaintAudio(audioBlob, durationSeconds)
+  if (!validation.valid) {
+    throw new Error(validation.error)
+  }
+
+  const mimeType = (audioBlob.type || '').toLowerCase().split(';')[0].trim()
+  const extensions = {
+    'audio/webm': 'webm',
+    'audio/ogg': 'ogg',
+    'audio/mp4': 'm4a',
+    'audio/wav': 'wav',
+    'audio/x-wav': 'wav',
+    'audio/mpeg': 'mp3',
+    'audio/aac': 'aac',
+  }
+  const extension = extensions[mimeType] || 'webm'
+  const filename = sanitizeFilename(`dispute-voice-${Date.now()}.${extension}`)
+  const storagePath = `complaint-disputes/${complaintId}/${filename}`
+
+  const isDevFixture =
+    import.meta.env.VITE_MOCK_STORAGE === 'true' &&
+    (import.meta.env.MODE !== 'test' || customStorage === storage || !customStorage)
+
+  if (isDevFixture) {
+    const downloadUrl = await readFileAsDataURL(audioBlob)
+    return {
+      downloadUrl,
+      path: storagePath,
+      filename,
+      durationSeconds,
+      contentType: mimeType,
+      uploadedAt: new Date().toISOString(),
+    }
+  }
+
+  const storageRef = ref(customStorage, storagePath)
+  await uploadBytes(storageRef, audioBlob, { contentType: mimeType })
+  const downloadUrl = await getDownloadURL(storageRef)
+
+  return {
+    downloadUrl,
+    path: storagePath,
+    filename,
+    durationSeconds,
+    contentType: mimeType,
+    uploadedAt: new Date().toISOString(),
+  }
+}
