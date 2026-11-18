@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { after, test } from 'node:test'
 import { deleteApp, initializeApp } from 'firebase/app'
 import {
-  collection, connectFirestoreEmulator, deleteDoc, doc, getDoc, getFirestore,
+  connectFirestoreEmulator, deleteDoc, doc, getDoc, getFirestore,
   serverTimestamp, setDoc, updateDoc,
 } from 'firebase/firestore'
 
