@@ -30,6 +30,7 @@ const citizenLinks = [
 const adminLinks = [
   { to: '/admin/dashboard', label: 'dashboard', icon: Shield },
   { to: '/admin/reports', label: 'manageReports', icon: Flag },
+  { to: '/admin/broadcasts', label: 'emergencyBroadcasts', icon: Megaphone },
   { to: '/admin/notifications', label: 'notifications', icon: Bell },
   { to: '/admin/settings', label: 'settings', icon: Settings },
 ]
