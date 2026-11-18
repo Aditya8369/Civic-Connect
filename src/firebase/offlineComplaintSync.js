@@ -160,7 +160,7 @@ export function syncOfflineComplaint(complaint, session, options = {}) {
           complaintId,
           title: sanitizeText(complaint.title),
           description: sanitizeMarkdown(complaint.description),
-          category: complaint.category,
+          category: sanitizeText(complaint.category),
           address: sanitizeText(complaint.address),
           latitude: complaint.latitude ?? null,
           longitude: complaint.longitude ?? null,
