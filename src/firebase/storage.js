@@ -200,6 +200,7 @@ export async function uploadComplaintPhoto(file, complaintId, customStorage = st
 // ============================================================
 
 export const MAX_AUDIO_DURATION_SECONDS = 60
+export const MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024 // 10MB
 
 export const ALLOWED_AUDIO_TYPES = [
   'audio/webm',
@@ -241,6 +242,13 @@ export function validateComplaintAudio(audioBlob, durationSeconds) {
     return {
       valid: false,
       error: 'Audio recording must be between 1 and 60 seconds.',
+    }
+  }
+
+  if (audioBlob.size > MAX_AUDIO_SIZE_BYTES) {
+    return {
+      valid: false,
+      error: 'Audio file size exceeds 10MB limit. Please record a shorter audio note.',
     }
   }
 

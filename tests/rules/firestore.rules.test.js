@@ -1093,4 +1093,48 @@ describe('Firestore Security Rules (Issue #20 Hardening)', () => {
       )
     })
   })
+
+  describe('Multi-Principal Matrix & Role Isolation (Issue #254)', () => {
+    const officer = () =>
+      testEnv.authenticatedContext('officer-dan', { role: 'officer', department: 'Electrical Department' }).firestore()
+    const superAdmin = () =>
+      testEnv.authenticatedContext('superadmin-eve', { admin: true, role: 'admin' }).firestore()
+
+    it('Super Admin with admin claim can perform administrative workflows', async () => {
+      const db = superAdmin()
+      await assertSucceeds(
+        updateDoc(doc(db, 'issues', 'issue-pending-alice'), {
+          status: 'In Progress',
+          department: 'Electrical Department',
+          updatedAt: serverTimestamp(),
+        })
+      )
+    })
+
+    it('Department officer without admin claim CANNOT perform administrative updates or bypass ownership', async () => {
+      const db = officer()
+      // Officers cannot perform admin-only issue updates (like status changes without admin role)
+      await assertFails(
+        updateDoc(doc(db, 'issues', 'issue-pending-alice'), {
+          status: 'In Progress',
+          updatedAt: serverTimestamp(),
+        })
+      )
+      // Officers cannot delete other citizens complaints
+      await assertFails(
+        deleteDoc(doc(db, 'issues', 'issue-pending-alice'))
+      )
+      // Officers cannot read other citizens private profiles
+      await assertFails(
+        getDoc(doc(db, 'users', 'citizen-alice'))
+      )
+    })
+
+    it('Unauthenticated user cannot read private collections or write anywhere', async () => {
+      const db = anon()
+      await assertFails(getDoc(doc(db, 'users', 'citizen-alice')))
+      await assertFails(getDoc(doc(db, 'issues', 'issue-pending-alice', 'events', 'event-alice-submit')))
+      await assertFails(setDoc(doc(db, 'issues', 'anon-issue'), makeIssue()))
+    })
+  })
 })

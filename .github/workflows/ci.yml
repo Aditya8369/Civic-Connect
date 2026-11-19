@@ -50,3 +50,37 @@ jobs:
 
       - name: Run Lighthouse CI
         run: npx lhci autorun
+
+  security-rules:
+    name: Firebase Security Rules Matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+
+      - name: Setup Java for Firebase Emulators
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Cache Firebase Emulator Binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: ${{ runner.os }}-firebase-emulators-${{ hashFiles('firebase.json') }}
+          restore-keys: |
+            ${{ runner.os }}-firebase-emulators-
+
+      - name: Run Multi-Principal Security Rules Suite
+        run: npm run test:security
+        env:
+          DEBUG_EMULATOR: true
