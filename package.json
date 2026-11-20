@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run",
     "functions:build": "npm --prefix functions run build",
     "functions:lint": "oxlint functions/src functions/index.js",
     "functions:test": "npm --prefix functions test",

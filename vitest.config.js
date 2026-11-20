@@ -13,6 +13,12 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{js,jsx}'],
     clearMocks: true,
     restoreMocks: true,
-    maxWorkers: 2,
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        isolate: true,
+        singleFork: true,
+      },
+    },
   },
 })
