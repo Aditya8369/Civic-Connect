@@ -199,8 +199,8 @@ describe('Admin Intelligent Dispatch Assistant UI Integration', () => {
       id: 'ticket-1',
     })
 
-    // Set officer candidates into instance state (Index 30)
-    const candidatesSetter = instance.setters[30]
+    // Set officer candidates into instance state
+    const candidatesSetter = instance.setters[39]
     if (typeof candidatesSetter === 'function') {
       candidatesSetter(sampleOfficers)
     }
@@ -224,8 +224,8 @@ describe('Admin Intelligent Dispatch Assistant UI Integration', () => {
       id: 'ticket-1',
     })
 
-    // Set only full-capacity or inactive candidates (Index 30)
-    const candidatesSetter = instance.setters[30]
+    // Set only full-capacity or inactive candidates
+    const candidatesSetter = instance.setters[39]
     if (typeof candidatesSetter === 'function') {
       candidatesSetter([
         { id: 'off-busy', name: 'Officer Full', active: true, activeComplaints: 10, maxCapacity: 10 },
@@ -253,10 +253,10 @@ describe('Admin Intelligent Dispatch Assistant UI Integration', () => {
     })
 
     // Set candidates and selected candidate
-    const candidatesSetter = instance.setters[30]
+    const candidatesSetter = instance.setters[39]
     candidatesSetter(sampleOfficers)
 
-    const selectedOfficerSetter = instance.setters[33]
+    const selectedOfficerSetter = instance.setters[42]
     selectedOfficerSetter({
       officerId: 'off-1',
       name: 'Inspector Rajesh',

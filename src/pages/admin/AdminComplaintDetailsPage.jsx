@@ -23,6 +23,10 @@ import {
   UserCheck,
   AlertCircle,
   MessageSquare,
+  XCircle,
+  ShieldCheck,
+  AlertTriangle,
+  Upload,
 } from 'lucide-react'
 import {
   doc,
@@ -42,7 +46,13 @@ import { useAuth } from '@/hooks/useAuth'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { logComplaintEvent, sortEvents } from '@/firebase/complaintEvents'
 import { getDisplayId, ensureComplaintId } from '@/firebase/complaintId'
-import { commitComplaintTransition, dispatchComplaintToOfficer } from '@/firebase/complaintLifecycle'
+import {
+  commitComplaintTransition,
+  dispatchComplaintToOfficer,
+  submitResolutionForVerification,
+  reviewComplaintDispute,
+} from '@/firebase/complaintLifecycle'
+import { uploadResolutionProof } from '@/firebase/storage'
 import { assignComplaintDepartment } from '@/firebase/complaintDepartment'
 import { mergeComplaints } from '@/firebase/complaintMerge'
 import { loadResolutionTemplates } from '@/firebase/resolutionTemplates'
@@ -219,6 +229,18 @@ export function AdminComplaintDetailsPage() {
   const [selectedParentId, setSelectedParentId] = useState('')
   const [loadingCandidates, setLoadingCandidates] = useState(false)
   const [merging, setMerging] = useState(false)
+
+  // Resolution Proof Submission States (#253)
+  const [resolutionModalOpen, setResolutionModalOpen] = useState(false)
+  const [resolutionModalNotes, setResolutionModalNotes] = useState('')
+  const [resolutionProofFile, setResolutionProofFile] = useState(null)
+  const [resolutionProofPreview, setResolutionProofPreview] = useState(null)
+  const resolutionFileInputRef = useRef(null)
+
+  // Dispute Review States (#253)
+  const [disputeReviewDialogOpen, setDisputeReviewDialogOpen] = useState(false)
+  const [disputeDecision, setDisputeDecision] = useState('UPHOLD_DISPUTE') // 'UPHOLD_DISPUTE' | 'REJECT_DISPUTE'
+  const [disputeAdminRemarks, setDisputeAdminRemarks] = useState('')
 
   // Intelligent Dispatch Assistant state
   const [officerCandidates, setOfficerCandidates] = useState([])
