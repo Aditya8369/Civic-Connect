@@ -34,3 +34,10 @@ export {
   processExpiredPendingVerifications,
 } from './autoVerifyScheduler.js'
 
+export {
+  onIssueImageTriage,
+  handleIssueImageTriage,
+  triageImagePayload,
+  normalizeSeverity,
+} from './imageTriage.js'
+
