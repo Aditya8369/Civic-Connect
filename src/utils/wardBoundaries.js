@@ -179,3 +179,46 @@ export function getWardPolygonStyle(ward, isSelected = false) {
     fillOpacity: 0.14,
   }
 }
+
+/**
+ * Retrieves normalized ward metadata by ward ID.
+ *
+ * @param {string} wardId
+ * @param {Object} [featureCollection]
+ * @returns {Object | null}
+ */
+export function getWardById(wardId, featureCollection = WARD_BOUNDARIES_GEOJSON) {
+  if (!wardId || typeof wardId !== 'string') return null
+  const wards = getNormalizedWards(featureCollection)
+  const normalizedId = wardId.trim().toUpperCase()
+  return wards.find((w) => w.wardId.toUpperCase() === normalizedId) || null
+}
+
+/**
+ * Retrieves all wards belonging to a given zone name.
+ *
+ * @param {string} zoneName
+ * @param {Object} [featureCollection]
+ * @returns {Array<Object>}
+ */
+export function getWardsByZone(zoneName, featureCollection = WARD_BOUNDARIES_GEOJSON) {
+  if (!zoneName || typeof zoneName !== 'string') return []
+  const wards = getNormalizedWards(featureCollection)
+  const target = zoneName.trim().toLowerCase()
+  return wards.filter((w) => w.zoneName.toLowerCase() === target)
+}
+
+/**
+ * Returns all distinct administrative zone names present in the GeoJSON dataset.
+ *
+ * @param {Object} [featureCollection]
+ * @returns {Array<string>}
+ */
+export function getAllZones(featureCollection = WARD_BOUNDARIES_GEOJSON) {
+  const wards = getNormalizedWards(featureCollection)
+  const zones = new Set()
+  for (const ward of wards) {
+    if (ward.zoneName) zones.add(ward.zoneName)
+  }
+  return Array.from(zones)
+}

@@ -38,35 +38,6 @@ function button() {
   return nodes(ReportPage()).find(node => node.props.onClick && text(node).includes('I also face this'))
 }
 
-function findReportPage(node) {
-  if (!node) return null
-  if (node.props?.children) {
-    if (Array.isArray(node.props.children)) {
-      for (const child of node.props.children) {
-        const found = findReportPage(child)
-        if (found) return found
-      }
-    } else {
-      const found = findReportPage(node.props.children)
-      if (found) return found
-    }
-  }
-  return null
-}
-
-function getNearbyDuplicatesState() {
-  return runtime.values.find(v => Array.isArray(v) && v.length > 0 && v[0]?.id === 'report-1')
-}
-
-function setNearbyDuplicatesState(updater) {
-  for (let i = 0; i < runtime.values.length; i++) {
-    if (Array.isArray(runtime.values[i]) && runtime.values[i].length > 0 && runtime.values[i][0]?.id === 'report-1') {
-      runtime.values[i] = typeof updater === 'function' ? updater(runtime.values[i]) : updater
-      break
-    }
-  }
-}
-
 beforeEach(() => {
   vi.clearAllMocks()
   runtime.values = []

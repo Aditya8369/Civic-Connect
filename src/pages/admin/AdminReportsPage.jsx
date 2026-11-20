@@ -44,6 +44,7 @@ import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentC
 import { getSlaTargetDate, isSlaBreached } from '@/utils/sla'
 import { BulkActionsToolbar } from '@/components/admin/BulkActionsToolbar'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { WARD_BOUNDARIES_GEOJSON, getAllZones } from '@/utils/wardBoundaries'
 
 const statusVariant = {
   Pending: 'destructive',
@@ -188,6 +189,8 @@ export function AdminReportsPage() {
   const [showUrgentOnly, setShowUrgentOnly] = useState(false)
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [wardFilter, setWardFilter] = useState('all')
+  const [zoneFilter, setZoneFilter] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [exportingPdf, setExportingPdf] = useState(false)
@@ -232,13 +235,16 @@ export function AdminReportsPage() {
     return cache
   }
 
-  const serverFilters = {
-    status: statusFilter,
-    department: departmentFilter,
-    category: categoryFilter,
-    dateFrom,
-    dateTo,
-  }
+  const serverFilters = useMemo(
+    () => ({
+      status: statusFilter,
+      department: departmentFilter,
+      category: categoryFilter,
+      dateFrom,
+      dateTo,
+    }),
+    [statusFilter, departmentFilter, categoryFilter, dateFrom, dateTo]
+  )
 
   const resetPagination = () => {
     pageCursorsRef.current = [null]
@@ -284,7 +290,7 @@ export function AdminReportsPage() {
     return () => {
       cancelled = true
     }
-  }, [statusFilter, departmentFilter, categoryFilter, dateFrom, dateTo, reloadKey, debouncedSearch])
+  }, [serverFilters, reloadKey, debouncedSearch])
 
   useEffect(() => {
     if (debouncedSearch) return undefined
@@ -373,6 +379,16 @@ export function AdminReportsPage() {
 
       const remainingMs = targetDate.getTime() - Date.now()
       if (remainingMs > 2 * 60 * 60 * 1000) return false
+    }
+
+    if (wardFilter !== 'all') {
+      const complaintWard = (c.wardId || c.ward || '').toUpperCase()
+      if (complaintWard !== wardFilter.toUpperCase()) return false
+    }
+
+    if (zoneFilter !== 'all') {
+      const complaintZone = (c.zoneName || '').toLowerCase()
+      if (complaintZone !== zoneFilter.toLowerCase()) return false
     }
 
     return matchesComplaintSearch(c, debouncedSearch, users[c.reportedBy])
@@ -753,6 +769,42 @@ export function AdminReportsPage() {
           </SelectContent>
         </Select>
 
+        {/* Municipal Ward Filter (Issue #251) */}
+        <Select value={wardFilter} onValueChange={changeFilter(setWardFilter)}>
+          <SelectTrigger className="w-40" data-testid="ward-filter-select">
+            <SelectValue placeholder={t('allWards') || 'All Wards'} />
+          </SelectTrigger>
+
+          <SelectContent>
+            <SelectItem value="all">{t('allWards') || 'All Wards'}</SelectItem>
+            {(WARD_BOUNDARIES_GEOJSON?.features || []).map((feature) => {
+              const wid = feature.properties?.wardId || feature.id
+              const wname = feature.properties?.wardName || wid
+              return (
+                <SelectItem key={wid} value={wid}>
+                  {wid}: {wname}
+                </SelectItem>
+              )
+            })}
+          </SelectContent>
+        </Select>
+
+        {/* Municipal Zone Filter (Issue #251) */}
+        <Select value={zoneFilter} onValueChange={changeFilter(setZoneFilter)}>
+          <SelectTrigger className="w-44" data-testid="zone-filter-select">
+            <SelectValue placeholder="All Zones" />
+          </SelectTrigger>
+
+          <SelectContent>
+            <SelectItem value="all">All Zones</SelectItem>
+            {getAllZones(WARD_BOUNDARIES_GEOJSON).map((zone) => (
+              <SelectItem key={zone} value={zone}>
+                {zone}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         {showUrgentOnly && (
           <Button
             type="button"
@@ -814,6 +866,8 @@ export function AdminReportsPage() {
               departmentFilter !== 'all' ||
               categoryFilter !== 'all' ||
               slaFilter !== 'all' ||
+              wardFilter !== 'all' ||
+              zoneFilter !== 'all' ||
               showUrgentOnly ||
               dateFrom ||
               dateTo
@@ -941,6 +995,20 @@ export function AdminReportsPage() {
                       </span>{' '}
                       {complaint.address}
                     </p>
+
+                    {(complaint.wardId || complaint.ward) && (
+                      <p>
+                        <span className="font-medium text-gray-700 dark:text-gray-300">
+                          {t('ward') || 'Ward'}:
+                        </span>{' '}
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+                          {complaint.wardId || complaint.ward}
+                        </Badge>
+                        {complaint.zoneName && (
+                          <span className="ml-1 text-[11px] text-gray-400">({complaint.zoneName})</span>
+                        )}
+                      </p>
+                    )}
 
                     <p>
                       <span className="font-medium text-gray-700 dark:text-gray-300">

@@ -1,18 +1,23 @@
-import { doc, collection, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore'
+import { doc, collection, runTransaction, serverTimestamp } from 'firebase/firestore'
 import { db } from './services'
 import { addNotificationToBatch } from './notifications'
 import { buildComplaintEvent } from './complaintEvents'
+import { evaluateCandidateOfficer, DEFAULT_MAX_CAPACITY } from './officerDispatch'
 
-export const VERIFICATION_WINDOW_DAYS = 5
-export const VERIFICATION_WINDOW_MS = VERIFICATION_WINDOW_DAYS * 24 * 60 * 60 * 1000
+const ACTIVE_STATUSES = Object.freeze(['Pending', 'In Progress', 'Reopened'])
+const TERMINAL_STATUSES = Object.freeze(['Resolved', 'Rejected', 'Merged - Duplicate'])
 
-export const DISPUTE_REASONS = Object.freeze([
-  'WORK_INCOMPLETE',
-  'INCORRECT_LOCATION',
-  'POOR_QUALITY',
-  'OTHER',
-])
-
+/**
+ * Commits a complaint status transition inside a Firestore transaction.
+ *
+ * Workload Counter Consistency:
+ * - If transitioning from ACTIVE to TERMINAL: Atomically decrements the assigned officer's
+ *   `activeComplaints` (and legacy `activeCount` alias) by 1 (clamped to >= 0).
+ * - If transitioning from TERMINAL to ACTIVE (e.g. Reopening): Atomically increments the assigned officer's
+ *   `activeComplaints` by 1 (if within maxCapacity).
+ * - Reads all documents (issue, officer) before any writes to ensure Firestore transaction compliance.
+ * - If no officer is assigned or officer document does not exist, complaint status transitions normally.
+ */
 export function commitComplaintTransition(
   id,
   expectedStatus,
@@ -22,14 +27,59 @@ export function commitComplaintTransition(
   eventFor = null
 ) {
   const ref = doc(db, 'issues', id)
-  return runTransaction(db, async transaction => {
+  return runTransaction(db, async (transaction) => {
+    // 1. Transaction reads
     const snapshot = await transaction.get(ref)
     const complaint = snapshot.data()
     if (!complaint || complaint.status !== expectedStatus || !canTransition(complaint)) {
       throw new Error('Complaint is no longer eligible for this transition')
     }
+
+    const nextStatus = changes.status || expectedStatus
+    const wasActive = ACTIVE_STATUSES.includes(complaint.status)
+    const isNowTerminal = TERMINAL_STATUSES.includes(nextStatus)
+    const wasTerminal = TERMINAL_STATUSES.includes(complaint.status)
+    const isNowActive = ACTIVE_STATUSES.includes(nextStatus)
+
+    const assignedOfficerId = complaint.assignedOfficerId || complaint.assignedWorker?.officerId
+
+    let officerRef = null
+    let officerData = null
+
+    // Determine if workload update is required
+    const needsDecrement = wasActive && isNowTerminal && assignedOfficerId
+    const needsIncrement = wasTerminal && isNowActive && assignedOfficerId
+
+    if (needsDecrement || needsIncrement) {
+      officerRef = doc(db, 'officers', assignedOfficerId)
+      const officerSnap = await transaction.get(officerRef)
+      if (officerSnap.exists()) {
+        officerData = officerSnap.data()
+      }
+    }
+
+    // 2. Transaction writes
     const notification = notificationFor(complaint)
     transaction.update(ref, changes)
+
+    // Update officer workload atomically if applicable
+    if (officerRef && officerData) {
+      const currentActive = officerData.activeComplaints ?? officerData.activeCount ?? 0
+      if (needsDecrement) {
+        const newActive = Math.max(0, currentActive - 1)
+        transaction.update(officerRef, {
+          activeComplaints: newActive,
+          activeCount: newActive,
+        })
+      } else if (needsIncrement) {
+        const newActive = currentActive + 1
+        transaction.update(officerRef, {
+          activeComplaints: newActive,
+          activeCount: newActive,
+        })
+      }
+    }
+
     if (notification) addNotificationToBatch(transaction, notification)
     if (eventFor) {
       const eventData = typeof eventFor === 'function' ? eventFor(complaint) : eventFor
@@ -42,504 +92,193 @@ export function commitComplaintTransition(
 }
 
 /**
- * Submits resolution proof and moves complaint from In Progress to Pending Verification.
+ * Concurrency-safe transactional dispatch of a complaint to a field officer.
  *
- * Validates:
- * - Complaint exists and is In Progress (or Reopened)
- * - Actor is admin or assigned officer
- * - Resolution notes are non-empty
- * - Valid resolution proof exists with approved path: complaint-resolution-proof/{complaintId}/{filename}
+ * Verifies:
+ * - Admin authorization
+ * - Complaint existence and dispatch eligibility (e.g. Pending, In Progress, Reopened)
+ * - Officer existence, active availability, and capacity limit
+ * - Atomic decrement/increment of previous officer workload upon reassignment
+ * - Atomic update of complaint assignment, status to 'In Progress', dispatch metadata
+ * - Appending immutable audit event of type 'OFFICER_DISPATCHED' (with fallback action 'Field worker designated')
+ *
+ * @param {string} complaintId - Document ID in `issues`
+ * @param {string} officerId - Document ID in `officers`
+ * @param {Object} adminUser - Authenticated admin user object { uid, role, name, email }
+ * @param {Object} [options] - Additional dispatch options (customWeights, customDb, remarks)
+ * @returns {Promise<Object>} Committed dispatch result
  */
-export async function submitResolutionForVerification(
+export async function dispatchComplaintToOfficer(
   complaintId,
-  resolutionData = {},
-  actor = {},
-  customDb = db
+  officerId,
+  adminUser,
+  options = {}
 ) {
-  if (!complaintId) throw new Error('Complaint ID is required')
-  if (!actor || !actor.uid) throw new Error('Authenticated actor is required')
-
-  const notes = (resolutionData.notes || resolutionData.resolutionNotes || '').trim()
-  if (!notes) {
-    throw new Error('Resolution completion notes are required')
+  if (!complaintId || typeof complaintId !== 'string') {
+    throw new Error('Valid complaint ID is required')
+  }
+  if (!officerId || typeof officerId !== 'string') {
+    throw new Error('Valid officer ID is required')
+  }
+  if (!adminUser || !adminUser.uid) {
+    throw new Error('Authentication required for officer dispatch')
+  }
+  if (adminUser.role !== 'admin') {
+    throw new Error('Only authorized municipal administrators may dispatch complaints')
   }
 
-  const proof = resolutionData.proof || resolutionData.resolutionProof
-  if (!proof || !proof.path || !proof.downloadUrl) {
-    throw new Error('Valid resolution proof photograph is required')
-  }
+  const firestoreDb = options.customDb || db
+  const complaintRef = doc(firestoreDb, 'issues', complaintId)
+  const officerRef = doc(firestoreDb, 'officers', officerId)
 
-  // Validate approved Storage path
-  const expectedPathPrefix = `complaint-resolution-proof/${complaintId}/`
-  if (!proof.path.startsWith(expectedPathPrefix)) {
-    throw new Error(`Resolution proof must be stored under ${expectedPathPrefix}`)
-  }
-
-  const complaintRef = doc(customDb, 'issues', complaintId)
-
-  return runTransaction(customDb, async transaction => {
-    const snap = await transaction.get(complaintRef)
-    if (!snap.exists()) {
-      throw new Error('Complaint does not exist')
+  return runTransaction(firestoreDb, async (transaction) => {
+    // 1. Transaction reads
+    const complaintSnap = await transaction.get(complaintRef)
+    if (!complaintSnap.exists()) {
+      throw new Error('Complaint document does not exist')
     }
-    const complaint = snap.data()
+    const complaint = complaintSnap.data()
 
-    if (!['In Progress', 'Reopened'].includes(complaint.status)) {
-      throw new Error(`Complaint with status "${complaint.status}" cannot be submitted for verification`)
+    // Status validation: Complaints can be dispatched if they are Pending, In Progress, or Reopened
+    const dispatchableStatuses = ['Pending', 'In Progress', 'Reopened']
+    if (!dispatchableStatuses.includes(complaint.status)) {
+      throw new Error(`Complaint with status "${complaint.status}" cannot be dispatched`)
     }
 
-    // Authorization check: Admin or assigned officer/worker
-    const isAdmin = actor.role === 'admin'
-    const assignedWorker = complaint.assignedWorker || {}
-    const isAssignedOfficer =
-      (complaint.assignedOfficerId && complaint.assignedOfficerId === actor.uid) ||
-      (assignedWorker.officerId && assignedWorker.officerId === actor.uid) ||
-      (assignedWorker.uid && assignedWorker.uid === actor.uid)
+    const officerSnap = await transaction.get(officerRef)
+    if (!officerSnap.exists()) {
+      throw new Error('Selected officer document does not exist')
+    }
+    const officer = officerSnap.data()
 
-    if (!isAdmin && !isAssignedOfficer) {
-      throw new Error('Only the assigned field officer or an administrator may submit resolution')
+    // Inactive check
+    if (officer.active === false) {
+      throw new Error(`Officer ${officer.name || officerId} is currently inactive`)
     }
 
-    const nowMs = Date.now()
-    const deadlineMs = nowMs + VERIFICATION_WINDOW_MS
-    const deadlineTimestamp = Timestamp.fromMillis(deadlineMs)
+    // Capacity check
+    const currentActive = officer.activeComplaints ?? officer.activeCount ?? 0
+    const maxCapacity = officer.maxCapacity ?? officer.capacity ?? DEFAULT_MAX_CAPACITY
 
-    const proofMetadata = {
-      downloadUrl: proof.downloadUrl,
-      path: proof.path,
-      filename: proof.filename || proof.path.split('/').pop(),
-      contentType: proof.contentType || 'image/jpeg',
-      size: proof.size || null,
-      submittedBy: actor.uid,
-      submittedAt: serverTimestamp(),
-      officerName: actor.displayName || actor.name || assignedWorker.name || 'Field Officer',
+    // If reassigning to the exact same officer who already owns this complaint, don't double count
+    const previousWorker = complaint.assignedWorker || {}
+    const isSameOfficer =
+      complaint.assignedOfficerId === officerId ||
+      previousWorker.officerId === officerId
+
+    if (!isSameOfficer && currentActive >= maxCapacity) {
+      throw new Error(`Officer ${officer.name || officerId} has reached maximum capacity (${currentActive}/${maxCapacity})`)
     }
 
-    const updates = {
-      status: 'Pending Verification',
-      resolutionNotes: notes,
-      resolutionProof: proofMetadata,
-      resolutionPhotos: [proof.downloadUrl], // Backward compatibility with ResolutionProofSlider
-      submittedForVerificationAt: serverTimestamp(),
-      verificationDeadline: deadlineTimestamp,
-      verificationWorkflowVersion: 2,
-      updatedAt: serverTimestamp(),
+    // If reassignment from a different officer, check if previous officer needs workload decrement
+    let previousOfficerRef = null
+    let previousOfficerData = null
+    const prevOfficerId = complaint.assignedOfficerId || previousWorker.officerId
+
+    if (prevOfficerId && prevOfficerId !== officerId) {
+      previousOfficerRef = doc(firestoreDb, 'officers', prevOfficerId)
+      const prevSnap = await transaction.get(previousOfficerRef)
+      if (prevSnap.exists()) {
+        previousOfficerData = prevSnap.data()
+      }
     }
 
-    transaction.update(complaintRef, updates)
-
-    // Audit event
-    const eventRef = doc(collection(customDb, `issues/${complaintId}/events`))
-    transaction.set(
-      eventRef,
-      buildComplaintEvent({
-        actorUid: actor.uid,
-        action: 'Resolution submitted for verification',
-        previousStatus: complaint.status,
-        newStatus: 'Pending Verification',
-        remarks: notes,
-      })
+    // 2. Calculations
+    const candidateEvaluation = evaluateCandidateOfficer(
+      { id: officerId, ...officer },
+      complaint,
+      options.weights
     )
 
-    // Notification to citizen
+    const dispatchTimestamp = serverTimestamp()
+
+    // 3. Transaction writes
+    // Update complaint document
+    const updatedWorker = {
+      officerId,
+      name: officer.name || 'Field Officer',
+      phone: officer.phone || '',
+      department: officer.department || complaint.department || '',
+      assignedAt: dispatchTimestamp,
+      dispatchedBy: adminUser.uid,
+    }
+
+    const complaintUpdates = {
+      assignedWorker: updatedWorker,
+      assignedOfficerId: officerId,
+      status: 'In Progress',
+      updatedAt: dispatchTimestamp,
+      dispatchScore: candidateEvaluation.score,
+      dispatchBreakdown: candidateEvaluation.breakdown,
+    }
+
+    transaction.update(complaintRef, complaintUpdates)
+
+    // Update target officer workload atomically
+    if (!isSameOfficer) {
+      transaction.update(officerRef, {
+        activeComplaints: currentActive + 1,
+        activeCount: currentActive + 1,
+        lastAssignedAt: dispatchTimestamp,
+      })
+    }
+
+    // Decrement previous officer workload atomically if reassigned
+    if (previousOfficerRef && previousOfficerData) {
+      const prevActive = previousOfficerData.activeComplaints ?? previousOfficerData.activeCount ?? 1
+      const newActive = Math.max(0, prevActive - 1)
+      transaction.update(previousOfficerRef, {
+        activeComplaints: newActive,
+        activeCount: newActive,
+      })
+    }
+
+    // Append audit event
+    const eventRef = doc(collection(firestoreDb, `issues/${complaintId}/events`))
+    const remarks =
+      options.remarks ||
+      `Dispatched to officer ${officer.name || officerId} (Score: ${candidateEvaluation.score}/100)`
+
+    const auditEventData = buildComplaintEvent({
+      actorUid: adminUser.uid,
+      action: 'Field worker designated', // Established schema compatible with firestore.rules
+      previousStatus: complaint.status,
+      newStatus: 'In Progress',
+      remarks,
+    })
+
+    // Add extended dispatch metadata
+    auditEventData.eventType = 'OFFICER_DISPATCHED'
+    auditEventData.officerId = officerId
+    auditEventData.officerName = officer.name || 'Field Officer'
+    auditEventData.dispatchScore = candidateEvaluation.score
+    auditEventData.dispatchBreakdown = candidateEvaluation.breakdown
+
+    transaction.set(eventRef, auditEventData)
+
+    // Add citizen notification if reporter exists
     if (complaint.reportedBy) {
-      addNotificationToBatch(transaction, {
+      const notification = {
         recipientUid: complaint.reportedBy,
         recipientRole: 'citizen',
-        senderUid: actor.uid,
+        senderUid: adminUser.uid,
         issueId: complaint.complaintId || complaintId,
         type: 'status_update',
-        title: 'Work Completed — Verification Needed',
-        message: 'The field officer has completed work on your complaint. Please verify and accept or dispute within 5 days.',
-        createdAt: serverTimestamp(),
-      }, customDb)
+        title: 'Officer Dispatched',
+        message: `Officer ${officer.name || 'Field Officer'} has been dispatched for your complaint.`,
+        read: false,
+        createdAt: dispatchTimestamp,
+      }
+      addNotificationToBatch(transaction, notification)
     }
 
     return {
       success: true,
-      status: 'Pending Verification',
-      verificationDeadline: deadlineTimestamp,
-      resolutionProof: proofMetadata,
+      complaintId,
+      officerId,
+      assignedWorker: updatedWorker,
+      score: candidateEvaluation.score,
+      breakdown: candidateEvaluation.breakdown,
     }
-  })
-}
-
-/**
- * Citizen accepts the resolution proof, transitioning Pending Verification -> Resolved.
- */
-export async function acceptComplaintResolution(
-  complaintId,
-  actor = {},
-  feedbackData = null,
-  customDb = db
-) {
-  if (!complaintId) throw new Error('Complaint ID is required')
-  if (!actor || !actor.uid) throw new Error('Authenticated actor is required')
-
-  const complaintRef = doc(customDb, 'issues', complaintId)
-
-  return runTransaction(customDb, async transaction => {
-    const snap = await transaction.get(complaintRef)
-    if (!snap.exists()) {
-      throw new Error('Complaint does not exist')
-    }
-    const complaint = snap.data()
-
-    if (complaint.status !== 'Pending Verification') {
-      throw new Error(`Complaint is not pending verification (current: ${complaint.status})`)
-    }
-
-    // Ownership check: only original reporter (or admin) can accept
-    const isAdmin = actor.role === 'admin'
-    const isReporter = complaint.reportedBy === actor.uid
-    if (!isReporter && !isAdmin) {
-      throw new Error('Only the citizen who reported this complaint may accept the resolution')
-    }
-
-    // Deadline check
-    const deadline = complaint.verificationDeadline
-    const deadlineMs = deadline?.toMillis ? deadline.toMillis() : (deadline?.seconds ? deadline.seconds * 1000 : null)
-    if (deadlineMs && Date.now() > deadlineMs) {
-      throw new Error('The 5-day review period for this resolution has expired')
-    }
-
-    const updates = {
-      status: 'Resolved',
-      acceptedBy: actor.uid,
-      acceptedAt: serverTimestamp(),
-      resolvedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }
-
-    if (feedbackData && typeof feedbackData === 'object') {
-      updates.feedback = {
-        rating: Number(feedbackData.rating) || 5,
-        comment: (feedbackData.comment || '').slice(0, 1000),
-        tags: Array.isArray(feedbackData.tags) ? feedbackData.tags : [],
-        submittedAt: serverTimestamp(),
-      }
-    }
-
-    transaction.update(complaintRef, updates)
-
-    const eventRef = doc(collection(customDb, `issues/${complaintId}/events`))
-    transaction.set(
-      eventRef,
-      buildComplaintEvent({
-        actorUid: actor.uid,
-        action: 'Resolution accepted',
-        previousStatus: 'Pending Verification',
-        newStatus: 'Resolved',
-        remarks: feedbackData?.comment || 'Resolution verified and accepted by citizen',
-      })
-    )
-
-    // Notify admin
-    addNotificationToBatch(transaction, {
-      recipientUid: null,
-      recipientRole: 'admin',
-      senderUid: actor.uid,
-      issueId: complaint.complaintId || complaintId,
-      type: 'status_update',
-      title: 'Resolution Accepted by Citizen',
-      message: `Citizen accepted the resolution for complaint: ${complaint.title}`,
-      createdAt: serverTimestamp(),
-    }, customDb)
-
-    return { success: true, status: 'Resolved' }
-  })
-}
-
-/**
- * Citizen disputes the resolution proof, transitioning Pending Verification -> Disputed.
- */
-export async function disputeComplaintResolution(
-  complaintId,
-  disputeData = {},
-  actor = {},
-  customDb = db
-) {
-  if (!complaintId) throw new Error('Complaint ID is required')
-  if (!actor || !actor.uid) throw new Error('Authenticated actor is required')
-
-  const reason = disputeData.reason
-  if (!reason || !DISPUTE_REASONS.includes(reason)) {
-    throw new Error(`A valid dispute reason category is required (${DISPUTE_REASONS.join(', ')})`)
-  }
-
-  const explanation = (disputeData.explanation || '').trim()
-  if (!explanation) {
-    throw new Error('A detailed dispute explanation is required')
-  }
-
-  const evidence = disputeData.evidence || []
-  if (!Array.isArray(evidence) || evidence.length === 0) {
-    throw new Error('Supporting dispute evidence is required')
-  }
-
-  // Validate approved Storage path
-  const expectedPathPrefix = `complaint-disputes/${complaintId}/`
-  for (const item of evidence) {
-    if (!item.path || !item.path.startsWith(expectedPathPrefix)) {
-      throw new Error(`Dispute evidence must be stored under ${expectedPathPrefix}`)
-    }
-  }
-
-  const complaintRef = doc(customDb, 'issues', complaintId)
-
-  return runTransaction(customDb, async transaction => {
-    const snap = await transaction.get(complaintRef)
-    if (!snap.exists()) {
-      throw new Error('Complaint does not exist')
-    }
-    const complaint = snap.data()
-
-    if (complaint.status !== 'Pending Verification') {
-      throw new Error(`Complaint is not pending verification (current: ${complaint.status})`)
-    }
-
-    // Ownership check: only original reporter (or admin) can dispute
-    const isAdmin = actor.role === 'admin'
-    const isReporter = complaint.reportedBy === actor.uid
-    if (!isReporter && !isAdmin) {
-      throw new Error('Only the citizen who reported this complaint may dispute the resolution')
-    }
-
-    // Deadline check
-    const deadline = complaint.verificationDeadline
-    const deadlineMs = deadline?.toMillis ? deadline.toMillis() : (deadline?.seconds ? deadline.seconds * 1000 : null)
-    if (deadlineMs && Date.now() > deadlineMs) {
-      throw new Error('The 5-day review period for this resolution has expired')
-    }
-
-    const currentDisputeCount = Number(complaint.disputeCount) || 0
-
-    const record = {
-      reason,
-      explanation,
-      evidence: evidence.map(e => ({
-        downloadUrl: e.downloadUrl,
-        path: e.path,
-        filename: e.filename || e.path.split('/').pop(),
-        contentType: e.contentType || 'image/jpeg',
-      })),
-      disputedBy: actor.uid,
-      disputedAt: serverTimestamp(),
-      status: 'UNDER_ADMIN_REVIEW',
-    }
-
-    const updates = {
-      status: 'Disputed',
-      dispute: record,
-      disputedAt: serverTimestamp(),
-      disputeCount: currentDisputeCount + 1,
-      updatedAt: serverTimestamp(),
-    }
-
-    transaction.update(complaintRef, updates)
-
-    const eventRef = doc(collection(customDb, `issues/${complaintId}/events`))
-    transaction.set(
-      eventRef,
-      buildComplaintEvent({
-        actorUid: actor.uid,
-        action: 'Resolution disputed',
-        previousStatus: 'Pending Verification',
-        newStatus: 'Disputed',
-        remarks: `[${reason}] ${explanation}`,
-      })
-    )
-
-    // Notify admin team of escalated dispute
-    addNotificationToBatch(transaction, {
-      recipientUid: null,
-      recipientRole: 'admin',
-      senderUid: actor.uid,
-      issueId: complaint.complaintId || complaintId,
-      type: 'status_update',
-      title: 'Resolution Disputed by Citizen',
-      message: `Citizen disputed the resolution (${reason}): ${explanation}`,
-      createdAt: serverTimestamp(),
-    }, customDb)
-
-    return { success: true, status: 'Disputed' }
-  })
-}
-
-/**
- * Administrative dispute review decision.
- *
- * Supported outcomes:
- * - 'UPHOLD_DISPUTE': Citizen dispute is justified. Moves complaint back to 'In Progress' for rework.
- * - 'REJECT_DISPUTE': Dispute is invalid/work verified. Transitions complaint to 'Resolved'.
- */
-export async function reviewComplaintDispute(
-  complaintId,
-  decisionData = {},
-  adminActor = {},
-  customDb = db
-) {
-  if (!complaintId) throw new Error('Complaint ID is required')
-  if (!adminActor || !adminActor.uid || adminActor.role !== 'admin') {
-    throw new Error('Only authorized municipal administrators may review disputes')
-  }
-
-  const outcome = decisionData.outcome
-  if (!['UPHOLD_DISPUTE', 'REJECT_DISPUTE'].includes(outcome)) {
-    throw new Error('Valid review outcome is required (UPHOLD_DISPUTE or REJECT_DISPUTE)')
-  }
-
-  const remarks = (decisionData.remarks || decisionData.reason || '').trim()
-  if (!remarks) {
-    throw new Error('Documented decision remarks are required')
-  }
-
-  const complaintRef = doc(customDb, 'issues', complaintId)
-
-  return runTransaction(customDb, async transaction => {
-    const snap = await transaction.get(complaintRef)
-    if (!snap.exists()) {
-      throw new Error('Complaint does not exist')
-    }
-    const complaint = snap.data()
-
-    if (complaint.status !== 'Disputed') {
-      throw new Error(`Complaint is not in Disputed status (current: ${complaint.status})`)
-    }
-
-    const nextStatus = outcome === 'UPHOLD_DISPUTE' ? 'In Progress' : 'Resolved'
-
-    const reviewRecord = {
-      outcome,
-      remarks,
-      reviewedBy: adminActor.uid,
-      reviewedAt: serverTimestamp(),
-    }
-
-    const updates = {
-      status: nextStatus,
-      disputeReview: reviewRecord,
-      updatedAt: serverTimestamp(),
-    }
-
-    if (nextStatus === 'Resolved') {
-      updates.resolvedAt = serverTimestamp()
-    }
-
-    transaction.update(complaintRef, updates)
-
-    const eventRef = doc(collection(customDb, `issues/${complaintId}/events`))
-    transaction.set(
-      eventRef,
-      buildComplaintEvent({
-        actorUid: adminActor.uid,
-        action: 'Dispute reviewed',
-        previousStatus: 'Disputed',
-        newStatus: nextStatus,
-        remarks: `[Admin Review: ${outcome}] ${remarks}`,
-      })
-    )
-
-    // Notify citizen of dispute outcome
-    if (complaint.reportedBy) {
-      const message =
-        outcome === 'UPHOLD_DISPUTE'
-          ? `Your dispute was upheld by administration. The complaint has been returned to In Progress for corrective work: ${remarks}`
-          : `Your dispute was reviewed and the resolution upheld by administration: ${remarks}`
-
-      addNotificationToBatch(transaction, {
-        recipientUid: complaint.reportedBy,
-        recipientRole: 'citizen',
-        senderUid: adminActor.uid,
-        issueId: complaint.complaintId || complaintId,
-        type: 'status_update',
-        title: `Dispute Review: ${outcome === 'UPHOLD_DISPUTE' ? 'Upheld' : 'Concluded'}`,
-        message,
-        createdAt: serverTimestamp(),
-      }, customDb)
-    }
-
-    return { success: true, status: nextStatus, outcome }
-  })
-}
-
-/**
- * Trusted server-side automatic verification process.
- * Can be executed by scheduled backend Cloud Functions or administrative sweep.
- *
- * Verifies:
- * - Status is still 'Pending Verification'
- * - Verification deadline has elapsed (trusted time)
- * - Transitions atomically to 'Resolved'
- * - Records 'Resolution auto-verified' audit event
- */
-export async function autoVerifyExpiredComplaint(
-  complaintId,
-  currentTimeMs = Date.now(),
-  customDb = db
-) {
-  if (!complaintId) throw new Error('Complaint ID is required')
-
-  const complaintRef = doc(customDb, 'issues', complaintId)
-
-  return runTransaction(customDb, async transaction => {
-    const snap = await transaction.get(complaintRef)
-    if (!snap.exists()) {
-      throw new Error('Complaint does not exist')
-    }
-    const complaint = snap.data()
-
-    // Must still be Pending Verification
-    if (complaint.status !== 'Pending Verification') {
-      return { skipped: true, reason: `Status is ${complaint.status}` }
-    }
-
-    const deadline = complaint.verificationDeadline
-    const deadlineMs = deadline?.toMillis ? deadline.toMillis() : (deadline?.seconds ? deadline.seconds * 1000 : null)
-
-    if (!deadlineMs) {
-      throw new Error('Missing verification deadline timestamp')
-    }
-
-    if (currentTimeMs < deadlineMs) {
-      return { skipped: true, reason: 'Verification deadline has not expired yet' }
-    }
-
-    const updates = {
-      status: 'Resolved',
-      autoVerified: true,
-      autoVerifiedAt: serverTimestamp(),
-      resolvedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }
-
-    transaction.update(complaintRef, updates)
-
-    const eventRef = doc(collection(customDb, `issues/${complaintId}/events`))
-    transaction.set(
-      eventRef,
-      buildComplaintEvent({
-        actorUid: 'system:auto-verifier',
-        action: 'Resolution auto-verified',
-        previousStatus: 'Pending Verification',
-        newStatus: 'Resolved',
-        remarks: 'Automatically resolved after 5-day citizen review window elapsed without dispute',
-      })
-    )
-
-    if (complaint.reportedBy) {
-      addNotificationToBatch(transaction, {
-        recipientUid: complaint.reportedBy,
-        recipientRole: 'citizen',
-        senderUid: 'system',
-        issueId: complaint.complaintId || complaintId,
-        type: 'status_update',
-        title: 'Complaint Automatically Resolved',
-        message: 'Your complaint was automatically marked resolved as the 5-day verification period concluded without dispute.',
-        createdAt: serverTimestamp(),
-      }, customDb)
-    }
-
-    return { success: true, status: 'Resolved', autoVerified: true }
   })
 }

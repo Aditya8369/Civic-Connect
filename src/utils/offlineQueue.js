@@ -1,3 +1,5 @@
+import { findWardForCoordinates } from './geo'
+
 const DB_NAME = 'civic-connect-offline'
 const DB_VERSION = 1
 const STORE_NAME = 'pending-complaints'
@@ -106,6 +108,24 @@ export async function saveOfflineComplaint(complaint) {
   const audioDuration = complaint.audioDuration ?? complaint.voiceNote?.durationSeconds ?? null
   const audioMimeType = audioBlob?.type || complaint.audioMimeType || complaint.audioContentType || complaint.voiceNote?.contentType || null
 
+  let wardId = complaint.wardId || null
+  let zoneName = complaint.zoneName || null
+  let jurisdictionMeta = complaint.jurisdictionMeta || null
+
+  // If jurisdiction metadata is not already supplied, attempt local resolution from coordinates
+  if (!wardId && complaint.latitude != null && complaint.longitude != null) {
+    try {
+      const ward = findWardForCoordinates({ lat: complaint.latitude, lng: complaint.longitude })
+      if (ward) {
+        wardId = ward.wardId
+        zoneName = ward.zoneName
+        jurisdictionMeta = ward
+      }
+    } catch {
+      // Fallback silently if resolution encounters an error
+    }
+  }
+
   const record = {
     ...complaint,
     photoFile,
@@ -114,6 +134,9 @@ export async function saveOfflineComplaint(complaint) {
     audioBlob,
     audioDuration,
     audioMimeType,
+    wardId,
+    zoneName,
+    jurisdictionMeta,
     localId: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
     syncStatus: 'pending',
