@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   XCircle,
   Upload,
+  MessageSquare,
 } from 'lucide-react'
 import { doc, getDoc, collection, onSnapshot, serverTimestamp } from 'firebase/firestore'
 import { resolveCitizenComplaintDocumentId } from '@/firebase/complaintReferences'
@@ -40,6 +41,7 @@ import { ResolutionFeedback } from '@/components/citizen/ResolutionFeedback'
 import VoiceRecorder from '@/components/citizen/VoiceRecorder'
 import { MilestoneCelebrationBanner } from '@/components/citizen/MilestoneCelebrationBanner'
 import { PrintableGrievanceReceipt } from '@/components/citizen/PrintableGrievanceReceipt'
+import { ResolutionChatDrawer } from '@/components/chat/ResolutionChatDrawer'
 import { ComplaintLocationMap } from '@/components/common/ComplaintLocationMap'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
@@ -434,6 +436,7 @@ export function ComplaintDetailsPage() {
   const [disputePhotoPreview, setDisputePhotoPreview] = useState(null)
   const [disputeVoiceNote, setDisputeVoiceNote] = useState(null)
   const disputeFileInputRef = useRef(null)
+  const [isChatDrawerOpen, setIsChatDrawerOpen] = useState(false)
 
   useEffect(() => {
     if (!complaint?.reportedBy) return
@@ -889,6 +892,16 @@ export function ComplaintDetailsPage() {
                           </Button>
                         </>
                       )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-testid="open-resolution-chat-btn"
+                        className="gap-1.5 border-primary-300 text-primary-700 hover:bg-primary-50 dark:border-primary-700 dark:text-primary-300 dark:hover:bg-primary-950/40"
+                        onClick={() => setIsChatDrawerOpen(true)}
+                      >
+                        <MessageSquare className="h-4 w-4 text-primary-600" />
+                        Resolution Chat
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -1501,6 +1514,13 @@ export function ComplaintDetailsPage() {
             </div>
           </DialogContent>
         </Dialog>
+
+        <ResolutionChatDrawer
+          isOpen={isChatDrawerOpen}
+          onClose={() => setIsChatDrawerOpen(false)}
+          complaint={complaint}
+          currentUser={user}
+        />
       </div>
 
       <div className="hidden print:block print:w-full printable-receipt-wrapper">

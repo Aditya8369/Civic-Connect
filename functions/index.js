@@ -35,9 +35,8 @@ export {
 } from './autoVerifyScheduler.js'
 
 export {
-  onIssueImageTriage,
-  handleIssueImageTriage,
-  triageImagePayload,
-  normalizeSeverity,
-} from './imageTriage.js'
+  onResolutionMessageCreated,
+  handleResolutionChatMessage,
+  sanitizePrivacyText,
+} from './chatNotifications.js'
 

@@ -22,6 +22,7 @@ import {
   Sparkles,
   UserCheck,
   AlertCircle,
+  MessageSquare,
 } from 'lucide-react'
 import {
   doc,
@@ -47,6 +48,7 @@ import { mergeComplaints } from '@/firebase/complaintMerge'
 import { loadResolutionTemplates } from '@/firebase/resolutionTemplates'
 import { fetchOfficerCandidates, rankCandidateOfficers } from '@/firebase/officerDispatch'
 import { ComplaintAuditTimeline } from '@/components/admin/ComplaintAuditTimeline'
+import { ResolutionChatDrawer } from '@/components/chat/ResolutionChatDrawer'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -207,6 +209,7 @@ export function AdminComplaintDetailsPage() {
   const [backfillRetry, setBackfillRetry] = useState(0)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+  const [isChatDrawerOpen, setIsChatDrawerOpen] = useState(false)
 
   const [zoomOpen, setZoomOpen] = useState(false)
   const [zoomScale, setZoomScale] = useState(1)
@@ -1054,6 +1057,16 @@ export function AdminComplaintDetailsPage() {
                 </div>
 
                 <div className="flex shrink-0 gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="admin-resolution-chat-btn"
+                    className="gap-1.5 border-primary-300 text-primary-700 hover:bg-primary-50 dark:border-primary-700 dark:text-primary-300"
+                    onClick={() => setIsChatDrawerOpen(true)}
+                  >
+                    <MessageSquare className="h-4 w-4 text-primary-600" />
+                    Resolution Chat
+                  </Button>
                   {canReject && (
                     <Button
                       variant="outline"
@@ -2365,6 +2378,13 @@ export function AdminComplaintDetailsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ResolutionChatDrawer
+        isOpen={isChatDrawerOpen}
+        onClose={() => setIsChatDrawerOpen(false)}
+        complaint={complaint}
+        currentUser={authUser}
+      />
     </div>
   )
 }
