@@ -16,6 +16,12 @@ import {
   ExternalLink,
   GitMerge,
   Search,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Sparkles,
+  UserCheck,
+  AlertCircle,
 } from 'lucide-react'
 import {
   doc,
@@ -33,12 +39,13 @@ import {
 import { auth, db } from '@/firebase/services'
 import { useAuth } from '@/hooks/useAuth'
 import { useLanguage } from '@/contexts/LanguageContext'
-import { logComplaintEvent } from '@/firebase/complaintEvents'
+import { logComplaintEvent, sortEvents } from '@/firebase/complaintEvents'
 import { getDisplayId, ensureComplaintId } from '@/firebase/complaintId'
-import { commitComplaintTransition } from '@/firebase/complaintLifecycle'
+import { commitComplaintTransition, dispatchComplaintToOfficer } from '@/firebase/complaintLifecycle'
 import { assignComplaintDepartment } from '@/firebase/complaintDepartment'
 import { mergeComplaints } from '@/firebase/complaintMerge'
 import { loadResolutionTemplates } from '@/firebase/resolutionTemplates'
+import { fetchOfficerCandidates, rankCandidateOfficers } from '@/firebase/officerDispatch'
 import { ComplaintAuditTimeline } from '@/components/admin/ComplaintAuditTimeline'
 import { Button } from '@/components/ui/button'
 import {
@@ -204,6 +211,14 @@ export function AdminComplaintDetailsPage() {
   const [selectedParentId, setSelectedParentId] = useState('')
   const [loadingCandidates, setLoadingCandidates] = useState(false)
   const [merging, setMerging] = useState(false)
+
+  // Intelligent Dispatch Assistant state
+  const [officerCandidates, setOfficerCandidates] = useState([])
+  const [dispatchLoading, setDispatchLoading] = useState(false)
+  const [dispatchError, setDispatchError] = useState(null)
+  const [selectedOfficer, setSelectedOfficer] = useState(null)
+  const [dispatching, setDispatching] = useState(false)
+  const [expandedOfficerId, setExpandedOfficerId] = useState(null)
 
   useEffect(() => {
     let active = true
@@ -675,6 +690,62 @@ export function AdminComplaintDetailsPage() {
 
     return () => clearTimeout(timer)
   }, [searchQuery, mergeOpen, id])
+
+  // Fetch candidate officers for intelligent dispatch assistant
+  useEffect(() => {
+    let active = true
+    if (!complaint) return
+
+    setDispatchLoading(true)
+    setDispatchError(null)
+
+    fetchOfficerCandidates()
+      .then((officers) => {
+        if (!active) return
+        setOfficerCandidates(officers)
+        setDispatchLoading(false)
+      })
+      .catch((err) => {
+        if (!active) return
+        console.error('Failed to load candidate officers:', err)
+        setDispatchError('Unable to load field officer directory')
+        setDispatchLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [id, complaint?.department, complaint?.category, complaint])
+
+  // Ranked recommendations derived from current complaint & officers
+  const dispatchRankings = rankCandidateOfficers(officerCandidates, complaint)
+
+  const handleConfirmDispatch = async () => {
+    if (!selectedOfficer) {
+      toast.error('Select an eligible officer to dispatch')
+      return
+    }
+
+    if (dispatching) return
+    setDispatching(true)
+
+    try {
+      await dispatchComplaintToOfficer(id, selectedOfficer.officerId, authUser, {
+        remarks: `Dispatched to ${selectedOfficer.name} (Match Score: ${selectedOfficer.score}%)`,
+      })
+
+      toast.success(`Complaint dispatched to ${selectedOfficer.name}!`)
+      setSelectedOfficer(null)
+      // Refresh officer list to display updated live active workload
+      const updatedOfficers = await fetchOfficerCandidates()
+      setOfficerCandidates(updatedOfficers)
+    } catch (err) {
+      console.error('Dispatch transaction failed:', err)
+      toast.error(err?.message || 'Failed to dispatch officer. Please try again.')
+    } finally {
+      setDispatching(false)
+    }
+  }
 
   const openWorkerDialog = () => {
     setWorkerName(complaint.assignedWorker?.name || '')
@@ -1327,6 +1398,169 @@ export function AdminComplaintDetailsPage() {
                   {citizen?.email || '-'}
                 </p>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Intelligent Field Officer Dispatch Assistant */}
+          <Card className="border-indigo-100 dark:border-indigo-950/60 shadow-sm" data-testid="dispatch-assistant-card">
+            <CardHeader className="pb-3 bg-gradient-to-r from-indigo-50/50 to-purple-50/50 dark:from-indigo-950/20 dark:to-purple-950/20 border-b border-indigo-100/60 dark:border-indigo-900/30">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-base text-indigo-950 dark:text-indigo-200">
+                  <Sparkles className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  Intelligent Dispatch Assistant
+                </CardTitle>
+                <Badge variant="outline" className="bg-white/80 dark:bg-gray-800 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 text-[11px]">
+                  Multi-Factor AI
+                </Badge>
+              </div>
+              <CardDescription className="text-xs text-indigo-900/70 dark:text-indigo-300/70">
+                Workload, proximity, specialization, and SLA-aware recommendations
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="pt-4 space-y-3">
+              {dispatchLoading ? (
+                <div className="flex flex-col items-center justify-center py-6 gap-2" role="status" aria-label="Loading recommendations">
+                  <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
+                  <span className="text-xs text-gray-500">Evaluating candidates…</span>
+                </div>
+              ) : dispatchError ? (
+                <div className="rounded-lg bg-red-50 p-3 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300 flex items-start gap-2" role="alert">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>{dispatchError}</span>
+                </div>
+              ) : dispatchRankings.recommendations.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-800 p-4 text-center space-y-1">
+                  <UserCheck className="h-6 w-6 text-gray-400 mx-auto" />
+                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300">No Eligible Officers Available</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    All candidates are currently inactive, at maximum capacity, or unassigned. Use manual assignment below.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between text-xs text-gray-500 font-medium px-1">
+                    <span>Recommended Candidates</span>
+                    <span>Match Score</span>
+                  </div>
+
+                  {dispatchRankings.recommendations.map((candidate, idx) => {
+                    const isSelected = selectedOfficer?.officerId === candidate.officerId
+                    const isExpanded = expandedOfficerId === candidate.officerId
+
+                    return (
+                      <div
+                        key={candidate.officerId}
+                        data-testid={`candidate-card-${candidate.officerId}`}
+                        className={`rounded-lg border transition-all ${
+                          isSelected
+                            ? 'border-indigo-600 bg-indigo-50/60 dark:border-indigo-500 dark:bg-indigo-950/40 ring-1 ring-indigo-500'
+                            : 'border-gray-200 bg-white hover:border-gray-300 dark:border-gray-800 dark:bg-gray-900'
+                        }`}
+                      >
+                        <div
+                          className="p-3 cursor-pointer flex items-start justify-between gap-2"
+                          onClick={() => setSelectedOfficer(isSelected ? null : candidate)}
+                        >
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">
+                                {candidate.name}
+                              </span>
+                              {idx === 0 && (
+                                <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white text-[10px] px-1.5 py-0">
+                                  Top Match
+                                </Badge>
+                              )}
+                            </div>
+
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                              {candidate.department || 'General Operations'} • {candidate.activeCount}/{candidate.maxCapacity} active
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div className="text-right">
+                              <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                                {candidate.score}%
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setExpandedOfficerId(isExpanded ? null : candidate.officerId)
+                              }}
+                              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600"
+                              title={isExpanded ? 'Collapse breakdown' : 'Expand score breakdown'}
+                              aria-expanded={isExpanded}
+                            >
+                              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Explainable factor breakdown */}
+                        {isExpanded && (
+                          <div className="px-3 pb-3 pt-1 border-t border-gray-100 dark:border-gray-800 space-y-2 text-[11px] bg-gray-50/50 dark:bg-gray-950/30 rounded-b-lg">
+                            <p className="font-semibold text-gray-700 dark:text-gray-300 text-[10px] uppercase tracking-wider">
+                              Scoring Factor Breakdown
+                            </p>
+
+                            <div className="grid grid-cols-1 gap-1.5">
+                              <div className="flex items-start justify-between gap-1">
+                                <span className="text-gray-600 dark:text-gray-400">Workload:</span>
+                                <span className="font-medium text-gray-900 dark:text-gray-200 text-right">
+                                  {candidate.breakdown.workload.score}/100 ({candidate.breakdown.workload.explanation})
+                                </span>
+                              </div>
+
+                              <div className="flex items-start justify-between gap-1">
+                                <span className="text-gray-600 dark:text-gray-400">Proximity:</span>
+                                <span className="font-medium text-gray-900 dark:text-gray-200 text-right">
+                                  {candidate.breakdown.proximity.score}/100 ({candidate.breakdown.proximity.explanation})
+                                </span>
+                              </div>
+
+                              <div className="flex items-start justify-between gap-1">
+                                <span className="text-gray-600 dark:text-gray-400">Specialization:</span>
+                                <span className="font-medium text-gray-900 dark:text-gray-200 text-right">
+                                  {candidate.breakdown.specialization.score}/100 ({candidate.breakdown.specialization.explanation})
+                                </span>
+                              </div>
+
+                              <div className="flex items-start justify-between gap-1">
+                                <span className="text-gray-600 dark:text-gray-400">SLA Record:</span>
+                                <span className="font-medium text-gray-900 dark:text-gray-200 text-right">
+                                  {candidate.breakdown.sla.score}/100 ({candidate.breakdown.sla.explanation})
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  {selectedOfficer && (
+                    <div className="pt-2">
+                      <Button
+                        className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-9"
+                        disabled={dispatching}
+                        onClick={handleConfirmDispatch}
+                        data-testid="confirm-dispatch-button"
+                      >
+                        {dispatching ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4" />
+                        )}
+                        Confirm Dispatch to {selectedOfficer.name} ({selectedOfficer.score}%)
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 

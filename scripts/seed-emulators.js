@@ -371,6 +371,94 @@ async function seedComplaints() {
   }
 }
 
+async function seedOfficers() {
+  console.log('\nSeeding synthetic demo field officers...')
+  const officers = [
+    {
+      id: 'officer-demo-01',
+      name: 'Inspector Rajesh Kumar',
+      department: 'Roads',
+      specializations: ['potholes & road damage', 'traffic signage'],
+      active: true,
+      maxCapacity: 10,
+      activeComplaints: 2,
+      activeCount: 2,
+      phone: '+91 98765 43210',
+      email: 'rajesh.kumar@civic-connect.demo',
+      ward: 'Ward 12',
+      location: { latitude: 28.6139, longitude: 77.2090 },
+      historicalStats: {
+        totalResolved: 25,
+        onTimeResolved: 23,
+      },
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: 'officer-demo-02',
+      name: 'Officer Sunita Sharma',
+      department: 'Sanitation',
+      specializations: ['garbage & sanitation', 'dead animal removal'],
+      active: true,
+      maxCapacity: 8,
+      activeComplaints: 1,
+      activeCount: 1,
+      phone: '+91 98765 43211',
+      email: 'sunita.sharma@civic-connect.demo',
+      ward: 'Ward 14',
+      location: { latitude: 28.6200, longitude: 77.2150 },
+      historicalStats: {
+        totalResolved: 18,
+        onTimeResolved: 16,
+      },
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: 'officer-demo-03',
+      name: 'Engineer Amit Verma',
+      department: 'Electricity',
+      specializations: ['streetlight issues', 'exposed wiring'],
+      active: true,
+      maxCapacity: 12,
+      activeComplaints: 4,
+      activeCount: 4,
+      phone: '+91 98765 43212',
+      email: 'amit.verma@civic-connect.demo',
+      ward: 'Ward 12',
+      location: { latitude: 28.6150, longitude: 77.2100 },
+      historicalStats: {
+        totalResolved: 30,
+        onTimeResolved: 28,
+      },
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: 'officer-demo-04',
+      name: 'Inspector Vikram Singh',
+      department: 'Water',
+      specializations: ['water leakage', 'sewage overflow'],
+      active: true,
+      maxCapacity: 10,
+      activeComplaints: 3,
+      activeCount: 3,
+      phone: '+91 98765 43213',
+      email: 'vikram.singh@civic-connect.demo',
+      ward: 'Ward 15',
+      location: { latitude: 28.6250, longitude: 77.2200 },
+      historicalStats: {
+        totalResolved: 14,
+        onTimeResolved: 12,
+      },
+      createdAt: new Date().toISOString(),
+    },
+  ]
+
+  for (const officer of officers) {
+    const { id, ...data } = officer
+    await db.collection('officers').doc(id).set(data)
+    console.log(`  Seeded officer ${id}: ${data.name} (${data.department})`)
+  }
+}
+
 async function main() {
   console.log(`Seeding Civic-Connect project: ${PROJECT_ID}`)
   console.log(`Auth emulator: ${AUTH_HOST}`)
@@ -378,13 +466,14 @@ async function main() {
 
   await seedAccounts()
   await seedComplaints()
+  await seedOfficers()
 
   await db.collection('counters').doc('issueCounter').set({
     lastNumber: 9010,
   }, { merge: true })
 
   console.log('\nSeed completed successfully.')
-  console.log('Accounts: 3 | Complaints: 10 | Notifications: 10')
+  console.log('Accounts: 3 | Complaints: 10 | Notifications: 10 | Officers: 4')
 }
 
 try {
