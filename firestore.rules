@@ -125,7 +125,8 @@ service cloud.firestore {
           'complaintId', 'title', 'description', 'category', 'address',
           'latitude', 'longitude', 'status', 'department', 'reportedBy',
           'imageUrl', 'photos', 'audioNote', 'endorsedBy', 'endorsementCount',
-          'upvotedBy', 'upvotesCount', 'createdAt', 'updatedAt'
+          'upvotedBy', 'upvotesCount', 'createdAt', 'updatedAt',
+          'wardId', 'ward', 'wardName', 'zoneName'
         ];
         // Workflow, assignment, audit and social fields may only be produced by
         // server-side/admin workflows. A reporter starts from a clean Pending doc.
@@ -143,6 +144,10 @@ service cloud.firestore {
                isOptionalString(data.get('address', null), 300) &&
                isOptionalLatitude(data.get('latitude', null)) &&
                isOptionalLongitude(data.get('longitude', null)) &&
+               isOptionalString(data.get('wardId', null), 50) &&
+               isOptionalString(data.get('ward', null), 50) &&
+               isOptionalString(data.get('wardName', null), 100) &&
+               isOptionalString(data.get('zoneName', null), 100) &&
                (data.get('imageUrl', null) == null ||
                  (data.imageUrl is string && data.imageUrl.size() <= 2048)) &&
                (data.get('photos', []) is list && data.get('photos', []).size() <= 5) &&
@@ -177,6 +182,10 @@ service cloud.firestore {
                data.get('endorsementCount', 0) == previous.get('endorsementCount', 0) &&
                data.get('upvotedBy', []) == previous.get('upvotedBy', []) &&
                data.get('upvotesCount', 0) == previous.get('upvotesCount', 0) &&
+               data.get('wardId', null) == previous.get('wardId', null) &&
+               data.get('ward', null) == previous.get('ward', null) &&
+               data.get('wardName', null) == previous.get('wardName', null) &&
+               data.get('zoneName', null) == previous.get('zoneName', null) &&
                (!changed.hasAny(['title']) || isNonEmptyString(data.title, 200)) &&
                (!changed.hasAny(['description']) || isNonEmptyString(data.description, 2000)) &&
                (!changed.hasAny(['category']) || isNonEmptyString(data.category, 50)) &&

@@ -7,7 +7,8 @@ import { allocateComplaintId } from './complaintId'
 import { addComplaintEventToBatch } from './complaintEvents'
 import { addNotificationToBatch } from './notifications'
 import { uploadComplaintPhoto, uploadComplaintAudio, deleteComplaintEvidence } from './storage'
-import { sanitizeText, sanitizeMarkdown } from '@/utils/sanitize'
+import { findWardForCoordinates } from '@/utils/geo'
+import { getWardById } from '@/utils/wardBoundaries'
 
 export function normalizePhotoFile(complaint) {
   const photo = complaint?.photoFile || complaint?.photoBlob
@@ -156,7 +157,32 @@ export function syncOfflineComplaint(complaint, session, options = {}) {
 
         const complaintId = await allocateComplaintId(transaction)
         assertCurrentSession()
-        transaction.set(issueRef, {
+
+        // Validate and resolve jurisdiction metadata
+        let resolvedWardId = null
+        let resolvedWardName = null
+        let resolvedZoneName = null
+
+        if (complaint.latitude != null && complaint.longitude != null) {
+          const ward = findWardForCoordinates({ lat: complaint.latitude, lng: complaint.longitude })
+          if (ward) {
+            resolvedWardId = ward.wardId
+            resolvedWardName = ward.wardName
+            resolvedZoneName = ward.zoneName
+          }
+        }
+
+        // If coordinates did not match a ward but a client-supplied wardId was provided, validate against known wards
+        if (!resolvedWardId && complaint.wardId) {
+          const matchedWard = getWardById(complaint.wardId)
+          if (matchedWard) {
+            resolvedWardId = matchedWard.wardId
+            resolvedWardName = matchedWard.wardName
+            resolvedZoneName = matchedWard.zoneName
+          }
+        }
+
+        const issueData = {
           complaintId,
           title: sanitizeText(complaint.title),
           description: sanitizeMarkdown(complaint.description),
@@ -174,7 +200,16 @@ export function syncOfflineComplaint(complaint, session, options = {}) {
           endorsementCount: 0,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-        })
+        }
+
+        if (resolvedWardId) {
+          issueData.wardId = resolvedWardId
+          issueData.ward = resolvedWardId
+          issueData.wardName = resolvedWardName
+          issueData.zoneName = resolvedZoneName
+        }
+
+        transaction.set(issueRef, issueData)
         addComplaintEventToBatch(transaction, localId, {
           actorUid: userId,
           action: 'Complaint submitted',

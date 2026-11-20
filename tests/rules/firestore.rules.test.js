@@ -384,6 +384,57 @@ describe('Firestore Security Rules (Issue #20 Hardening)', () => {
       )
     })
 
+    // Issue #251: Jurisdiction-Aware Routing & Ward Detection Compatibility
+    it('allows a citizen to report a complaint with valid jurisdiction metadata (Issue #251)', async () => {
+      await assertSucceeds(
+        setDoc(doc(alice(), 'issues', 'alice-ward-issue'), makeClientIssue({
+          complaintId: 'CMP-2026-0008',
+          title: 'Streetlight failure in Connaught Place',
+          description: 'Dark junction near block B.',
+          category: 'Electricity',
+          address: 'Block B, Connaught Place',
+          wardId: 'WARD-01',
+          ward: 'WARD-01',
+          wardName: 'Connaught Place - Central Ward',
+          zoneName: 'Central Zone',
+        }))
+      )
+    })
+
+    it('DENIES complaint creation with invalid jurisdiction field types (Issue #251)', async () => {
+      const db = alice()
+      // wardId must be string
+      await assertFails(
+        setDoc(doc(db, 'issues', 'alice-bad-wardid'), makeClientIssue({
+          wardId: 12345,
+        }))
+      )
+      // wardName must be string
+      await assertFails(
+        setDoc(doc(db, 'issues', 'alice-bad-wardname'), makeClientIssue({
+          wardName: ['Invalid', 'Array'],
+        }))
+      )
+      // zoneName must be string
+      await assertFails(
+        setDoc(doc(db, 'issues', 'alice-bad-zonename'), makeClientIssue({
+          zoneName: { nested: 'Zone' },
+        }))
+      )
+      // wardId exceeding max length (50 chars)
+      await assertFails(
+        setDoc(doc(db, 'issues', 'alice-long-wardid'), makeClientIssue({
+          wardId: 'W'.repeat(51),
+        }))
+      )
+      // Unexpected arbitrary object field like raw jurisdictionMeta must be rejected
+      await assertFails(
+        setDoc(doc(db, 'issues', 'alice-jurisdiction-meta'), makeClientIssue({
+          jurisdictionMeta: { fake: 'data' },
+        }))
+      )
+    })
+
     it('allows complaint creation without a tracking ID (allocated later)', async () => {
       const payload = makeClientIssue({ complaintId: undefined })
       delete payload.complaintId
@@ -453,6 +504,10 @@ describe('Firestore Security Rules (Issue #20 Hardening)', () => {
         { endorsementCount: 99 },
         { upvotesCount: 99 },
         { status: 'Resolved' },
+        { wardId: 'WARD-99' },
+        { ward: 'WARD-99' },
+        { wardName: 'Manipulated Ward Name' },
+        { zoneName: 'Manipulated Zone Name' },
       ]) {
         await assertFails(
           updateDoc(doc(db, 'issues', 'issue-pending-alice'), {
