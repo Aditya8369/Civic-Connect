@@ -89,6 +89,8 @@ const statusVariant = {
   Pending: 'destructive',
   Rejected: 'secondary',
   Reopened: 'warning',
+  'Pending Verification': 'warning',
+  Disputed: 'destructive',
   'Merged - Duplicate': 'secondary',
 }
 
@@ -98,13 +100,17 @@ const statusTranslationKeys = {
   Pending: 'statusPending',
   Rejected: 'statusRejected',
   Reopened: 'statusReopened',
+  'Pending Verification': 'statusPendingVerification',
+  Disputed: 'statusDisputed',
   'Merged - Duplicate': 'statusMerged',
 }
 
 const nextStatus = {
   Pending: 'In Progress',
-  'In Progress': 'Resolved',
+  'In Progress': 'Pending Verification',
   Reopened: 'In Progress',
+  'Pending Verification': null,
+  Disputed: null,
   Resolved: null,
   Rejected: null,
 }
@@ -148,9 +154,8 @@ function EvidenceImage({ src, alt, onClick, className = '' }) {
     <img
       src={src}
       alt={alt}
-      className={`absolute inset-0 h-full w-full object-cover ${
-        onClick ? 'cursor-pointer' : ''
-      } ${className}`}
+      className={`absolute inset-0 h-full w-full object-cover ${onClick ? 'cursor-pointer' : ''
+        } ${className}`}
       onClick={onClick}
     />
   )
@@ -378,6 +383,13 @@ export function AdminComplaintDetailsPage() {
 
     if (!next || saving || transitionPending.current) return
 
+    // If moving from In Progress to Pending Verification, intercept and open the proof submission modal
+    if (next === 'Pending Verification') {
+      setResolutionModalNotes(resolutionNotes || complaint.resolutionNotes || '')
+      setResolutionModalOpen(true)
+      return
+    }
+
     transitionPending.current = true
     setSaving(true)
 
@@ -395,17 +407,17 @@ export function AdminComplaintDetailsPage() {
         (current) =>
           current.reportedBy
             ? {
-                recipientUid: current.reportedBy,
-                recipientRole: 'citizen',
-                senderUid: actorUid || '',
-                issueId: current.complaintId || id,
-                type: 'status_update',
-                title: 'Complaint Status Updated',
-                message:
-                  next === 'Resolved'
-                    ? 'Your complaint has been Resolved.'
-                    : 'Your complaint is now In Progress.',
-              }
+              recipientUid: current.reportedBy,
+              recipientRole: 'citizen',
+              senderUid: actorUid || '',
+              issueId: current.complaintId || id,
+              type: 'status_update',
+              title: 'Complaint Status Updated',
+              message:
+                next === 'Resolved'
+                  ? 'Your complaint has been Resolved.'
+                  : 'Your complaint is now In Progress.',
+            }
             : null,
         () => true,
         (current) => ({
@@ -426,6 +438,95 @@ export function AdminComplaintDetailsPage() {
     } catch (err) {
       toast.error(t('adminStatusUpdateFailed'))
       console.error(err)
+    } finally {
+      transitionPending.current = false
+      setSaving(false)
+    }
+  }
+
+  const handleResolutionPhotoSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setResolutionProofFile(file)
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      setResolutionProofPreview(event.target?.result)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleSubmitResolutionVerification = async () => {
+    if (saving || transitionPending.current) return
+
+    const notes = resolutionModalNotes.trim()
+    if (!notes) {
+      toast.error('Resolution notes are required')
+      return
+    }
+
+    if (!resolutionProofFile) {
+      toast.error('Resolution proof photo is required to submit for verification')
+      return
+    }
+
+    transitionPending.current = true
+    setSaving(true)
+    try {
+      const proofArtifact = await uploadResolutionProof(resolutionProofFile, id)
+      await submitResolutionForVerification(
+        id,
+        {
+          resolutionNotes: notes,
+          resolutionProof: proofArtifact,
+        },
+        { uid: actorUid, role: 'admin' }
+      )
+
+      toast.success('Resolution submitted for citizen verification')
+      setResolutionModalOpen(false)
+      setResolutionProofFile(null)
+      setResolutionProofPreview(null)
+      setResolutionModalNotes('')
+    } catch (err) {
+      console.error('Submit resolution verification error:', err)
+      toast.error(err.message || 'Failed to submit resolution proof')
+    } finally {
+      transitionPending.current = false
+      setSaving(false)
+    }
+  }
+
+  const handleReviewDispute = async () => {
+    if (saving || transitionPending.current) return
+
+    const remarks = disputeAdminRemarks.trim()
+    if (!remarks) {
+      toast.error('Admin review remarks are required')
+      return
+    }
+
+    transitionPending.current = true
+    setSaving(true)
+    try {
+      await reviewComplaintDispute(
+        id,
+        {
+          decision: disputeDecision,
+          remarks,
+        },
+        { uid: actorUid, role: 'admin' }
+      )
+
+      toast.success(
+        disputeDecision === 'UPHOLD_DISPUTE'
+          ? 'Dispute upheld. Complaint returned to In Progress.'
+          : 'Dispute overruled. Complaint marked Resolved.'
+      )
+      setDisputeReviewDialogOpen(false)
+      setDisputeAdminRemarks('')
+    } catch (err) {
+      console.error('Dispute review error:', err)
+      toast.error(err.message || 'Failed to review dispute')
     } finally {
       transitionPending.current = false
       setSaving(false)
@@ -462,14 +563,14 @@ export function AdminComplaintDetailsPage() {
         (current) =>
           current.reportedBy
             ? {
-                recipientUid: current.reportedBy,
-                recipientRole: 'citizen',
-                senderUid: actorUid || '',
-                issueId: current.complaintId || id,
-                type: 'status_update',
-                title: 'Complaint Rejected',
-                message: `Your complaint was rejected: ${reason}`,
-              }
+              recipientUid: current.reportedBy,
+              recipientRole: 'citizen',
+              senderUid: actorUid || '',
+              issueId: current.complaintId || id,
+              type: 'status_update',
+              title: 'Complaint Rejected',
+              message: `Your complaint was rejected: ${reason}`,
+            }
             : null,
         canRejectComplaint,
         () => ({
@@ -851,11 +952,11 @@ export function AdminComplaintDetailsPage() {
   const formatSlaDate = () =>
     slaTarget
       ? slaTarget.toLocaleDateString(locale, {
-          month: 'short',
-          day: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-        })
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
       : '-'
 
   return (
@@ -912,23 +1013,22 @@ export function AdminComplaintDetailsPage() {
 
                         {(complaint.mergedIntoId ||
                           complaint.mergedInto) && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 gap-1 border-purple-300 text-xs text-purple-700 dark:border-purple-800 dark:text-purple-300"
-                            onClick={() =>
-                              navigate(
-                                `/admin/reports/${
-                                  complaint.mergedIntoId ||
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 border-purple-300 text-xs text-purple-700 dark:border-purple-800 dark:text-purple-300"
+                              onClick={() =>
+                                navigate(
+                                  `/admin/reports/${complaint.mergedIntoId ||
                                   complaint.mergedInto
-                                }`
-                              )
-                            }
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                            {t('viewParentTicket')}
-                          </Button>
-                        )}
+                                  }`
+                                )
+                              }
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              {t('viewParentTicket')}
+                            </Button>
+                          )}
                       </div>
                     </div>
                   )}
@@ -975,6 +1075,18 @@ export function AdminComplaintDetailsPage() {
                     >
                       <GitMerge className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                       {t('mergeIntoParentComplaint')}
+                    </Button>
+                  )}
+
+                  {complaint.status === 'Disputed' && (
+                    <Button
+                      onClick={() => setDisputeReviewDialogOpen(true)}
+                      disabled={saving || merging}
+                      size="sm"
+                      className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      <ShieldCheck className="h-4 w-4" />
+                      Review Citizen Dispute
                     </Button>
                   )}
 
@@ -1054,6 +1166,118 @@ export function AdminComplaintDetailsPage() {
                   </p>
                 </div>
               </div>
+
+              {/* Issue #253: 3-Way Evidence Comparison & Dispute Review Banner */}
+              {complaint.status === 'Disputed' && (
+                <div className="mt-6 rounded-xl border border-red-200 bg-red-50/50 p-5 dark:border-red-900/40 dark:bg-red-950/20">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                      <div className="rounded-full bg-red-100 p-1.5 text-red-700 dark:bg-red-900/60 dark:text-red-300">
+                        <AlertTriangle className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-base font-bold text-red-900 dark:text-red-200">
+                          Citizen Dispute Escalation Under Review
+                        </h4>
+                        <p className="text-xs text-red-700 dark:text-red-300">
+                          Citizen has rejected the field officer's resolution. Compare the 3-way visual evidence below to decide.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => setDisputeReviewDialogOpen(true)}
+                      className="gap-1.5 bg-red-600 hover:bg-red-700 text-white shrink-0"
+                    >
+                      <ShieldCheck className="h-4 w-4" />
+                      Take Dispute Decision
+                    </Button>
+                  </div>
+
+                  {complaint.dispute && (
+                    <div className="mt-4 rounded-lg border border-red-200 bg-white p-3.5 text-xs dark:border-red-900/40 dark:bg-gray-900">
+                      <p className="font-semibold text-red-900 dark:text-red-200">
+                        Citizen Dispute Reason: <span className="font-mono font-medium">{complaint.dispute.reason}</span>
+                      </p>
+                      <p className="mt-1 text-gray-700 dark:text-gray-300 leading-relaxed">
+                        {complaint.dispute.explanation}
+                      </p>
+                      {complaint.dispute.evidence?.some(e => e.contentType?.startsWith('audio/')) && (
+                        <div className="mt-2.5">
+                          <p className="font-semibold text-gray-700 dark:text-gray-300 mb-1">Dispute Voice Recording:</p>
+                          <ComplaintAudioPlayer audioNote={complaint.dispute.evidence.find(e => e.contentType?.startsWith('audio/'))} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 3-Way Evidence Comparison Grid */}
+                  <div className="mt-4">
+                    <h5 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+                      3-Way Evidence Comparison
+                    </h5>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {/* 1. Initial Citizen Photo */}
+                      <div className="rounded-lg border border-gray-200 bg-white p-2 text-center dark:border-gray-800 dark:bg-gray-900">
+                        <span className="text-[11px] font-semibold text-gray-500 uppercase">1. Citizen Initial Photo</span>
+                        <div className="mt-1 h-36 w-full rounded overflow-hidden bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                          {initialPhoto ? (
+                            <img src={initialPhoto} alt="Initial grievance evidence" className="h-full w-full object-cover" />
+                          ) : (
+                            <span className="text-xs text-gray-400">No initial photo</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 2. Officer Resolution Photo */}
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-2 text-center dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                        <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 uppercase">2. Officer Resolution Proof</span>
+                        <div className="mt-1 h-36 w-full rounded overflow-hidden bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                          {resolutionPhoto ? (
+                            <img src={resolutionPhoto} alt="Officer resolution proof" className="h-full w-full object-cover" />
+                          ) : (
+                            <span className="text-xs text-gray-400">No resolution photo</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 3. Citizen Dispute Photo */}
+                      <div className="rounded-lg border border-rose-200 bg-rose-50/40 p-2 text-center dark:border-rose-900/40 dark:bg-rose-950/20">
+                        <span className="text-[11px] font-semibold text-rose-700 dark:text-rose-300 uppercase">3. Citizen Dispute Photo</span>
+                        <div className="mt-1 h-36 w-full rounded overflow-hidden bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                          {complaint.dispute?.evidence?.find(e => e.contentType?.startsWith('image/'))?.downloadUrl ? (
+                            <img
+                              src={complaint.dispute.evidence.find(e => e.contentType?.startsWith('image/')).downloadUrl}
+                              alt="Citizen dispute evidence"
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-xs text-gray-400">No dispute photo</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Pending Verification Notice */}
+              {complaint.status === 'Pending Verification' && (
+                <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                  <div className="flex items-start gap-3">
+                    <ShieldCheck className="h-5 w-5 text-amber-600 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                        Awaiting Citizen Verification
+                      </h4>
+                      <p className="mt-1 text-xs text-amber-800/90 dark:text-amber-300/90">
+                        Resolution proof has been submitted. The citizen has a 5-day review window to verify or dispute.
+                        If no action is taken within the window, the system automatically resolves the complaint.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <SlaCountdown complaint={complaint} className="mt-4" />
 
@@ -1309,11 +1533,10 @@ export function AdminComplaintDetailsPage() {
                     {[1, 2, 3, 4, 5].map((s) => (
                       <Star
                         key={s}
-                        className={`h-5 w-5 ${
-                          s <= complaint.feedback.rating
-                            ? 'fill-amber-400 text-amber-400'
-                            : 'text-gray-300 dark:text-gray-700'
-                        }`}
+                        className={`h-5 w-5 ${s <= complaint.feedback.rating
+                          ? 'fill-amber-400 text-amber-400'
+                          : 'text-gray-300 dark:text-gray-700'
+                          }`}
                       />
                     ))}
                   </div>
@@ -1327,7 +1550,7 @@ export function AdminComplaintDetailsPage() {
                       (
                       {t(
                         ratingTranslationKeys[
-                          complaint.feedback.rating
+                        complaint.feedback.rating
                         ]
                       )}
                       )
@@ -1812,11 +2035,10 @@ export function AdminComplaintDetailsPage() {
                             setSelectedParentId(candidate.id)
                           }
                         }}
-                        className={`cursor-pointer rounded-lg border p-3 text-sm transition-colors ${
-                          isSelected
-                            ? 'border-purple-600 bg-purple-50 dark:border-purple-500 dark:bg-purple-900/30'
-                            : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50'
-                        }`}
+                        className={`cursor-pointer rounded-lg border p-3 text-sm transition-colors ${isSelected
+                          ? 'border-purple-600 bg-purple-50 dark:border-purple-500 dark:bg-purple-900/30'
+                          : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50'
+                          }`}
                       >
                         <div className="flex items-center justify-between">
                           <span className="font-mono text-xs font-semibold text-primary-600 dark:text-primary-400">
@@ -1965,16 +2187,182 @@ export function AdminComplaintDetailsPage() {
                 transform: `scale(${zoomScale})`,
                 transformOrigin: 'center center',
               }}
-              className={`max-h-[65vh] w-auto max-w-full rounded-md object-contain transition-transform duration-150 ${
-                zoomScale === 1
-                  ? 'cursor-zoom-in'
-                  : 'cursor-zoom-out'
-              }`}
+              className={`max-h-[65vh] w-auto max-w-full rounded-md object-contain transition-transform duration-150 ${zoomScale === 1
+                ? 'cursor-zoom-in'
+                : 'cursor-zoom-out'
+                }`}
               onClick={() =>
                 setZoomScale((s) => (s === 1 ? 1.75 : 1))
               }
             />
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Resolution Proof Submission Modal (#253) */}
+      <Dialog open={resolutionModalOpen} onOpenChange={setResolutionModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Submit Work Resolution for Citizen Verification</DialogTitle>
+            <DialogDescription>
+              Upload mandatory visual proof showing the finished repairs/resolution before submitting this issue to the citizen for verification.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div>
+              <Label htmlFor="resolution-modal-notes" className="text-xs font-semibold">
+                Work Resolution Notes <span className="text-red-500">*</span>
+              </Label>
+              <textarea
+                id="resolution-modal-notes"
+                rows={3}
+                value={resolutionModalNotes}
+                onChange={(e) => setResolutionModalNotes(e.target.value)}
+                placeholder="Describe the corrective actions taken to resolve the grievance..."
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              />
+            </div>
+
+            <div>
+              <Label className="text-xs font-semibold">
+                Resolution Proof Photo (Mandatory) <span className="text-red-500">*</span>
+              </Label>
+              <input
+                ref={resolutionFileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/jpg"
+                className="hidden"
+                onChange={handleResolutionPhotoSelect}
+                disabled={saving}
+              />
+              {!resolutionProofPreview ? (
+                <button
+                  type="button"
+                  onClick={() => resolutionFileInputRef.current?.click()}
+                  disabled={saving}
+                  className="mt-1 w-full flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg hover:border-primary-500 transition-colors"
+                >
+                  <Upload className="h-6 w-6 text-gray-400 mb-1" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Upload after-completion photo
+                  </span>
+                  <span className="text-xs text-gray-400 mt-0.5">JPG or PNG up to 5MB</span>
+                </button>
+              ) : (
+                <div className="mt-2 relative inline-block">
+                  <img
+                    src={resolutionProofPreview}
+                    alt="Resolution proof preview"
+                    className="h-32 w-44 rounded-md object-cover border border-gray-200 dark:border-gray-700"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResolutionProofFile(null)
+                      setResolutionProofPreview(null)
+                    }}
+                    className="absolute -top-2 -right-2 rounded-full bg-red-600 p-1 text-white shadow hover:bg-red-700"
+                  >
+                    <XCircle className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setResolutionModalOpen(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmitResolutionVerification}
+              disabled={saving || !resolutionModalNotes.trim() || !resolutionProofFile}
+              className="bg-primary-600 hover:bg-primary-700 text-white"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+              Submit for Verification
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Admin Dispute Review Dialog (#253) */}
+      <Dialog open={disputeReviewDialogOpen} onOpenChange={setDisputeReviewDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Admin Review of Citizen Dispute</DialogTitle>
+            <DialogDescription>
+              Evaluate the dispute evidence submitted by the citizen against the officer's resolution proof and issue an authoritative ruling.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-xs font-semibold">Review Outcome Decision <span className="text-red-500">*</span></Label>
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDisputeDecision('UPHOLD_DISPUTE')}
+                  className={`p-3 rounded-lg border text-left transition-all ${disputeDecision === 'UPHOLD_DISPUTE'
+                    ? 'border-red-500 bg-red-50 dark:bg-red-950/40 text-red-900 dark:text-red-200 ring-2 ring-red-500/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                    }`}
+                >
+                  <p className="font-semibold text-xs text-red-700 dark:text-red-300">Uphold Dispute</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">Citizen is correct. Return ticket to In Progress for rework.</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setDisputeDecision('REJECT_DISPUTE')}
+                  className={`p-3 rounded-lg border text-left transition-all ${disputeDecision === 'REJECT_DISPUTE'
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 ring-2 ring-emerald-500/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                    }`}
+                >
+                  <p className="font-semibold text-xs text-emerald-700 dark:text-emerald-300">Overrule / Reject Dispute</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">Resolution meets standards. Mark ticket permanently Resolved.</p>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="dispute-admin-remarks" className="text-xs font-semibold">
+                Administrative Remarks <span className="text-red-500">*</span>
+              </Label>
+              <textarea
+                id="dispute-admin-remarks"
+                rows={3}
+                value={disputeAdminRemarks}
+                onChange={(e) => setDisputeAdminRemarks(e.target.value)}
+                placeholder="State the administrative finding and instructions..."
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDisputeReviewDialogOpen(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleReviewDispute}
+              disabled={saving || !disputeAdminRemarks.trim()}
+              className={disputeDecision === 'UPHOLD_DISPUTE' ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+              Confirm Ruling
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
