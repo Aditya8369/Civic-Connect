@@ -34,3 +34,9 @@ export {
   processExpiredPendingVerifications,
 } from './autoVerifyScheduler.js'
 
+export {
+  onResolutionMessageCreated,
+  handleResolutionChatMessage,
+  sanitizePrivacyText,
+} from './chatNotifications.js'
+
