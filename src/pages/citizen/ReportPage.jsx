@@ -22,6 +22,8 @@ import {
   deleteComplaintEvidence,
 } from '@/firebase/storage'
 import VoiceRecorder from '@/components/citizen/VoiceRecorder'
+import { AITriageCard } from '@/components/citizen/AITriageCard'
+import { analyzeComplaintPhoto } from '@/utils/aiTriage'
 import {
   buildOCRSuggestions,
   cleanOCRText,
@@ -168,10 +170,18 @@ export function ReportPage() {
   const [ocrRunning, setOcrRunning] = useState(false)
   const [ocrText, setOcrText] = useState('')
   const [ocrAttempted, setOcrAttempted] = useState(false)
+  const ocrRequestId = useRef(0)
   const fileInputRef = useRef(null)
   const addressInputRef = useRef(null)
   const titleInputRef = useRef(null)
   const [voiceNote, setVoiceNote] = useState(null)
+
+  // AI Multimodal Vision Triage state
+  const [aiTriageResult, setAiTriageResult] = useState(null)
+  const [aiTriageRunning, setAiTriageRunning] = useState(false)
+  const [triageSeverity, setTriageSeverity] = useState(null)
+  const [aiAutoPopulated, setAiAutoPopulated] = useState(false)
+  const triageRequestId = useRef(0)
 
   const [checkingDuplicates, setCheckingDuplicates] = useState(false)
   const [nearbyDuplicates, setNearbyDuplicates] = useState([])
@@ -281,6 +291,53 @@ export function ReportPage() {
     setOcrText('')
     setOcrAttempted(false)
 
+    // Kick off AI multimodal vision triage
+    const currentTriageId = ++triageRequestId.current
+    setAiTriageRunning(true)
+    setAiTriageResult(null)
+    setAiAutoPopulated(false)
+
+    analyzeComplaintPhoto(file)
+      .then((triage) => {
+        if (triageRequestId.current !== currentTriageId) return
+        setAiTriageRunning(false)
+        if (!triage) return
+        setAiTriageResult(triage)
+        setTriageSeverity(triage.severity || 'Medium')
+
+        let populated = false
+        setCategory((prevCat) => {
+          if (!prevCat && triage.category) {
+            populated = true
+            return triage.category
+          }
+          return prevCat
+        })
+        setTitle((prevTitle) => {
+          if (!prevTitle?.trim() && triage.suggestedTitle) {
+            populated = true
+            return triage.suggestedTitle
+          }
+          return prevTitle
+        })
+        setDescription((prevDesc) => {
+          if (!prevDesc?.trim() && triage.suggestedDescription) {
+            populated = true
+            return triage.suggestedDescription
+          }
+          return prevDesc
+        })
+        if (populated) {
+          setAiAutoPopulated(true)
+        }
+      })
+      .catch((err) => {
+        console.error('AI triage failed:', err)
+        if (triageRequestId.current === currentTriageId) {
+          setAiTriageRunning(false)
+        }
+      })
+
     // Kick off OCR immediately so a suggestion is ready after upload.
     await runOCRExtraction(file)
   }
@@ -289,7 +346,45 @@ export function ReportPage() {
     if (photoPreview) URL.revokeObjectURL(photoPreview)
     setPhotoFile(null)
     setPhotoPreview(null)
+    setAiTriageResult(null)
+    setAiTriageRunning(false)
+    setTriageSeverity(null)
+    setAiAutoPopulated(false)
+    triageRequestId.current++
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleAcceptAllTriage = () => {
+    if (!aiTriageResult) return
+    if (aiTriageResult.category) setCategory(aiTriageResult.category)
+    if (aiTriageResult.suggestedTitle) setTitle(aiTriageResult.suggestedTitle)
+    if (aiTriageResult.suggestedDescription) setDescription(aiTriageResult.suggestedDescription)
+    if (aiTriageResult.severity) setTriageSeverity(aiTriageResult.severity)
+    setAiAutoPopulated(true)
+    toast.success('AI recommendations applied')
+  }
+
+  const handleApplyTriageCategory = () => {
+    if (!aiTriageResult?.category) return
+    setCategory(aiTriageResult.category)
+    toast.success(`Category updated to ${aiTriageResult.category}`)
+  }
+
+  const handleApplyTriageTitle = () => {
+    if (!aiTriageResult?.suggestedTitle) return
+    setTitle(aiTriageResult.suggestedTitle)
+    toast.success('Title updated')
+  }
+
+  const handleApplyTriageDescription = () => {
+    if (!aiTriageResult?.suggestedDescription) return
+    setDescription(aiTriageResult.suggestedDescription)
+    toast.success('Description updated')
+  }
+
+  const handleDismissTriage = () => {
+    setAiTriageResult(null)
+    setAiAutoPopulated(false)
   }
 
   const extractOCRSuggestion = () => {
@@ -436,6 +531,17 @@ export function ReportPage() {
           audioBlob: voiceNote?.blob || null,
           audioDuration: voiceNote?.durationSeconds || null,
           audioMimeType: voiceNote?.contentType || null,
+          severity: triageSeverity || 'Medium',
+          priority: triageSeverity || 'Medium',
+          aiTriage: aiTriageResult ? {
+            category: aiTriageResult.category,
+            department: aiTriageResult.department,
+            confidence: aiTriageResult.confidence,
+            severity: aiTriageResult.severity,
+            source: aiTriageResult.source,
+            suggestedTitle: aiTriageResult.suggestedTitle,
+            suggestedDescription: aiTriageResult.suggestedDescription,
+          } : null,
           wardId: resolvedJurisdiction?.wardId || null,
           ward: resolvedJurisdiction?.wardId || null,
           wardName: resolvedJurisdiction?.wardName || null,
@@ -524,7 +630,18 @@ export function ReportPage() {
             latitude: latitude ? parseFloat(latitude) : null,
             longitude: longitude ? parseFloat(longitude) : null,
             status: 'Pending',
-            department: '',
+            department: aiTriageResult?.department || '',
+            severity: triageSeverity || 'Medium',
+            priority: triageSeverity || 'Medium',
+            aiTriage: aiTriageResult ? {
+              category: aiTriageResult.category,
+              department: aiTriageResult.department,
+              confidence: aiTriageResult.confidence,
+              severity: aiTriageResult.severity,
+              source: aiTriageResult.source,
+              suggestedTitle: aiTriageResult.suggestedTitle,
+              suggestedDescription: aiTriageResult.suggestedDescription,
+            } : null,
             reportedBy: user.uid,
             imageUrl,
             photos,
@@ -819,6 +936,22 @@ export function ReportPage() {
                     No readable text found in this photo. You can still fill in
                     the details manually.
                   </p>
+                )}
+
+                {(photoFile || aiTriageRunning || aiTriageResult) && (
+                  <div className="mt-3">
+                    <AITriageCard
+                      triageResult={aiTriageResult}
+                      analyzing={aiTriageRunning}
+                      autoPopulated={aiAutoPopulated}
+                      onAccept={handleAcceptAllTriage}
+                      onApplyCategory={handleApplyTriageCategory}
+                      onApplyTitle={handleApplyTriageTitle}
+                      onApplyDescription={handleApplyTriageDescription}
+                      onDismiss={handleDismissTriage}
+                      disabled={submitting}
+                    />
+                  </div>
                 )}
               </div>
 
