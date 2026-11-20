@@ -231,13 +231,16 @@ export function AdminReportsPage() {
     return cache
   }
 
-  const serverFilters = {
-    status: statusFilter,
-    department: departmentFilter,
-    category: categoryFilter,
-    dateFrom,
-    dateTo,
-  }
+  const serverFilters = useMemo(
+    () => ({
+      status: statusFilter,
+      department: departmentFilter,
+      category: categoryFilter,
+      dateFrom,
+      dateTo,
+    }),
+    [statusFilter, departmentFilter, categoryFilter, dateFrom, dateTo]
+  )
 
   const resetPagination = () => {
     pageCursorsRef.current = [null]
@@ -283,7 +286,7 @@ export function AdminReportsPage() {
     return () => {
       cancelled = true
     }
-  }, [statusFilter, departmentFilter, categoryFilter, dateFrom, dateTo, reloadKey, debouncedSearch])
+  }, [serverFilters, reloadKey, debouncedSearch])
 
   useEffect(() => {
     if (debouncedSearch) return undefined
