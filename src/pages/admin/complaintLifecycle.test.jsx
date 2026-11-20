@@ -57,19 +57,34 @@ vi.mock('firebase/firestore', () => ({
   getDoc: async () => ({ exists: () => false }),
   serverTimestamp: () => 'server-time',
 }))
-vi.mock('@/contexts/LanguageContext', () => ({
-  useLanguage: () => ({
-    language: 'en',
-    setLanguage: vi.fn(),
-    t: (key) => {
-      const translations = {
-        // Add the English translation values used by these components.
-      }
-
-      return translations[key] ?? key
-    },
-  }),
-}))
+vi.mock('@/contexts/LanguageContext', () => {
+  const translations = {
+    markStatus: 'Mark {status}',
+    statusResolved: 'Resolved',
+    statusInProgress: 'In Progress',
+    statusPending: 'Pending',
+    statusRejected: 'Rejected',
+    statusReopened: 'Reopened',
+    reject: 'Reject',
+    rejectComplaint: 'Reject Complaint',
+    rejectionReason: 'Rejection reason',
+    cancel: 'Cancel',
+    rejecting: 'Rejecting...',
+    adminDepartmentAssignFailed: 'Failed to assign department',
+    adminDepartmentAssigned: 'Department assigned: {department}',
+    adminComplaintRejected: 'Complaint rejected',
+    adminComplaintCannotBeRejected: 'This complaint can no longer be rejected',
+    adminEnterRejectionReason: 'Please enter a rejection reason',
+    adminRejectFailed: 'Failed to reject complaint',
+  }
+  return {
+    useLanguage: () => ({
+      language: 'en',
+      setLanguage: vi.fn(),
+      t: (key) => translations[key] ?? key,
+    }),
+  }
+})
 function mount(Page) {
   const instance = { cursor: 0, values: [], effects: [], mounted: false }
   instance.render = () => { instance.cursor = 0; runtime.current = instance; return Page() }

@@ -137,7 +137,7 @@ describe('Footer Component', () => {
   describe('Municipal Information & Zonal Hours', () => {
     it('renders office hours with sample reference identification when supported by data', () => {
       renderFooter({ officeHours: DEFAULT_OFFICE_HOURS })
-      expect(container.textContent).toContain('Office Hours (Sample / Reference)')
+      expect(container.textContent).toContain('Sample Office Hours (Reference)')
       expect(container.textContent).toContain('09:30 AM – 05:30 PM (Mon – Fri)')
       expect(container.textContent).toContain('09:30 AM – 01:30 PM (1st & 3rd Sat)')
       expect(container.textContent).toContain('Closed for In-Person Counters')

@@ -41,7 +41,7 @@ service firebase.storage {
 
       allow create: if isAuthenticated()
         && request.resource.size > 0
-        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.size <= 10 * 1024 * 1024
         && request.resource.contentType.matches(
           'audio/(webm|ogg|mp4|wav|x-wav|mpeg|aac)'
         );
@@ -97,12 +97,13 @@ service firebase.storage {
       allow create: if isAuthenticated()
         && request.auth.uid == userId
         && request.resource.size > 0
-        && request.resource.size <= 5 * 1024 * 1024
         && (
-          request.resource.contentType.matches('image/(jpeg|jpg|png)') ||
-          request.resource.contentType.matches(
-            'audio/(webm|ogg|mp4|wav|x-wav|mpeg|aac)'
-          )
+          (request.resource.size <= 5 * 1024 * 1024 &&
+           request.resource.contentType.matches('image/(jpeg|jpg|png)')) ||
+          (request.resource.size <= 10 * 1024 * 1024 &&
+           request.resource.contentType.matches(
+             'audio/(webm|ogg|mp4|wav|x-wav|mpeg|aac)'
+           ))
         );
 
       allow update: if false;
