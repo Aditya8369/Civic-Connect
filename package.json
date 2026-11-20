@@ -12,6 +12,8 @@
     "functions:build": "npm --prefix functions run build",
     "functions:lint": "oxlint functions/src functions/index.js",
     "functions:test": "npm --prefix functions test",
+    "test:security": "node scripts/run-emulator-tests.mjs",
+    "test:storage-rules": "node scripts/run-emulator-tests.mjs --storage-only",
     "test:rules": "npx --yes firebase-tools@15.36.0 emulators:exec --only firestore --project demo-civic-connect \"vitest run --config vitest.rules.config.js\"",
     "deploy:rules": "npx --yes firebase-tools@15.36.0 deploy --only firestore:rules",
     "report:bundle-size": "node scripts/report-bundle-size.mjs",
