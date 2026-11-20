@@ -33,6 +33,14 @@ export function AuthPage() {
   const [retrySeconds, setRetrySeconds] = useState(0)
 
   useEffect(() => {
+    if (mode !== 'signin') {
+      const reset = resetLoginProtection()
+      setFailedAttempts(reset.failedAttempts)
+      setRetrySeconds(0)
+    }
+  }, [mode])
+
+  useEffect(() => {
     if (retrySeconds <= 0) return undefined
     const timer = window.setTimeout(() => {
       setRetrySeconds((remaining) => Math.max(0, remaining - 1))
@@ -98,6 +106,9 @@ export function AuthPage() {
     try {
       if (mode === 'signin') {
         const user = await login(email, password)
+        const reset = resetLoginProtection()
+        setFailedAttempts(reset.failedAttempts)
+        setRetrySeconds(0)
 
         if (role === 'citizen' && user.role !== 'citizen') {
           toast.error(t('authNotCitizen'))
@@ -118,6 +129,15 @@ export function AuthPage() {
       }
     } catch (err) {
       if (err.code === 'auth/session-changed') return
+
+      if (
+        mode === 'signin' &&
+        ['auth/user-not-found', 'auth/invalid-credential', 'auth/wrong-password'].includes(err.code)
+      ) {
+        const next = recordLoginFailure({ failedAttempts })
+        setFailedAttempts(next.failedAttempts)
+        setRetrySeconds(Math.ceil(next.retryDelayMs / 1_000))
+      }
 
       const msg =
         err.code === 'auth/user-not-found' ||
@@ -381,17 +401,19 @@ export function AuthPage() {
               <Button
                 type="submit"
                 className="w-full gap-2 h-11"
-                disabled={submitting}
+                disabled={submitting || (mode === 'signin' && retrySeconds > 0)}
               >
                 {submitting && (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 )}
 
-                {mode === 'signin'
-                  ? t('authSignIn')
-                  : mode === 'signup'
-                    ? t('authCreateAccount')
-                    : t('authSendResetLink')}
+                {mode === 'signin' && retrySeconds > 0
+                  ? t('pleaseWaitSeconds').replace('{seconds}', retrySeconds)
+                  : mode === 'signin'
+                    ? t('authSignIn')
+                    : mode === 'signup'
+                      ? t('authCreateAccount')
+                      : t('authSendResetLink')}
               </Button>
 
               {mode === 'reset' && (
