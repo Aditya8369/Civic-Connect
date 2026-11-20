@@ -397,8 +397,9 @@ export function ReportPage() {
     const cleanTitle = sanitizeText(title)
     const cleanDescription = sanitizeMarkdown(description)
     const cleanAddress = sanitizeText(address)
+    const cleanCategory = sanitizeText(category)
 
-    if (!category || !cleanTitle || !cleanDescription || !cleanAddress) {
+    if (!cleanCategory || !cleanTitle || !cleanDescription || !cleanAddress) {
       toast.error(t('fillRequiredFields'))
       return
     }
@@ -426,7 +427,7 @@ export function ReportPage() {
         await saveOfflineComplaint({
           title: cleanTitle,
           description: cleanDescription,
-          category,
+          category: cleanCategory,
           address: cleanAddress,
           latitude: latitude ? parseFloat(latitude) : null,
           longitude: longitude ? parseFloat(longitude) : null,
@@ -518,7 +519,7 @@ export function ReportPage() {
             complaintId,
             title: cleanTitle,
             description: cleanDescription,
-            category,
+            category: cleanCategory,
             address: cleanAddress,
             latitude: latitude ? parseFloat(latitude) : null,
             longitude: longitude ? parseFloat(longitude) : null,
