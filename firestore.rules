@@ -423,6 +423,75 @@ service cloud.firestore {
                       isAuthorizedEventCreator();
         allow update, delete: if false;
       }
+
+      // Resolution Chat Messages sub-collection (/issues/{issueId}/messages/{messageId})
+      match /messages/{messageId} {
+        function parentIssue() {
+          return get(/databases/$(database)/documents/issues/$(issueId)).data;
+        }
+
+        function isChatParticipant() {
+          return isAuthenticated() && (
+            isAdmin() ||
+            (exists(/databases/$(database)/documents/issues/$(issueId)) && (
+              parentIssue().get('reportedBy', null) == request.auth.uid ||
+              parentIssue().get('assignedOfficerId', null) == request.auth.uid ||
+              parentIssue().get('assignedWorker', {}).get('officerId', null) == request.auth.uid
+            ))
+          );
+        }
+
+        function isValidMessageCreate() {
+          let data = request.resource.data;
+          let allowedRoles = ['citizen', 'officer', 'admin'];
+          let allowedQuickActions = [
+            'landmark_request', 'worker_onsite', 'photo_request',
+            'repair_scheduled', 'inspection_dispatched', 'landmark_clarified',
+            'issue_worsened', 'worker_spotted', 'access_available'
+          ];
+          let isAssignedOfficer = exists(/databases/$(database)/documents/issues/$(issueId)) && (
+            parentIssue().get('assignedOfficerId', null) == request.auth.uid ||
+            parentIssue().get('assignedWorker', {}).get('officerId', null) == request.auth.uid
+          );
+          let isReporter = exists(/databases/$(database)/documents/issues/$(issueId)) && (
+            parentIssue().get('reportedBy', null) == request.auth.uid
+          );
+          return data.keys().hasOnly(['senderId', 'senderRole', 'senderName', 'content', 'quickActionType', 'readBy', 'createdAt']) &&
+                 data.keys().hasAll(['senderId', 'senderRole', 'senderName', 'content', 'readBy', 'createdAt']) &&
+                 data.senderId == request.auth.uid &&
+                 data.senderRole in allowedRoles &&
+                 // Enforce senderRole consistency:
+                 // 1. Only admins can use role: 'admin'
+                 // 2. Only assigned officers or admins can use role: 'officer'
+                 // 3. Only the complaint reporter (or admin) can use role: 'citizen'
+                 (data.senderRole != 'admin' || isAdmin()) &&
+                 (data.senderRole != 'officer' || isAssignedOfficer || isAdmin()) &&
+                 (data.senderRole != 'citizen' || isReporter || isAdmin()) &&
+                 isNonEmptyString(data.senderName, 100) &&
+                 isNonEmptyString(data.content, 5000) &&
+                 (data.get('quickActionType', null) == null || data.quickActionType in allowedQuickActions) &&
+                 data.readBy is list &&
+                 data.readBy.hasOnly([request.auth.uid]) &&
+                 data.readBy.size() == 1 &&
+                 data.createdAt == request.time;
+        }
+
+        function isValidReadReceiptUpdate() {
+          let diff = request.resource.data.diff(resource.data);
+          let prevReadBy = resource.data.get('readBy', []);
+          let nextReadBy = request.resource.data.get('readBy', []);
+          return diff.affectedKeys().hasOnly(['readBy']) &&
+                 prevReadBy is list && nextReadBy is list &&
+                 // The authenticated user may only add themselves to the readBy array
+                 !(request.auth.uid in prevReadBy) &&
+                 nextReadBy == prevReadBy.concat([request.auth.uid]);
+        }
+
+        allow read: if isChatParticipant();
+        allow create: if isChatParticipant() && isValidMessageCreate();
+        allow update: if isChatParticipant() && isValidReadReceiptUpdate();
+        allow delete: if false;
+      }
     }
 
     // Platform configuration
