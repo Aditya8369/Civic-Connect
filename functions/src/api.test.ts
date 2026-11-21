@@ -70,7 +70,8 @@ describe('serverless API', () => {
     verifyIdToken.mockResolvedValue({ uid: 'user-1' })
     firestoreGet.mockRejectedValue(new Error('private database details'))
     const response = await request(app).get('/api/v1/system/status').set('authorization', 'Bearer valid-token').expect(500)
-    expect(response.body).toEqual({ success: false, error: { code: 'internal_error', message: 'An unexpected error occurred.' } })
+    expect(response.body).toMatchObject({ success: false, error: { code: 'internal_error', message: 'An unexpected error occurred.' } })
+    expect(response.body.error.requestId).toBeDefined()
     expect(response.text).not.toContain('private database details')
   })
 
@@ -120,5 +121,149 @@ describe('serverless API', () => {
     protectedApp.get('/admin', requireAuth(['admin']), (req, res) => res.json({ success: true, uid: req.user?.uid }))
     const response = await request(protectedApp).get('/admin').set('authorization', 'Bearer valid-token').expect(200)
     expect(response.body).toEqual({ success: true, uid: 'admin-1' })
+  })
+
+  describe('request correlation IDs (Issue #285)', () => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+    it('generates a non-empty, valid UUID in the X-Request-ID response header (Test 1)', async () => {
+      const response = await request(app).get('/health').expect(200)
+      const requestId = response.header['x-request-id']
+
+      expect(requestId).toBeDefined()
+      expect(typeof requestId).toBe('string')
+      expect(requestId.length).toBeGreaterThan(0)
+      expect(requestId).toMatch(uuidRegex)
+    })
+
+    it('generates unique identifiers across independent requests (Test 2)', async () => {
+      const res1 = await request(app).get('/health').expect(200)
+      const res2 = await request(app).get('/health').expect(200)
+
+      const id1 = res1.header['x-request-id']
+      const id2 = res2.header['x-request-id']
+
+      expect(id1).toMatch(uuidRegex)
+      expect(id2).toMatch(uuidRegex)
+      expect(id1).not.toBe(id2)
+    })
+
+    it('records consistent request ID in structured access logs with method, path, status, and duration (Test 3)', async () => {
+      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+
+      const response = await request(app).get('/health').expect(200)
+      const headerId = response.header['x-request-id']
+
+      expect(consoleSpy).toHaveBeenCalled()
+      const logCall = consoleSpy.mock.calls.find(call => {
+        try {
+          const parsed = JSON.parse(call[0])
+          return parsed.path === '/health' && parsed.requestId === headerId
+        } catch {
+          return false
+        }
+      })
+
+      expect(logCall).toBeDefined()
+      const parsedLog = JSON.parse(logCall![0])
+      expect(parsedLog).toMatchObject({
+        requestId: headerId,
+        method: 'GET',
+        path: '/health',
+        status: 200,
+      })
+      expect(typeof parsedLog.durationMs).toBe('number')
+      expect(parsedLog.durationMs).toBeGreaterThanOrEqual(0)
+
+      consoleSpy.mockRestore()
+    })
+
+    it('includes request ID in HTTP 500 error responses and matches X-Request-ID (Test 4)', async () => {
+      verifyIdToken.mockResolvedValue({ uid: 'user-1' })
+      firestoreGet.mockRejectedValue(new Error('controlled internal failure'))
+
+      const response = await request(app)
+        .get('/api/v1/system/status')
+        .set('authorization', 'Bearer valid-token')
+        .expect(500)
+
+      const headerId = response.header['x-request-id']
+      expect(headerId).toMatch(uuidRegex)
+
+      expect(response.body).toEqual({
+        success: false,
+        error: {
+          code: 'internal_error',
+          message: 'An unexpected error occurred.',
+          requestId: headerId,
+        },
+      })
+    })
+
+    it('protects sensitive exception messages and stack traces from exposure in 500 responses (Test 5)', async () => {
+      verifyIdToken.mockResolvedValue({ uid: 'user-1' })
+      const sensitiveLeak = 'DB_PASSWORD_SUPER_SECRET_KEY at Database.connect(/etc/secrets/db.key:42)'
+      firestoreGet.mockRejectedValue(new Error(sensitiveLeak))
+
+      const response = await request(app)
+        .get('/api/v1/system/status')
+        .set('authorization', 'Bearer valid-token')
+        .expect(500)
+
+      expect(response.text).not.toContain(sensitiveLeak)
+      expect(response.text).not.toContain('stack')
+      expect(response.text).not.toContain('Database.connect')
+      expect(response.body).toEqual({
+        success: false,
+        error: {
+          code: 'internal_error',
+          message: 'An unexpected error occurred.',
+          requestId: response.header['x-request-id'],
+        },
+      })
+    })
+
+    it('protects against client-supplied X-Request-ID and enforces server-generated ID (Test 6)', async () => {
+      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const attackerId = 'attacker-injected-id-12345<script>alert(1)</script>'
+
+      // Test on 200 success
+      const successRes = await request(app)
+        .get('/health')
+        .set('x-request-id', attackerId)
+        .expect(200)
+
+      const serverSuccessId = successRes.header['x-request-id']
+      expect(serverSuccessId).not.toBe(attackerId)
+      expect(serverSuccessId).toMatch(uuidRegex)
+
+      const successLog = consoleSpy.mock.calls.find(call => {
+        try {
+          return JSON.parse(call[0]).requestId === serverSuccessId
+        } catch {
+          return false
+        }
+      })
+      expect(successLog).toBeDefined()
+      expect(JSON.parse(successLog![0]).requestId).not.toBe(attackerId)
+
+      // Test on 500 error
+      verifyIdToken.mockResolvedValue({ uid: 'user-1' })
+      firestoreGet.mockRejectedValue(new Error('test failure'))
+
+      const errorRes = await request(app)
+        .get('/api/v1/system/status')
+        .set('authorization', 'Bearer valid-token')
+        .set('x-request-id', attackerId)
+        .expect(500)
+
+      const serverErrorId = errorRes.header['x-request-id']
+      expect(serverErrorId).not.toBe(attackerId)
+      expect(serverErrorId).toMatch(uuidRegex)
+      expect(errorRes.body.error.requestId).toBe(serverErrorId)
+      expect(errorRes.body.error.requestId).not.toBe(attackerId)
+
+      consoleSpy.mockRestore()
+    })
   })
 })
