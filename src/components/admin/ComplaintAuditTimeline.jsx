@@ -12,6 +12,9 @@ import {
   Building2,
   HardHat,
   CheckCircle2,
+  Trash2,
+  Lock,
+  Unlock,
 } from 'lucide-react'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '@/firebase/services'
@@ -27,6 +30,9 @@ const ACTION_ICONS = {
   'Field worker designated': HardHat,
   'Complaint merged': GitMerge,
   'Duplicate complaint consolidated': GitMerge,
+  'Evidence retention erasure': Trash2,
+  'Retention hold applied': Lock,
+  'Retention hold released': Unlock,
 }
 
 export function ComplaintAuditTimeline({

@@ -61,6 +61,7 @@ import {
 import toast from 'react-hot-toast'
 import ComplaintAudioPlayer from '@/components/citizen/ComplaintAudioPlayer'
 import ResolutionProofSlider, { getResolutionPhoto } from '@/components/citizen/ResolutionProofSlider'
+import EvidenceTombstone from '@/components/common/EvidenceTombstone'
 import { SafeMarkdown } from '@/components/common/SafeMarkdown'
 import { sanitizeMarkdown } from '@/utils/sanitize'
 
@@ -624,7 +625,17 @@ export function ComplaintDetailsPage() {
     mergedUids.includes(user?.uid)
   )
   const canReopen = isOwner && canReopenComplaint(complaint)
-  const initialPhoto = complaint.imageUrl || complaint.photos?.[0]
+  const isEvidenceErased =
+    complaint.evidenceErased === true ||
+    complaint.photos?.[0]?.tombstone === true ||
+    complaint.imageTombstone?.tombstone === true
+  const rawInitialPhoto = complaint.imageUrl || complaint.photos?.[0]
+  const initialPhoto =
+    rawInitialPhoto && typeof rawInitialPhoto === 'object' && rawInitialPhoto.tombstone
+      ? null
+      : typeof rawInitialPhoto === 'string'
+      ? rawInitialPhoto
+      : rawInitialPhoto?.downloadUrl || rawInitialPhoto?.url || null
   const resolutionPhoto = getResolutionPhoto(complaint)
 
   const timelineEvents = events.map((evt) => ({
@@ -1058,7 +1069,14 @@ export function ComplaintDetailsPage() {
                     <SafeMarkdown content={complaint.description} as="div" className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed" />
                   </div>
 
-                  {(initialPhoto || resolutionPhoto) && (
+                  {isEvidenceErased ? (
+                    <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
+                      <EvidenceTombstone
+                        erasedAt={complaint.evidenceErasedAt}
+                        policyVersion={complaint.retentionPolicyVersion}
+                      />
+                    </div>
+                  ) : (initialPhoto || resolutionPhoto) ? (
                     <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
                       <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-1.5">
                         <Camera className="h-4 w-4 text-primary-600 dark:text-primary-400" />
@@ -1081,7 +1099,7 @@ export function ComplaintDetailsPage() {
                         </button>
                       </div>
                     </div>
-                  )}
+                  ) : null}
 
                   {complaint.status === 'Rejected' && complaint.rejectionReason && (
                     <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm dark:bg-red-900/20">

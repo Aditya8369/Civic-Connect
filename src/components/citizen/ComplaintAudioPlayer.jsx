@@ -206,6 +206,20 @@ export default function ComplaintAudioPlayer({ audioNote }) {
     }
   }
 
+  if (audioNote?.tombstone) {
+    return (
+      <div
+        data-testid="audio-tombstone"
+        className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800"
+      >
+        <div className="flex items-center gap-2 p-3 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/40 text-xs text-gray-500 dark:text-gray-400">
+          <Headphones className="h-4 w-4 text-gray-400 shrink-0" />
+          <span>Audio note erased under municipal data retention policy</span>
+        </div>
+      </div>
+    )
+  }
+
   if (!audioNote?.url) return null
 
   const progress = duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0

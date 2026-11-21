@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 export function getResolutionPhoto(complaint) {
-  if (complaint?.resolutionProof?.downloadUrl) {
+  if (complaint?.resolutionProof?.downloadUrl && !complaint?.resolutionProof?.tombstone) {
     return complaint.resolutionProof.downloadUrl
   }
 
@@ -10,7 +10,12 @@ export function getResolutionPhoto(complaint) {
     complaint?.resolutionEvidence ||
     (complaint?.resolutionPhotoUrl ? [complaint.resolutionPhotoUrl] : [])
 
-  if (Array.isArray(photos)) return photos[0] || null
+  if (Array.isArray(photos)) {
+    const first = photos[0]
+    if (!first || first?.tombstone) return null
+    if (typeof first === 'string') return first
+    return first.downloadUrl || first.url || null
+  }
   return typeof photos === 'string' ? photos : null
 }
 
