@@ -371,7 +371,9 @@ service cloud.firestore {
             'Resolution accepted',
             'Resolution disputed',
             'Resolution auto-verified',
-            'Dispute reviewed'
+            'Dispute reviewed',
+            'SLA paused',
+            'SLA resumed'
           ];
           return data.keys().hasOnly(['timestamp', 'actorUid', 'action', 'previousStatus', 'newStatus', 'remarks']) &&
                  data.keys().hasAll(['timestamp', 'action', 'actorUid']) &&

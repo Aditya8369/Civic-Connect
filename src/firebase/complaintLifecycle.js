@@ -3,6 +3,13 @@ import { db } from './services'
 import { addNotificationToBatch } from './notifications'
 import { buildComplaintEvent } from './complaintEvents'
 import { evaluateCandidateOfficer, DEFAULT_MAX_CAPACITY } from './officerDispatch'
+import {
+  DEFAULT_SLA_POLICY,
+  DEFAULT_SLA_POLICY_VERSION,
+  getSlaPolicy,
+  calculateBusinessDeadline,
+  calculateEffectiveDeadlineWithPauses,
+} from '../utils/businessCalendarSla'
 
 const ACTIVE_STATUSES = Object.freeze(['Pending', 'In Progress', 'Reopened'])
 const TERMINAL_STATUSES = Object.freeze(['Resolved', 'Rejected', 'Merged - Duplicate'])
@@ -729,6 +736,287 @@ export async function autoVerifyExpiredComplaint(
     return {
       autoVerified: true,
       status: 'Resolved',
+    }
+  })
+}
+
+/**
+ * Pauses a complaint's SLA countdown with an audited transition (Issue #282).
+ */
+export async function pauseComplaintSla(
+  complaintId,
+  { reason, remarks, maxDurationHours } = {},
+  adminUser,
+  options = {}
+) {
+  if (!complaintId || typeof complaintId !== 'string') {
+    throw new Error('Valid complaint ID is required')
+  }
+  if (!adminUser?.uid) {
+    throw new Error('Authentication required to pause SLA clock')
+  }
+  if (adminUser.role !== 'admin') {
+    throw new Error('Only authorized municipal administrators may pause the SLA clock')
+  }
+  const cleanReason = typeof reason === 'string' && reason.trim() ? reason.trim() : 'Administrative review'
+  const cleanRemarks = typeof remarks === 'string' ? remarks.trim() : ''
+
+  const firestoreDb = options.customDb || db
+  const complaintRef = doc(firestoreDb, 'issues', complaintId)
+
+  return runTransaction(firestoreDb, async (transaction) => {
+    const snap = await transaction.get(complaintRef)
+    if (!snap.exists()) {
+      throw new Error('Complaint document does not exist')
+    }
+    const complaint = snap.data()
+
+    const eligibleStatuses = ['Pending', 'In Progress', 'Reopened', 'Pending Verification', 'Disputed']
+    if (!eligibleStatuses.includes(complaint.status)) {
+      throw new Error(`Complaint in status "${complaint.status}" cannot have its SLA clock paused`)
+    }
+
+    if (complaint.slaPause?.isPaused === true) {
+      throw new Error('SLA clock is already paused for this complaint')
+    }
+
+    const now = serverTimestamp()
+    const policyVersion = complaint.slaPolicyVersion || DEFAULT_SLA_POLICY_VERSION
+    const policy = getSlaPolicy(policyVersion)
+    const effectiveMaxDuration =
+      typeof maxDurationHours === 'number' && maxDurationHours > 0
+        ? maxDurationHours
+        : policy.maxPauseDurationHours || 72
+
+    const pauseRecord = {
+      isPaused: true,
+      pausedAt: now,
+      pausedBy: adminUser.uid,
+      reason: cleanReason,
+      remarks: cleanRemarks,
+      maxDurationHours: effectiveMaxDuration,
+    }
+
+    transaction.update(complaintRef, {
+      slaPause: pauseRecord,
+      updatedAt: now,
+    })
+
+    const eventRef = doc(collection(firestoreDb, `issues/${complaintId}/events`))
+    transaction.set(
+      eventRef,
+      buildComplaintEvent({
+        actorUid: adminUser.uid,
+        action: 'SLA paused',
+        previousStatus: complaint.status,
+        newStatus: complaint.status,
+        remarks: `${cleanReason}${cleanRemarks ? `: ${cleanRemarks}` : ''}`,
+      })
+    )
+
+    if (complaint.reportedBy) {
+      addNotificationToBatch(transaction, {
+        recipientUid: complaint.reportedBy,
+        recipientRole: 'citizen',
+        senderUid: adminUser.uid,
+        issueId: complaint.complaintId || complaintId,
+        type: 'status_update',
+        title: 'Complaint SLA Clock Paused',
+        message: `SLA resolution countdown has been paused: ${cleanReason}.`,
+        read: false,
+        createdAt: now,
+      })
+    }
+
+    return {
+      success: true,
+      complaintId,
+      slaPause: pauseRecord,
+    }
+  })
+}
+
+/**
+ * Resumes a paused complaint's SLA countdown and advances effective deadline (Issue #282).
+ */
+export async function resumeComplaintSla(
+  complaintId,
+  { remarks } = {},
+  adminUser,
+  options = {}
+) {
+  if (!complaintId || typeof complaintId !== 'string') {
+    throw new Error('Valid complaint ID is required')
+  }
+  if (!adminUser?.uid) {
+    throw new Error('Authentication required to resume SLA clock')
+  }
+  if (adminUser.role !== 'admin') {
+    throw new Error('Only authorized municipal administrators may resume the SLA clock')
+  }
+
+  const firestoreDb = options.customDb || db
+  const complaintRef = doc(firestoreDb, 'issues', complaintId)
+
+  return runTransaction(firestoreDb, async (transaction) => {
+    const snap = await transaction.get(complaintRef)
+    if (!snap.exists()) {
+      throw new Error('Complaint document does not exist')
+    }
+    const complaint = snap.data()
+
+    if (!complaint.slaPause || complaint.slaPause.isPaused !== true) {
+      throw new Error('SLA clock is not currently paused for this complaint')
+    }
+
+    const now = serverTimestamp()
+    const nowMs = Date.now()
+    const pausedAtMs =
+      (complaint.slaPause.pausedAt?.toMillis?.() ??
+        (typeof complaint.slaPause.pausedAt === 'number'
+          ? complaint.slaPause.pausedAt
+          : new Date(complaint.slaPause.pausedAt).getTime())) || nowMs
+
+    const policyVersion = complaint.slaPolicyVersion || DEFAULT_SLA_POLICY_VERSION
+    const policy = getSlaPolicy(policyVersion)
+    const maxPauseMs =
+      (complaint.slaPause.maxDurationHours || policy.maxPauseDurationHours || 72) * 3600000
+
+    const rawDurationMs = Math.max(0, nowMs - pausedAtMs)
+    const appliedDurationMs = Math.min(rawDurationMs, maxPauseMs)
+
+    const closedPause = {
+      pausedAt: complaint.slaPause.pausedAt,
+      resumedAt: now,
+      pausedBy: complaint.slaPause.pausedBy || adminUser.uid,
+      resumedBy: adminUser.uid,
+      reason: complaint.slaPause.reason || 'Administrative pause',
+      remarks: typeof remarks === 'string' ? remarks.trim() : complaint.slaPause.remarks || '',
+      rawDurationMs,
+      appliedDurationMs,
+    }
+
+    const history = Array.isArray(complaint.slaPauseHistory) ? [...complaint.slaPauseHistory] : []
+    history.push(closedPause)
+
+    // Recompute effective deadline using business calendar
+    const createdMs =
+      (complaint.createdAt?.toMillis?.() ??
+        (typeof complaint.createdAt === 'number'
+          ? complaint.createdAt
+          : new Date(complaint.createdAt).getTime())) || nowMs
+    const targetHours =
+      policy.departmentTargets?.[complaint.department] ||
+      policy.departmentTargets?.[complaint.category] ||
+      DEFAULT_SLA_POLICY.departmentTargets.Roads
+
+    const baseDeadline = calculateBusinessDeadline(
+      createdMs,
+      targetHours,
+      policy,
+      complaint.department || ''
+    )
+    const effectiveResult = calculateEffectiveDeadlineWithPauses({
+      baseDeadline,
+      pauses: history,
+      currentPause: null,
+      now: nowMs,
+      policy,
+      department: complaint.department || '',
+    })
+
+    const updates = {
+      slaPause: {
+        isPaused: false,
+        lastResumedAt: now,
+        lastResumedBy: adminUser.uid,
+      },
+      slaPauseHistory: history,
+      effectiveSlaDeadline: Timestamp.fromDate(effectiveResult.effectiveDeadline),
+      updatedAt: now,
+    }
+
+    transaction.update(complaintRef, updates)
+
+    const eventRef = doc(collection(firestoreDb, `issues/${complaintId}/events`))
+    transaction.set(
+      eventRef,
+      buildComplaintEvent({
+        actorUid: adminUser.uid,
+        action: 'SLA resumed',
+        previousStatus: complaint.status,
+        newStatus: complaint.status,
+        remarks:
+          remarks ||
+          `SLA clock resumed after ${Math.round((appliedDurationMs / 3600000) * 10) / 10}h pause.`,
+      })
+    )
+
+    if (complaint.reportedBy) {
+      addNotificationToBatch(transaction, {
+        recipientUid: complaint.reportedBy,
+        recipientRole: 'citizen',
+        senderUid: adminUser.uid,
+        issueId: complaint.complaintId || complaintId,
+        type: 'status_update',
+        title: 'Complaint SLA Clock Resumed',
+        message: 'Investigation has resumed and the SLA countdown is active.',
+        read: false,
+        createdAt: now,
+      })
+    }
+
+    return {
+      success: true,
+      complaintId,
+      effectiveDeadline: effectiveResult.effectiveDeadline,
+    }
+  })
+}
+
+/**
+ * Idempotently records an SLA escalation threshold breach per policy version (Issue #282).
+ */
+export async function recordSlaEscalation(
+  complaintId,
+  { thresholdKey, threshold, policyVersion } = {},
+  adminUser = { uid: 'system', role: 'admin' },
+  options = {}
+) {
+  if (!complaintId) throw new Error('complaintId is required')
+  if (!thresholdKey) throw new Error('thresholdKey is required')
+
+  const firestoreDb = options.customDb || db
+  const complaintRef = doc(firestoreDb, 'issues', complaintId)
+
+  return runTransaction(firestoreDb, async (transaction) => {
+    const snap = await transaction.get(complaintRef)
+    if (!snap.exists()) return { skipped: true, reason: 'not_found' }
+    const complaint = snap.data()
+
+    const existing = complaint.slaEscalations || {}
+    // Idempotent: create at most one escalation per threshold and policy version
+    if (existing[thresholdKey]?.policyVersion === policyVersion) {
+      return { skipped: true, reason: 'already_escalated' }
+    }
+
+    const now = serverTimestamp()
+    const escalationEntry = {
+      threshold,
+      policyVersion: policyVersion || DEFAULT_SLA_POLICY_VERSION,
+      escalatedAt: now,
+      recordedBy: adminUser?.uid || 'system',
+    }
+
+    transaction.update(complaintRef, {
+      [`slaEscalations.${thresholdKey}`]: escalationEntry,
+      updatedAt: now,
+    })
+
+    return {
+      success: true,
+      thresholdKey,
+      escalation: escalationEntry,
     }
   })
 }
