@@ -27,6 +27,8 @@ import {
   ShieldCheck,
   AlertTriangle,
   Upload,
+  Lock,
+  Unlock,
 } from 'lucide-react'
 import {
   doc,
@@ -57,6 +59,8 @@ import { assignComplaintDepartment } from '@/firebase/complaintDepartment'
 import { mergeComplaints } from '@/firebase/complaintMerge'
 import { loadResolutionTemplates } from '@/firebase/resolutionTemplates'
 import { fetchOfficerCandidates, rankCandidateOfficers } from '@/firebase/officerDispatch'
+import { applyRetentionHold, releaseRetentionHold } from '@/firebase/evidenceRetention'
+import EvidenceTombstone from '@/components/common/EvidenceTombstone'
 import { ComplaintAuditTimeline } from '@/components/admin/ComplaintAuditTimeline'
 import { ResolutionChatDrawer } from '@/components/chat/ResolutionChatDrawer'
 import { Button } from '@/components/ui/button'
@@ -241,6 +245,55 @@ export function AdminComplaintDetailsPage() {
   const [disputeReviewDialogOpen, setDisputeReviewDialogOpen] = useState(false)
   const [disputeDecision, setDisputeDecision] = useState('UPHOLD_DISPUTE') // 'UPHOLD_DISPUTE' | 'REJECT_DISPUTE'
   const [disputeAdminRemarks, setDisputeAdminRemarks] = useState('')
+
+  // Evidence Retention Hold States (#283)
+  const [holdModalOpen, setHoldModalOpen] = useState(false)
+  const [holdReason, setHoldReason] = useState('')
+  const [holdNotes, setHoldNotes] = useState('')
+
+  const handleApplyRetentionHold = async () => {
+    if (!holdReason.trim()) {
+      toast.error('Please specify a justification for the retention hold.')
+      return
+    }
+    setSaving(true)
+    try {
+      await applyRetentionHold(
+        id,
+        { reason: holdReason, notes: holdNotes },
+        user
+      )
+      toast.success('Evidence retention hold applied successfully')
+      setHoldModalOpen(false)
+      setHoldReason('')
+      setHoldNotes('')
+    } catch (err) {
+      console.error('Apply retention hold error:', err)
+      toast.error(err.message || 'Failed to apply retention hold')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleReleaseRetentionHold = async () => {
+    const reason = window.prompt('Please enter the reason for releasing this retention hold:')
+    if (!reason || !reason.trim()) return
+
+    setSaving(true)
+    try {
+      await releaseRetentionHold(
+        id,
+        { reason },
+        user
+      )
+      toast.success('Retention hold released successfully')
+    } catch (err) {
+      console.error('Release retention hold error:', err)
+      toast.error(err.message || 'Failed to release retention hold')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   // Intelligent Dispatch Assistant state
   const [officerCandidates, setOfficerCandidates] = useState([])
@@ -968,7 +1021,17 @@ export function AdminComplaintDetailsPage() {
     complaint.category,
     complaint.department
   )
-  const initialPhoto = complaint.imageUrl || complaint.photos?.[0]
+  const isEvidenceErased =
+    complaint.evidenceErased === true ||
+    complaint.photos?.[0]?.tombstone === true ||
+    complaint.imageTombstone?.tombstone === true
+  const rawInitialPhoto = complaint.imageUrl || complaint.photos?.[0]
+  const initialPhoto =
+    rawInitialPhoto && typeof rawInitialPhoto === 'object' && rawInitialPhoto.tombstone
+      ? null
+      : typeof rawInitialPhoto === 'string'
+      ? rawInitialPhoto
+      : rawInitialPhoto?.downloadUrl || rawInitialPhoto?.url || null
   const resolutionPhoto = getResolutionPhoto(complaint)
 
   const formatDate = (timestamp) =>
@@ -1125,6 +1188,22 @@ export function AdminComplaintDetailsPage() {
                     </Button>
                   )}
 
+                  {['Resolved', 'Rejected', 'Merged - Duplicate'].includes(complaint.status) &&
+                    !complaint.retentionHold?.active &&
+                    !complaint.evidenceErased && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-testid="apply-retention-hold-btn"
+                        onClick={() => setHoldModalOpen(true)}
+                        disabled={saving || merging}
+                        className="gap-1.5 border-amber-300 text-amber-800 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-300"
+                      >
+                        <Lock className="h-4 w-4" />
+                        Apply Retention Hold
+                      </Button>
+                    )}
+
                   {nextStatus[complaint.status] && (
                     <Button
                       onClick={handleStatusUpdate}
@@ -1201,6 +1280,47 @@ export function AdminComplaintDetailsPage() {
                   </p>
                 </div>
               </div>
+
+              {/* Active Retention Hold Banner (#283) */}
+              {complaint.retentionHold?.active === true && (
+                <div
+                  data-testid="retention-hold-banner"
+                  className="mt-6 rounded-xl border border-amber-300 bg-amber-50/80 p-4 dark:border-amber-700/60 dark:bg-amber-950/20"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-full bg-amber-100 p-1.5 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300">
+                        <Lock className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                            Active Evidence Retention Hold
+                          </h4>
+                          <Badge variant="warning" className="text-[10px] uppercase font-bold tracking-wider">
+                            Ineligible for Erasure
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5">
+                          Reason: {complaint.retentionHold.reason}{' '}
+                          {complaint.retentionHold.holdId ? `(${complaint.retentionHold.holdId})` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-testid="release-retention-hold-btn"
+                      onClick={handleReleaseRetentionHold}
+                      disabled={saving}
+                      className="gap-1.5 border-amber-300 text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200"
+                    >
+                      <Unlock className="h-4 w-4" />
+                      Release Hold
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {/* Issue #253: 3-Way Evidence Comparison & Dispute Review Banner */}
               {complaint.status === 'Disputed' && (
@@ -1325,7 +1445,14 @@ export function AdminComplaintDetailsPage() {
                 </p>
               </div>
 
-              {(initialPhoto || resolutionPhoto) && (
+              {isEvidenceErased ? (
+                <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
+                  <EvidenceTombstone
+                    erasedAt={complaint.evidenceErasedAt}
+                    policyVersion={complaint.retentionPolicyVersion}
+                  />
+                </div>
+              ) : (initialPhoto || resolutionPhoto) ? (
                 <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
                   <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-900 dark:text-white">
                     <Camera className="h-4 w-4 text-primary-600 dark:text-primary-400" />
@@ -1351,7 +1478,7 @@ export function AdminComplaintDetailsPage() {
                     </button>
                   </div>
                 </div>
-              )}
+              ) : null}
 
               {complaint.status === 'Rejected' &&
                 complaint.rejectionReason && (
@@ -2396,6 +2523,65 @@ export function AdminComplaintDetailsPage() {
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
               Confirm Ruling
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Retention Hold Dialog (#283) */}
+      <Dialog open={holdModalOpen} onOpenChange={setHoldModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-amber-600" />
+              Apply Evidence Retention Hold
+            </DialogTitle>
+            <DialogDescription>
+              Applying a retention hold exempts this grievance's evidence from automated data retention cleanup schedules.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label htmlFor="hold-reason" className="text-xs font-semibold">
+                Hold Justification Reason *
+              </Label>
+              <Input
+                id="hold-reason"
+                placeholder="e.g., Pending legal inquiry, municipal litigation audit..."
+                value={holdReason}
+                onChange={(e) => setHoldReason(e.target.value)}
+                className="mt-1 text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="hold-notes" className="text-xs font-semibold">
+                Additional Notes (Optional)
+              </Label>
+              <Input
+                id="hold-notes"
+                placeholder="Reference case or docket numbers..."
+                value={holdNotes}
+                onChange={(e) => setHoldNotes(e.target.value)}
+                className="mt-1 text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setHoldModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleApplyRetentionHold}
+              disabled={saving || !holdReason.trim()}
+              className="gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              Apply Hold
             </Button>
           </DialogFooter>
         </DialogContent>

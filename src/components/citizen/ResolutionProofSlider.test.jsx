@@ -13,7 +13,19 @@ let container
 let root
 
 beforeEach(() => {
-  localStorage.setItem('civic-connect-language', 'en')
+  try {
+    localStorage.setItem('civic-connect-language', 'en')
+  } catch {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: () => 'en',
+        setItem: () => {},
+        removeItem: () => {},
+      },
+      configurable: true,
+      writable: true,
+    })
+  }
 })
 
 async function renderSlider(props) {
@@ -116,6 +128,14 @@ describe('ResolutionProofSlider', () => {
 
     expect(
       getResolutionPhoto({ resolutionPhotos: [] })
+    ).toBeNull()
+
+    expect(
+      getResolutionPhoto({ resolutionProof: { tombstone: true, path: 'some/path' } })
+    ).toBeNull()
+
+    expect(
+      getResolutionPhoto({ resolutionPhotos: [{ tombstone: true }] })
     ).toBeNull()
   })
 })

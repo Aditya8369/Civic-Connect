@@ -36,7 +36,19 @@ async function renderPlayer(props = {}) {
 }
 
 beforeEach(() => {
-  localStorage.setItem('civic-connect-language', 'en')
+  try {
+    localStorage.setItem('civic-connect-language', 'en')
+  } catch {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: () => 'en',
+        setItem: () => {},
+        removeItem: () => {},
+      },
+      configurable: true,
+      writable: true,
+    })
+  }
 
   mockPlay = vi.fn().mockResolvedValue(undefined)
   mockPause = vi.fn()
@@ -457,5 +469,19 @@ describe('ComplaintAudioPlayer', () => {
 
     const playBtn = container.querySelector('button')
     expect(playBtn.disabled).toBe(true)
+  })
+
+  it('renders tombstone notice when audioNote has been erased under retention policy', async () => {
+    await renderPlayer({
+      audioNote: {
+        tombstone: true,
+        erasedAt: '2026-03-01T12:00:00Z',
+        reason: 'Municipal data retention policy',
+      },
+    })
+
+    const tombstoneEl = container.querySelector('[data-testid="audio-tombstone"]')
+    expect(tombstoneEl).not.toBeNull()
+    expect(tombstoneEl.textContent).toContain('Audio note erased under municipal data retention policy')
   })
 })
