@@ -1192,4 +1192,262 @@ describe('Firestore Security Rules (Issue #20 Hardening)', () => {
       await assertFails(setDoc(doc(db, 'issues', 'anon-issue'), makeIssue()))
     })
   })
+
+  describe('Resolution Chat Messages Security (Issue #286)', () => {
+    const issueId = 'issue-chat-101'
+    const reporterUid = 'citizen-alice'
+    const officerUid = 'officer-bob'
+    const strangerUid = 'citizen-stranger'
+    const adminUid = 'admin-charlie'
+
+    beforeEach(async () => {
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        const db = context.firestore()
+        // Setup issue with reporter and assignedOfficerId
+        await setDoc(doc(db, 'issues', issueId), {
+          ...makeIssue({
+            reportedBy: reporterUid,
+            assignedOfficerId: officerUid,
+            assignedWorker: { officerId: officerUid, name: 'Officer Bob' },
+            status: 'In Progress',
+          }),
+        })
+
+        // Setup existing message in subcollection
+        await setDoc(doc(db, 'issues', issueId, 'messages', 'msg-1'), {
+          senderId: reporterUid,
+          senderRole: 'citizen',
+          senderName: 'Alice',
+          content: 'U2FsdGVkX1+encryptedPayloadExample',
+          quickActionType: null,
+          readBy: [reporterUid],
+          createdAt: Timestamp.now(),
+        })
+
+        // Setup user profiles
+        await setDoc(doc(db, 'users', reporterUid), {
+          name: 'Alice Citizen',
+          email: 'alice@example.com',
+          role: 'citizen',
+          createdAt: Timestamp.now(),
+        })
+        await setDoc(doc(db, 'users', officerUid), {
+          name: 'Bob Officer',
+          email: 'bob@example.com',
+          role: 'officer',
+          createdAt: Timestamp.now(),
+        })
+        await setDoc(doc(db, 'users', adminUid), {
+          name: 'Charlie Admin',
+          email: 'admin@example.com',
+          role: 'admin',
+          createdAt: Timestamp.now(),
+        })
+      })
+    })
+
+    function validMessage(senderId, senderRole = 'citizen', senderName = 'Sender') {
+      return {
+        senderId,
+        senderRole,
+        senderName,
+        content: 'U2FsdGVkX1+encryptedPayloadExample',
+        quickActionType: null,
+        readBy: [senderId],
+        createdAt: serverTimestamp(),
+      }
+    }
+
+    const getAuth = (uid, token = {}) => testEnv.authenticatedContext(uid, token).firestore()
+
+    // Phase 4.A: Authorized operations
+    it('Test 1 — Complaint reporter can read messages', async () => {
+      const db = getAuth(reporterUid)
+      await assertSucceeds(getDoc(doc(db, 'issues', issueId, 'messages', 'msg-1')))
+    })
+
+    it('Test 2 — Assigned officer can read messages', async () => {
+      const db = getAuth(officerUid, { role: 'officer' })
+      await assertSucceeds(getDoc(doc(db, 'issues', issueId, 'messages', 'msg-1')))
+    })
+
+    it('Test 3 — Authorized participant can send a message', async () => {
+      const reporterDb = getAuth(reporterUid)
+      await assertSucceeds(
+        setDoc(
+          doc(collection(reporterDb, 'issues', issueId, 'messages')),
+          validMessage(reporterUid, 'citizen', 'Alice')
+        )
+      )
+
+      const officerDb = getAuth(officerUid, { role: 'officer' })
+      await assertSucceeds(
+        setDoc(
+          doc(collection(officerDb, 'issues', issueId, 'messages')),
+          validMessage(officerUid, 'officer', 'Bob')
+        )
+      )
+    })
+
+    it('Test 4 — Authorized participant can update read receipts', async () => {
+      const officerDb = getAuth(officerUid, { role: 'officer' })
+      const msgRef = doc(officerDb, 'issues', issueId, 'messages', 'msg-1')
+      await assertSucceeds(
+        updateDoc(msgRef, {
+          readBy: [reporterUid, officerUid],
+        })
+      )
+    })
+
+    // Phase 4.B: Unauthorized operations
+    it('Test 5 — Unrelated user cannot read messages', async () => {
+      const strangerDb = getAuth(strangerUid)
+      await assertFails(getDoc(doc(strangerDb, 'issues', issueId, 'messages', 'msg-1')))
+    })
+
+    it('Test 6 — Unrelated user cannot send messages', async () => {
+      const strangerDb = getAuth(strangerUid)
+      await assertFails(
+        setDoc(
+          doc(collection(strangerDb, 'issues', issueId, 'messages')),
+          validMessage(strangerUid, 'citizen', 'Stranger')
+        )
+      )
+    })
+
+    it('Test 7 — Spoofed sender UID is rejected', async () => {
+      // Alice attempts to forge senderId as Bob
+      const aliceDb = getAuth(reporterUid)
+      await assertFails(
+        setDoc(
+          doc(collection(aliceDb, 'issues', issueId, 'messages')),
+          validMessage(officerUid, 'officer', 'Bob')
+        )
+      )
+    })
+
+    it('Test 8 — Message content cannot be changed through read-receipt updates', async () => {
+      const officerDb = getAuth(officerUid, { role: 'officer' })
+      const msgRef = doc(officerDb, 'issues', issueId, 'messages', 'msg-1')
+      await assertFails(
+        updateDoc(msgRef, {
+          readBy: [reporterUid, officerUid],
+          content: 'Tampered content',
+        })
+      )
+    })
+
+    it('Test 9 — Protected sender identity cannot be modified', async () => {
+      const officerDb = getAuth(officerUid, { role: 'officer' })
+      const msgRef = doc(officerDb, 'issues', issueId, 'messages', 'msg-1')
+      await assertFails(
+        updateDoc(msgRef, {
+          readBy: [reporterUid, officerUid],
+          senderId: officerUid,
+          senderRole: 'admin',
+        })
+      )
+    })
+
+    it('Test 10 — Complaint association or unexpected fields cannot be modified or added', async () => {
+      const officerDb = getAuth(officerUid, { role: 'officer' })
+      const msgRef = doc(officerDb, 'issues', issueId, 'messages', 'msg-1')
+      await assertFails(
+        updateDoc(msgRef, {
+          readBy: [reporterUid, officerUid],
+          injectedField: 'malicious',
+        })
+      )
+    })
+
+    it('Test 11 — Unauthenticated access is denied', async () => {
+      const unauthDb = anon()
+      await assertFails(getDoc(doc(unauthDb, 'issues', issueId, 'messages', 'msg-1')))
+      await assertFails(
+        setDoc(
+          doc(collection(unauthDb, 'issues', issueId, 'messages')),
+          validMessage('anon', 'citizen', 'Anon')
+        )
+      )
+      await assertFails(
+        updateDoc(doc(unauthDb, 'issues', issueId, 'messages', 'msg-1'), {
+          readBy: [reporterUid, 'anon'],
+        })
+      )
+    })
+
+    it('Schema validation — rejects malformed messages, empty content, and privilege elevation', async () => {
+      const aliceDb = getAuth(reporterUid)
+
+      // Missing required field
+      await assertFails(
+        setDoc(
+          doc(collection(aliceDb, 'issues', issueId, 'messages')),
+          {
+            senderId: reporterUid,
+            senderRole: 'citizen',
+            content: 'Hello',
+            readBy: [reporterUid],
+            createdAt: serverTimestamp(),
+          } // missing senderName
+        )
+      )
+
+      // Empty content
+      await assertFails(
+        setDoc(
+          doc(collection(aliceDb, 'issues', issueId, 'messages')),
+          {
+            ...validMessage(reporterUid),
+            content: '',
+          }
+        )
+      )
+
+      // Non-admin attempting to claim admin senderRole
+      await assertFails(
+        setDoc(
+          doc(collection(aliceDb, 'issues', issueId, 'messages')),
+          {
+            ...validMessage(reporterUid),
+            senderRole: 'admin',
+          }
+        )
+      )
+
+      // Citizen reporter attempting to impersonate officer
+      await assertFails(
+        setDoc(
+          doc(collection(aliceDb, 'issues', issueId, 'messages')),
+          {
+            ...validMessage(reporterUid),
+            senderRole: 'officer',
+          }
+        )
+      )
+
+      // Officer attempting to impersonate citizen
+      const officerDb = getAuth(officerUid, { role: 'officer' })
+      await assertFails(
+        setDoc(
+          doc(collection(officerDb, 'issues', issueId, 'messages')),
+          {
+            ...validMessage(officerUid, 'officer', 'Bob'),
+            senderRole: 'citizen',
+          }
+        )
+      )
+    })
+
+    it('Admin can read and participate in resolution chat', async () => {
+      const adminDb = getAuth(adminUid, { role: 'admin' })
+      await assertSucceeds(getDoc(doc(adminDb, 'issues', issueId, 'messages', 'msg-1')))
+      await assertSucceeds(
+        setDoc(
+          doc(collection(adminDb, 'issues', issueId, 'messages')),
+          validMessage(adminUid, 'admin', 'Charlie Admin')
+        )
+      )
+    })
+  })
 })
