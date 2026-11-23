@@ -7,7 +7,7 @@ This manual provides complete developer setup instructions, emulator configurati
 ## 1. Local Development & Emulator Guide
 
 ### 1.1 Prerequisites
-- **Node.js:** v18.0.0+ (v20+ LTS recommended).
+- **Node.js:** v20.19+ (or v22.12+), as required by the current Vite toolchain.
 - **Package Manager:** `npm` v9+ (or `pnpm`).
 - **Firebase CLI:** `npm install -g firebase-tools` (for emulators).
 
@@ -28,7 +28,7 @@ npm run dev
 ```
 
 ### 1.3 Local Firebase Emulators
-The application natively connects to local emulators when enabled in `.env` ([`services.js:12`](file:///d:/civic-connect/Civic-Connect/src/firebase/services.js#L12)):
+The application connects to local emulators when enabled in `.env` ([`services.js`](../src/firebase/services.js)):
 
 ```env
 VITE_USE_EMULATORS=true
@@ -38,10 +38,12 @@ VITE_USE_EMULATORS=true
 - **Firestore Emulator:** `localhost:8080`
 - **Storage Emulator:** `localhost:9199`
 
-Start the emulators with:
+Start the emulators with the repository script:
 ```bash
-firebase emulators:start
+npm run emulators:start
 ```
+
+Use `npm run emulators:seed` to load local demo data. See the root [README](../README.md) for the demo accounts and emulator ports.
 
 ---
 
@@ -74,33 +76,17 @@ Because routing is managed by `react-router-dom`, edge hosts must rewrite all no
   ```
 
 ### 2.3 Cost Controls & Budget Alerts
-Because administrative pages currently use unbounded `onSnapshot` queries, maintainers must configure **Google Cloud Budget Alerts** to prevent billing surprises from runaway document reads.
+Administrative report tables use cursor-based pages, while search and export fetches are bounded. Review query limits when adding new collection listeners, and configure **Google Cloud Budget Alerts** for the Firebase project.
 
 ---
 
 ## 3. Engineering Implementation Roadmap
 
-```
-Phase 1: Security & Auth Integrity (P0)
-   ├── Remove hardcoded admin password from AuthPage.jsx (CC-001)
-   ├── Commit firestore.rules and firebase.json to Git (CC-003)
-   └── Lock down role modifications via Custom Auth Claims (CC-002)
+The roadmap below reflects remaining work identified in the current known-findings audit. Completed items are recorded in [Security, Quality Assurance & Findings Audit](security-quality-and-issues.md).
 
-Phase 2: Reliability & Data Integrity (P1)
-   ├── Atomic write batch for issue submission & notifications (CC-004)
-   └── Protect unsaved resolution notes from live snapshot overwrites (CC-005)
-
-Phase 3: Operational Accountability (P1)
-   ├── True event audit trail sub-collection (issues/{id}/events) (CC-009)
-   └── Status lifecycle expansion (Rejection reasons & 7-day citizen reopen)
-
-Phase 4: Usability & Persistence (P2)
-   ├── Wire Citizen Profile & Admin Settings forms to Firestore (CC-007)
-   └── Interactive OpenStreetMap / Leaflet coordinate pin drop
-
-Phase 5: Performance & Scale (P3)
-   └── Cursor-based pagination on administrative complaint tables (CC-008)
-```
+1. **Notification privacy (CC-006):** Add per-administrator read receipts so one administrator marking an alert read does not clear it for the rest of the admin team.
+2. **Profile photos (CC-011):** Connect the profile photo control to a file picker, validate and upload the image, and display the saved photo accessibly.
+3. **Keep security evidence current:** Update the rules tests and this manual whenever authentication, authorization, or data access behavior changes.
 
 ---
 
