@@ -43,7 +43,7 @@ const icons = {
 export function NotificationCenter({ className = '' }) {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { t, language } = useLanguage()
+  const { t } = useLanguage()
 
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true)
@@ -235,49 +235,74 @@ export function NotificationCenter({ className = '' }) {
         />
       ) : (
         <div className="space-y-3">
-          {notifications.map((n) => (
-            <div
-              key={n.id}
-              onClick={() => handleNotificationClick(n)}
-              className={`flex items-start gap-4 p-4 rounded-xl border transition-colors cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
-                !n.read
-                  ? 'bg-primary-50/50 dark:bg-primary-900/10 border-primary-200 dark:border-primary-800'
-                  : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800'
-              }`}
-            >
-              <span className="text-xl shrink-0 mt-0.5">
-                {icons[n.type] || '🔔'}
-              </span>
+          {notifications.map((n) => {
+            const hasComplaint = Boolean(n.issueId)
+            const cardClassName = `w-full text-left flex items-start gap-4 p-4 rounded-xl border transition-colors ${
+              hasComplaint
+                ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-950'
+                : ''
+            } ${
+              !n.read
+                ? 'bg-primary-50/50 dark:bg-primary-900/10 border-primary-200 dark:border-primary-800'
+                : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800'
+            }`
 
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-2">
-                  <p
-                    className={`text-sm font-medium ${
-                      !n.read
-                        ? 'text-gray-900 dark:text-white'
-                        : 'text-gray-700 dark:text-gray-300'
-                    }`}
-                  >
-                    {n.title}
+            const content = (
+              <>
+                <span className="text-xl shrink-0 mt-0.5" aria-hidden="true">
+                  {icons[n.type] || '🔔'}
+                </span>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p
+                      className={`text-sm font-medium ${
+                        !n.read
+                          ? 'text-gray-900 dark:text-white'
+                          : 'text-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      {n.title}
+                    </p>
+
+                    <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0 whitespace-nowrap">
+                      {formatRelativeTime(n.createdAt)}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    {n.message}
                   </p>
 
-                  <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0 whitespace-nowrap">
-                    {formatRelativeTime(n.createdAt, language)}
-                  </span>
+                  {n.issueId && (
+                    <p className="text-xs font-mono text-primary-600 dark:text-primary-400 mt-1">
+                      {n.issueId}
+                    </p>
+                  )}
                 </div>
+              </>
+            )
 
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                  {n.message}
-                </p>
+            if (hasComplaint) {
+              return (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => handleNotificationClick(n)}
+                  aria-label={`${n.title}: ${n.message}`}
+                  className={cardClassName}
+                >
+                  {content}
+                </button>
+              )
+            }
 
-                {n.issueId && (
-                  <p className="text-xs font-mono text-primary-600 dark:text-primary-400 mt-1">
-                    {n.issueId}
-                  </p>
-                )}
+            return (
+              <div key={n.id} className={cardClassName}>
+                {content}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
