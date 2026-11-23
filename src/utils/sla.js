@@ -226,7 +226,28 @@ export function computeSlaStatus(
     complaint.department
   )
 
-  const targetMs = createdAtMs + durationHours * 3600000
+  // Support for versioned business-calendar SLA clock & pause extensions (Issue #282)
+  if (complaint.slaPause?.isPaused === true) {
+    const effectiveDeadlineMs = parseTimestamp(complaint.effectiveSlaDeadline)
+    const targetMs = effectiveDeadlineMs || (createdAtMs + durationHours * 3600000)
+    const targetDate = new Date(targetMs)
+    return {
+      isValid: true,
+      isResolved: false,
+      isBreached: false,
+      isDueSoon: false,
+      isPaused: true,
+      pulsing: false,
+      targetDate,
+      remainingMs: targetMs - now,
+      badgeVariant: 'warning',
+      badgeText: hindi ? 'एसएलए रुका हुआ' : 'SLA Paused',
+      ariaLabel: hindi ? 'एसएलए रुका हुआ है' : 'SLA is currently paused',
+    }
+  }
+
+  const effectiveDeadlineMs = parseTimestamp(complaint.effectiveSlaDeadline)
+  const targetMs = effectiveDeadlineMs || (createdAtMs + durationHours * 3600000)
   const targetDate = new Date(targetMs)
   const statusLower = (complaint.status || '').toLowerCase()
 
