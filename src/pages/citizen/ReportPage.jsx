@@ -128,6 +128,7 @@ export function ReportPage() {
   const [address, setAddress] = useState('')
   const [latitude, setLatitude] = useState('')
   const [longitude, setLongitude] = useState('')
+  const [coordinateError, setCoordinateError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const isSubmittingRef = useRef(false)
   const [cooldownRemaining, setCooldownRemaining] = useState(
@@ -498,6 +499,25 @@ export function ReportPage() {
       toast.error(t('fillRequiredFields'))
       return
     }
+
+    const hasLatitude = latitude.trim() !== ''
+    const hasLongitude = longitude.trim() !== ''
+    const lat = Number(latitude)
+    const lng = Number(longitude)
+    let nextCoordinateError = ''
+    if (hasLatitude !== hasLongitude) {
+      nextCoordinateError = 'Enter both latitude and longitude, or leave both blank.'
+    } else if (hasLatitude && (!Number.isFinite(lat) || lat < -90 || lat > 90)) {
+      nextCoordinateError = 'Latitude must be a number between -90 and 90.'
+    } else if (hasLongitude && (!Number.isFinite(lng) || lng < -180 || lng > 180)) {
+      nextCoordinateError = 'Longitude must be a number between -180 and 180.'
+    }
+    if (nextCoordinateError) {
+      setCoordinateError(nextCoordinateError)
+      toast.error(nextCoordinateError)
+      return
+    }
+    setCoordinateError('')
 
     if (nearbyDuplicates.length > 0 && !hasAcknowledgedDuplicate) {
       toast.error(t('reviewSimilarComplaints'))
@@ -999,8 +1019,11 @@ export function ReportPage() {
                     type="text"
                     placeholder="28.6139"
                     value={latitude}
+                    aria-invalid={Boolean(coordinateError)}
+                    aria-describedby={coordinateError ? 'coordinate-error' : undefined}
                     onChange={(e) => {
                       setLatitude(e.target.value)
+                      setCoordinateError('')
                       setHasAcknowledgedDuplicate(false)
                     }}
                   />
@@ -1012,8 +1035,11 @@ export function ReportPage() {
                     type="text"
                     placeholder="77.2090"
                     value={longitude}
+                    aria-invalid={Boolean(coordinateError)}
+                    aria-describedby={coordinateError ? 'coordinate-error' : undefined}
                     onChange={(e) => {
                       setLongitude(e.target.value)
+                      setCoordinateError('')
                       setHasAcknowledgedDuplicate(false)
                     }}
                   />
@@ -1091,6 +1117,12 @@ export function ReportPage() {
                     </div>
                   )}
                 </div>
+              )}
+
+              {coordinateError && (
+                <p id="coordinate-error" role="alert" className="text-sm text-destructive">
+                  {coordinateError}
+                </p>
               )}
 
               <div className="flex items-center justify-end">
