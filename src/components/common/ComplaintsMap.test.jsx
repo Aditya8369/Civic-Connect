@@ -15,6 +15,23 @@ if (typeof window === 'undefined') {
   }
 }
 
+const storageMap = new Map()
+const mockLocalStorage = {
+  getItem: (key) => storageMap.get(key) || null,
+  setItem: (key, val) => storageMap.set(key, String(val)),
+  removeItem: (key) => storageMap.delete(key),
+  clear: () => storageMap.clear(),
+}
+try {
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: mockLocalStorage,
+    configurable: true,
+    writable: true,
+  })
+} catch {
+  globalThis.localStorage = mockLocalStorage
+}
+
 import { ComplaintsMap, createPinIcon, createClusterIcon } from './ComplaintsMap'
 import { parseCoordinates } from '@/utils/geo'
 import {

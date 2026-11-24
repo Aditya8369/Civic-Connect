@@ -50,6 +50,12 @@ const ComplaintsMap = lazy(() =>
   }))
 )
 
+const WardHealthScorecard = lazy(() =>
+  import('@/components/admin/WardHealthScorecard').then((m) => ({
+    default: m.WardHealthScorecard,
+  }))
+)
+
 const statusVariant = {
   Pending: 'destructive',
   'In Progress': 'warning',
@@ -374,9 +380,31 @@ export function AdminDashboardPage() {
         >
           {t('gisMap')}
         </button>
+
+        <button
+          onClick={() => setActiveTab('analytics')}
+          data-testid="tab-analytics"
+          className={`py-2 px-4 text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === 'analytics'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'
+          }`}
+        >
+          Analytics &amp; Predictive Heatmap
+        </button>
       </div>
 
-      {activeTab === 'map' ? (
+      {activeTab === 'analytics' ? (
+        <Suspense
+          fallback={
+            <div className="h-96 rounded-xl border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-500">
+              Loading Ward Infrastructure Health Analytics...
+            </div>
+          }
+        >
+          <WardHealthScorecard complaints={complaints} />
+        </Suspense>
+      ) : activeTab === 'map' ? (
         <Suspense
           fallback={
             <div className="h-96 rounded-xl border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-500">

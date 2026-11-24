@@ -6,6 +6,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
+const storageMap = new Map()
+const mockLocalStorage = {
+  getItem: (key) => storageMap.get(key) || null,
+  setItem: (key, val) => storageMap.set(key, String(val)),
+  removeItem: (key) => storageMap.delete(key),
+  clear: () => storageMap.clear(),
+}
+try {
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: mockLocalStorage,
+    configurable: true,
+    writable: true,
+  })
+} catch {
+  globalThis.localStorage = mockLocalStorage
+}
+
 const rt = vi.hoisted(() => ({
   onChange: null,
   onError: null,

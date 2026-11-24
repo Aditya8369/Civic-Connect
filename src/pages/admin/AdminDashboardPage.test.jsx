@@ -4,6 +4,23 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LanguageProvider } from '@/contexts/LanguageContext'
 
+const storageMap = new Map()
+const mockLocalStorage = {
+  getItem: (key) => storageMap.get(key) || null,
+  setItem: (key, val) => storageMap.set(key, String(val)),
+  removeItem: (key) => storageMap.delete(key),
+  clear: () => storageMap.clear(),
+}
+try {
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: mockLocalStorage,
+    configurable: true,
+    writable: true,
+  })
+} catch {
+  globalThis.localStorage = mockLocalStorage
+}
+
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const rt = vi.hoisted(() => ({ listeners: [], jobs: [] }))
@@ -171,5 +188,16 @@ describe('AdminDashboardPage data loading', () => {
     expect(container.textContent).toContain('No reports submitted yet.')
 
     spy.mockRestore()
+  })
+
+  it('renders Analytics & Predictive Heatmap tab and switches active view', async () => {
+    const analyticsTab = container.querySelector('[data-testid="tab-analytics"]')
+    expect(analyticsTab).not.toBeNull()
+
+    await act(async () => {
+      analyticsTab.click()
+    })
+
+    expect(container.textContent).toContain('Analytics & Predictive Heatmap')
   })
 })
