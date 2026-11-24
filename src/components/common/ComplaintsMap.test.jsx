@@ -5,6 +5,12 @@ import { LanguageProvider } from '@/contexts/LanguageContext'
 // Mock Firebase services to prevent auth/invalid-api-key during node tests
 vi.mock('@/firebase/services', () => ({ auth: {}, db: {} }))
 vi.mock('leaflet.heat', () => ({}))
+vi.mock('@/firebase/emergencyBroadcasts', () => ({
+  listenToActiveEmergencyBroadcast: vi.fn(() => vi.fn()),
+}))
+vi.mock('@/firebase/notifications', () => ({
+  showNativeNotification: vi.fn(),
+}))
 
 // Polyfill window for rendering in node test environment
 if (typeof window === 'undefined') {
@@ -13,6 +19,23 @@ if (typeof window === 'undefined') {
     removeEventListener: vi.fn(),
     dispatchEvent: vi.fn(),
   }
+}
+
+const storageMap = new Map()
+const mockLocalStorage = {
+  getItem: (key) => storageMap.get(key) || null,
+  setItem: (key, val) => storageMap.set(key, String(val)),
+  removeItem: (key) => storageMap.delete(key),
+  clear: () => storageMap.clear(),
+}
+try {
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: mockLocalStorage,
+    configurable: true,
+    writable: true,
+  })
+} catch {
+  globalThis.localStorage = mockLocalStorage
 }
 
 import { ComplaintsMap, createPinIcon, createClusterIcon } from './ComplaintsMap'
@@ -86,6 +109,18 @@ vi.mock('react-leaflet', () => ({
       data-positions={JSON.stringify(positions)}
       data-path-options={JSON.stringify(pathOptions)}
       data-has-click={typeof eventHandlers?.click === 'function' ? 'true' : 'false'}
+      {...rest}
+    >
+      {children}
+    </div>
+  ),
+
+  Circle: ({ children, center, radius, pathOptions, ...rest }) => (
+    <div
+      data-testid="broadcast-circle-overlay"
+      data-center={JSON.stringify(center)}
+      data-radius={radius}
+      data-path-options={JSON.stringify(pathOptions)}
       {...rest}
     >
       {children}
@@ -581,6 +616,86 @@ describe('ComplaintsMap Component and GIS Utilities', () => {
       expect(selectedStyle.dashArray).toBe('10 5')
       expect(selectedStyle.weight).toBe(3.5)
       expect(selectedStyle.fillOpacity).toBeGreaterThan(defaultStyle.fillOpacity)
+    })
+  })
+
+  describe('Geofenced Ward Broadcasts & Municipal Alert Center in ComplaintsMap', () => {
+    it('renders broadcast polygon overlay when active broadcast is geofenced to a ward or polygon', () => {
+      const activeBroadcast = {
+        id: 'broadcast-ward-1',
+        title: 'Emergency Flood Alert',
+        message: 'Flooding in low-lying ward areas.',
+        severity: 'emergency',
+        targetType: 'ward',
+        targetWard: { wardId: 'WARD-01', wardName: 'Central Civic Core' },
+        targetPolygon: [
+          [28.61, 77.202],
+          [28.61, 77.216],
+          [28.622, 77.216],
+          [28.622, 77.202],
+          [28.61, 77.202],
+        ],
+        geohash: 'ttnfucj',
+      }
+
+      const html = renderToStaticMarkup(
+        <LanguageProvider>
+          <ComplaintsMap complaints={[]} activeBroadcast={activeBroadcast} />
+        </LanguageProvider>
+      )
+
+      expect(html).toContain('data-testid="broadcast-polygon-overlay"')
+      expect(html).toContain('Emergency Flood Alert')
+      expect(html).toContain('Flooding in low-lying ward areas.')
+    })
+
+    it('renders broadcast circle overlay when active broadcast has radius targeting', () => {
+      const activeBroadcast = {
+        id: 'broadcast-radius-1',
+        title: 'Gas Leak Warning',
+        message: 'Maintain 1km distance from industrial junction.',
+        severity: 'warning',
+        targetType: 'radius',
+        targetRadius: 1000,
+        targetCenter: { lat: 28.6139, lng: 77.209 },
+        geohash: 'ttnfucj',
+      }
+
+      const html = renderToStaticMarkup(
+        <LanguageProvider>
+          <ComplaintsMap complaints={[]} activeBroadcast={activeBroadcast} />
+        </LanguageProvider>
+      )
+
+      expect(html).toContain('data-testid="broadcast-circle-overlay"')
+      expect(html).toContain('Gas Leak Warning')
+      expect(html).toContain('1000')
+    })
+
+    it('renders geofenced alert banner when citizen geolocation is within affected boundary', () => {
+      const activeBroadcast = {
+        id: 'broadcast-101',
+        title: 'High Alert: Severe Weather',
+        message: 'Extreme wind gusts expected.',
+        severity: 'emergency',
+        targetType: 'radius',
+        targetRadius: 2000,
+        targetCenter: { lat: 28.6139, lng: 77.209 },
+      }
+
+      const html = renderToStaticMarkup(
+        <LanguageProvider>
+          <ComplaintsMap
+            complaints={[]}
+            activeBroadcast={activeBroadcast}
+            userLocation={{ lat: 28.6145, lng: 77.2092 }}
+          />
+        </LanguageProvider>
+      )
+
+      expect(html).toContain('data-testid="geofenced-alert-banner"')
+      expect(html).toContain('High Alert: Severe Weather')
+      expect(html).toContain('You are inside this alert zone')
     })
   })
 })

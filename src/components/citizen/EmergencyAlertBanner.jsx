@@ -69,6 +69,22 @@ export function EmergencyAlertBannerView({
                 {publishedLabel}
               </span>
             )}
+
+            {broadcast.targetType === 'ward' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 dark:bg-stone-800 px-2 py-0.5 text-[11px] font-semibold text-stone-700 dark:text-stone-300">
+                📍 {broadcast.targetWard?.wardName || broadcast.targetWard?.wardId || 'Municipal Ward'}
+              </span>
+            )}
+            {broadcast.targetType === 'radius' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 dark:bg-stone-800 px-2 py-0.5 text-[11px] font-semibold text-stone-700 dark:text-stone-300">
+                📍 Geofenced Radius: {broadcast.targetRadius}m
+              </span>
+            )}
+            {broadcast.targetType === 'polygon' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 dark:bg-stone-800 px-2 py-0.5 text-[11px] font-semibold text-stone-700 dark:text-stone-300">
+                📍 Custom Alert Boundary
+              </span>
+            )}
           </div>
 
           <p className={`mt-1.5 text-sm font-bold ${style.title}`}>

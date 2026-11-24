@@ -13,7 +13,29 @@ const EARTH_RADIUS_METRES = 6371000
  * @returns {{ lat: number, lng: number } | null}
  */
 export function parseCoordinates(coord) {
-  if (!coord || typeof coord !== 'object') {
+  if (!coord) {
+    return null
+  }
+
+  if (Array.isArray(coord) && coord.length >= 2) {
+    const lat = typeof coord[0] === 'number' ? coord[0] : parseFloat(coord[0])
+    const lng = typeof coord[1] === 'number' ? coord[1] : parseFloat(coord[1])
+    if (
+      !Number.isNaN(lat) &&
+      !Number.isNaN(lng) &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng) &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lng >= -180 &&
+      lng <= 180
+    ) {
+      return { lat, lng }
+    }
+    return null
+  }
+
+  if (typeof coord !== 'object') {
     return null
   }
 
@@ -481,4 +503,166 @@ export function findWardForCoordinates(coords, wardGeoJson = WARD_BOUNDARIES_GEO
     accentColor: props.accentColor || '#1d4ed8',
     fillTint: props.fillTint || '#dbeafe',
   }
+}
+
+export const BASE32_GEOHASH_CHARS = '0123456789bcdefghjkmnpqrstuvwxyz'
+
+/**
+ * Encodes latitude and longitude into a standard Base32 geohash.
+ *
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @param {number} [precision=7] - Number of characters
+ * @returns {string}
+ */
+export function encodeGeohash(lat, lng, precision = 7) {
+  let latMin = -90
+  let latMax = 90
+  let lngMin = -180
+  let lngMax = 180
+  let hash = ''
+  let isEven = true
+  let bit = 0
+  let ch = 0
+
+  const safePrecision = Math.max(1, Math.min(12, precision))
+
+  while (hash.length < safePrecision) {
+    if (isEven) {
+      const mid = (lngMin + lngMax) / 2
+      if (lng >= mid) {
+        ch |= 1 << (4 - bit)
+        lngMin = mid
+      } else {
+        lngMax = mid
+      }
+    } else {
+      const mid = (latMin + latMax) / 2
+      if (lat >= mid) {
+        ch |= 1 << (4 - bit)
+        latMin = mid
+      } else {
+        latMax = mid
+      }
+    }
+    isEven = !isEven
+    if (bit < 4) {
+      bit++
+    } else {
+      hash += BASE32_GEOHASH_CHARS[ch]
+      bit = 0
+      ch = 0
+    }
+  }
+
+  return hash
+}
+
+/**
+ * Decodes a geohash string into latitude and longitude center with errors.
+ *
+ * @param {string} geohash
+ * @returns {{ lat: number, lng: number, latErr: number, lngErr: number } | null}
+ */
+export function decodeGeohash(geohash) {
+  if (typeof geohash !== 'string' || !geohash.trim()) return null
+  const clean = geohash.trim().toLowerCase()
+  let latMin = -90
+  let latMax = 90
+  let lngMin = -180
+  let lngMax = 180
+  let isEven = true
+
+  for (let i = 0; i < clean.length; i++) {
+    const ch = clean[i]
+    const val = BASE32_GEOHASH_CHARS.indexOf(ch)
+    if (val === -1) return null
+
+    for (let bit = 4; bit >= 0; bit--) {
+      const mask = 1 << bit
+      if (isEven) {
+        const mid = (lngMin + lngMax) / 2
+        if (val & mask) lngMin = mid
+        else lngMax = mid
+      } else {
+        const mid = (latMin + latMax) / 2
+        if (val & mask) latMin = mid
+        else latMax = mid
+      }
+      isEven = !isEven
+    }
+  }
+
+  return {
+    lat: (latMin + latMax) / 2,
+    lng: (lngMin + lngMax) / 2,
+    latErr: (latMax - latMin) / 2,
+    lngErr: (lngMax - lngMin) / 2,
+  }
+}
+
+/**
+ * Generates hierarchical geohash prefix set for Firestore indexing.
+ * E.g. for precision 7 'ttnfucj' -> ['ttnf', 'ttnfu', 'ttnfuc', 'ttnfucj']
+ *
+ * @param {string} geohash
+ * @param {number} [minPrecision=4]
+ * @returns {Array<string>}
+ */
+export function getGeohashPrefixes(geohash, minPrecision = 4) {
+  if (!geohash || typeof geohash !== 'string') return []
+  const prefixes = []
+  for (let len = minPrecision; len <= geohash.length; len++) {
+    prefixes.push(geohash.slice(0, len))
+  }
+  return prefixes
+}
+
+/**
+ * Checks whether a given geographical point falls within an emergency broadcast's target geofence.
+ *
+ * @param {Object | [number, number]} point - { lat, lng } or { latitude, longitude } or [lat, lng]
+ * @param {Object} broadcast - Stored or active broadcast document
+ * @returns {boolean}
+ */
+export function isPointInBroadcastGeofence(point, broadcast) {
+  if (!broadcast || typeof broadcast !== 'object') return false
+
+  const targetType = broadcast.targetType || 'citywide'
+  if (targetType === 'citywide') return true
+
+  const coords = parseCoordinates(point)
+  if (!coords) return false
+
+  if (targetType === 'ward') {
+    if (broadcast.targetWard?.wardId) {
+      const ward = findWardForCoordinates(coords)
+      if (ward && ward.wardId.toUpperCase() === broadcast.targetWard.wardId.toUpperCase()) {
+        return true
+      }
+    }
+    if (Array.isArray(broadcast.targetPolygon) && broadcast.targetPolygon.length >= 3) {
+      const ring = broadcast.targetPolygon.map(([lat, lng]) => [lng, lat])
+      return pointInPolygon(coords, { type: 'Polygon', coordinates: [ring] })
+    }
+    return false
+  }
+
+  if (targetType === 'radius') {
+    const center = parseCoordinates(broadcast.targetCenter)
+    if (!center) return false
+    const radius = Number(broadcast.targetRadius) || 1000
+    const distance = haversineDistance(coords, center)
+    return distance !== null && distance <= radius
+  }
+
+  if (targetType === 'polygon') {
+    if (Array.isArray(broadcast.targetPolygon) && broadcast.targetPolygon.length >= 3) {
+      const ring = broadcast.targetPolygon.map(([lat, lng]) => [lng, lat])
+      return pointInPolygon(coords, { type: 'Polygon', coordinates: [ring] })
+    }
+    return false
+  }
+
+  return true
 }

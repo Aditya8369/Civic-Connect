@@ -7,6 +7,7 @@ import {
   Marker,
   Popup,
   Polygon,
+  Circle,
   Tooltip,
   useMap,
   useMapEvents,
@@ -23,12 +24,16 @@ import {
   Phone,
   Building2,
   UserCheck,
+  Siren,
+  Crosshair,
 } from 'lucide-react'
 import { getDisplayId } from '@/firebase/complaintId'
 import { Badge } from '@/components/ui/badge'
 import { DepartmentCrest, CategoryAvatar } from '@/components/common/DepartmentCrest'
 import { Button } from '@/components/ui/button'
-import { parseCoordinates } from '@/utils/geo'
+import { parseCoordinates, isPointInBroadcastGeofence } from '@/utils/geo'
+import { listenToActiveEmergencyBroadcast } from '@/firebase/emergencyBroadcasts'
+import { showNativeNotification } from '@/firebase/notifications'
 import {
   MARKER_COLORS,
   filterComplaints,
@@ -245,6 +250,8 @@ export function ComplaintsMap({
   initialStatus = 'All',
   initialShowWardBoundaries = false,
   wardBoundariesData = WARD_BOUNDARIES_GEOJSON,
+  activeBroadcast: initialActiveBroadcast = null,
+  userLocation: initialUserLocation = null,
 }) {
   const [selectedCategory, setSelectedCategory] = useState(initialCategory)
   const [selectedStatus, setSelectedStatus] = useState(initialStatus)
@@ -253,6 +260,80 @@ export function ComplaintsMap({
   const [heatmapEnabled, setHeatmapEnabled] = useState(false)
   const [showWardBoundaries, setShowWardBoundaries] = useState(initialShowWardBoundaries)
   const [selectedWardId, setSelectedWardId] = useState(null)
+
+  const [activeBroadcast, setActiveBroadcast] = useState(initialActiveBroadcast)
+  const [currentUserCoords, setCurrentUserCoords] = useState(initialUserLocation)
+  const [isLocating, setIsLocating] = useState(false)
+  const notifiedBroadcastIdRef = useRef(null)
+
+  useEffect(() => {
+    if (initialActiveBroadcast !== undefined && initialActiveBroadcast !== null) {
+      setActiveBroadcast(initialActiveBroadcast)
+      return
+    }
+
+    const unsubscribe = listenToActiveEmergencyBroadcast(
+      (broadcast) => {
+        setActiveBroadcast(broadcast)
+      },
+      {
+        onError: (err) => console.warn('ComplaintsMap active broadcast listener error:', err),
+      }
+    )
+    return typeof unsubscribe === 'function' ? unsubscribe : () => {}
+  }, [initialActiveBroadcast])
+
+  useEffect(() => {
+    if (initialUserLocation) {
+      setCurrentUserCoords(initialUserLocation)
+    }
+  }, [initialUserLocation])
+
+  const handleLocateMe = () => {
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      setIsLocating(true)
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setCurrentUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+          setIsLocating(false)
+        },
+        () => {
+          setIsLocating(false)
+        },
+        { timeout: 8000 }
+      )
+    }
+  }
+
+  const isUserAffectedByBroadcast = useMemo(() => {
+    if (!activeBroadcast) return false
+    if (!currentUserCoords) {
+      return activeBroadcast.targetType === 'citywide'
+    }
+    return isPointInBroadcastGeofence(currentUserCoords, activeBroadcast)
+  }, [activeBroadcast, currentUserCoords])
+
+  useEffect(() => {
+    if (
+      activeBroadcast &&
+      isUserAffectedByBroadcast &&
+      notifiedBroadcastIdRef.current !== activeBroadcast.id
+    ) {
+      notifiedBroadcastIdRef.current = activeBroadcast.id
+      const severityLabel =
+        activeBroadcast.severity === 'emergency' || activeBroadcast.severity === 'critical'
+          ? 'Emergency Alert'
+          : activeBroadcast.severity === 'warning'
+            ? 'Municipal Advisory'
+            : 'Civic Notice'
+
+      showNativeNotification({
+        title: `🚨 ${severityLabel}: ${activeBroadcast.title}`,
+        message: activeBroadcast.message,
+        url: '/dashboard',
+      })
+    }
+  }, [activeBroadcast, isUserAffectedByBroadcast])
 
   const municipalWards = useMemo(
     () => getNormalizedWards(wardBoundariesData),
@@ -491,6 +572,20 @@ export function ComplaintsMap({
             {heatmapEnabled ? 'Hide heatmap' : 'Show heatmap'}
           </Button>
 
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="detect-gps-btn"
+            aria-label="Check GPS for local alerts"
+            onClick={handleLocateMe}
+            disabled={isLocating}
+            className="h-8 text-xs gap-1"
+          >
+            <Crosshair className={`w-3 h-3 ${isLocating ? 'animate-spin' : ''}`} />
+            {isLocating ? 'Locating...' : currentUserCoords ? 'GPS Active' : 'Check My Location'}
+          </Button>
+
           {totalMissingCoords > 0 && (
             <div className="ml-auto flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 rounded-md border border-amber-200 dark:border-amber-900/50">
               <AlertCircle className="w-3 h-3 shrink-0" />
@@ -499,6 +594,43 @@ export function ComplaintsMap({
           )}
         </div>
       </div>
+
+      {/* Geofenced Active Alert Banner */}
+      {activeBroadcast && isUserAffectedByBroadcast && (
+        <div
+          data-testid="geofenced-alert-banner"
+          className="mx-4 mt-3 mb-1 p-3.5 rounded-xl border border-red-300 bg-red-50/90 dark:border-red-900/60 dark:bg-red-950/40 text-red-950 dark:text-red-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+        >
+          <div className="flex items-start gap-2.5">
+            <Siren className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5 animate-pulse" />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-200 dark:bg-red-900 text-red-900 dark:text-red-100">
+                  {activeBroadcast.severity} Alert
+                </span>
+                <span className="text-xs font-semibold text-red-700 dark:text-red-300">
+                  {activeBroadcast.targetType === 'ward'
+                    ? `Ward: ${activeBroadcast.targetWard?.wardName || activeBroadcast.targetWard?.wardId}`
+                    : activeBroadcast.targetType === 'radius'
+                      ? `Radius Geofence: ${activeBroadcast.targetRadius}m`
+                      : activeBroadcast.targetType === 'polygon'
+                        ? 'Targeted Municipal Zone'
+                        : 'Citywide Alert'}
+                </span>
+              </div>
+              <h4 className="font-bold text-sm mt-0.5">{activeBroadcast.title}</h4>
+              <p className="text-xs text-red-800 dark:text-red-200 mt-0.5 line-clamp-2">
+                {activeBroadcast.message}
+              </p>
+            </div>
+          </div>
+          {currentUserCoords && (
+            <span className="shrink-0 text-[11px] font-medium bg-red-100 dark:bg-red-900/60 text-red-800 dark:text-red-200 px-2.5 py-1 rounded-full border border-red-200 dark:border-red-800">
+              📍 You are inside this alert zone
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Main Map Canvas */}
       <div className="relative w-full overflow-hidden" style={{ height }}>
@@ -538,6 +670,108 @@ export function ComplaintsMap({
 
           <MapController points={validFilteredPoints} onZoomChange={setCurrentZoom} />
           <ComplaintHeatmapLayer points={heatmapPoints} enabled={heatmapEnabled} />
+
+          {/* Active Geofenced Municipal Alert Overlay */}
+          {activeBroadcast && (
+            <>
+              {(activeBroadcast.targetType === 'ward' || activeBroadcast.targetType === 'polygon') &&
+                Array.isArray(activeBroadcast.targetPolygon) &&
+                activeBroadcast.targetPolygon.length >= 3 && (
+                  <Polygon
+                    key={`broadcast-poly-${activeBroadcast.id || 'current'}`}
+                    positions={activeBroadcast.targetPolygon}
+                    pathOptions={{
+                      color:
+                        activeBroadcast.severity === 'emergency' ||
+                        activeBroadcast.severity === 'critical'
+                          ? '#dc2626'
+                          : activeBroadcast.severity === 'warning'
+                            ? '#d97706'
+                            : '#2563eb',
+                      fillColor:
+                        activeBroadcast.severity === 'emergency' ||
+                        activeBroadcast.severity === 'critical'
+                          ? '#ef4444'
+                          : activeBroadcast.severity === 'warning'
+                            ? '#f59e0b'
+                            : '#3b82f6',
+                      fillOpacity: 0.28,
+                      weight: 3.5,
+                      dashArray: '8 5',
+                    }}
+                    data-testid="broadcast-polygon-overlay"
+                  >
+                    <Tooltip sticky direction="top">
+                      <div className="p-1 text-xs font-bold text-stone-900">
+                        🚨 Municipal Alert: {activeBroadcast.title}
+                      </div>
+                    </Tooltip>
+                    <Popup>
+                      <div className="p-2 space-y-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-red-100 text-red-800">
+                          {activeBroadcast.severity}
+                        </span>
+                        <h4 className="font-bold text-sm text-stone-950">{activeBroadcast.title}</h4>
+                        <p className="text-xs text-stone-700">{activeBroadcast.message}</p>
+                        {activeBroadcast.geohash && (
+                          <p className="text-[10px] text-stone-500 font-mono">
+                            Geohash: {activeBroadcast.geohash}
+                          </p>
+                        )}
+                      </div>
+                    </Popup>
+                  </Polygon>
+                )}
+
+              {activeBroadcast.targetType === 'radius' && activeBroadcast.targetCenter && (
+                <Circle
+                  key={`broadcast-circle-${activeBroadcast.id || 'current'}`}
+                  center={[activeBroadcast.targetCenter.lat, activeBroadcast.targetCenter.lng]}
+                  radius={activeBroadcast.targetRadius || 1000}
+                  pathOptions={{
+                    color:
+                      activeBroadcast.severity === 'emergency' ||
+                      activeBroadcast.severity === 'critical'
+                        ? '#dc2626'
+                        : activeBroadcast.severity === 'warning'
+                          ? '#d97706'
+                          : '#2563eb',
+                    fillColor:
+                      activeBroadcast.severity === 'emergency' ||
+                      activeBroadcast.severity === 'critical'
+                        ? '#ef4444'
+                        : activeBroadcast.severity === 'warning'
+                          ? '#f59e0b'
+                          : '#3b82f6',
+                    fillOpacity: 0.25,
+                    weight: 3.5,
+                    dashArray: '8 5',
+                  }}
+                  data-testid="broadcast-circle-overlay"
+                >
+                  <Tooltip sticky direction="top">
+                    <div className="p-1 text-xs font-bold text-stone-900">
+                      🚨 Municipal Alert: {activeBroadcast.title} ({activeBroadcast.targetRadius}m radius)
+                    </div>
+                  </Tooltip>
+                  <Popup>
+                    <div className="p-2 space-y-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-red-100 text-red-800">
+                        {activeBroadcast.severity}
+                      </span>
+                      <h4 className="font-bold text-sm text-stone-950">{activeBroadcast.title}</h4>
+                      <p className="text-xs text-stone-700">{activeBroadcast.message}</p>
+                      {activeBroadcast.geohash && (
+                        <p className="text-[10px] text-stone-500 font-mono">
+                          Geohash: {activeBroadcast.geohash}
+                        </p>
+                      )}
+                    </div>
+                  </Popup>
+                </Circle>
+              )}
+            </>
+          )}
 
           {/* Tactile Municipal Ward Boundary Polygons */}
           {showWardBoundaries &&

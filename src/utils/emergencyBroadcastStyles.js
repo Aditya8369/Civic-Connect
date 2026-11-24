@@ -49,6 +49,20 @@ export const BROADCAST_SEVERITY_STYLES = Object.freeze({
       'text-red-600 hover:bg-red-100 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-900/50 dark:hover:text-red-100',
     accent: 'bg-red-600',
   },
+  emergency: {
+    label: 'Emergency alert',
+    icon: Siren,
+    banner:
+      'border-red-300 bg-red-50/90 dark:border-red-900/60 dark:bg-red-950/30',
+    iconWrap: 'bg-red-100 dark:bg-red-900/50',
+    iconColor: 'text-red-600 dark:text-red-300',
+    badge: 'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-200',
+    title: 'text-red-950 dark:text-red-100',
+    message: 'text-red-800 dark:text-red-200',
+    dismiss:
+      'text-red-600 hover:bg-red-100 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-900/50 dark:hover:text-red-100',
+    accent: 'bg-red-600',
+  },
 })
 
 export function getBroadcastSeverityStyle(severity) {

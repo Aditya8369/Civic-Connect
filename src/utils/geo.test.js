@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { haversineDistance, parseCoordinates, findNearbyComplaints } from './geo'
+import {
+  haversineDistance,
+  parseCoordinates,
+  findNearbyComplaints,
+  encodeGeohash,
+  decodeGeohash,
+  getGeohashPrefixes,
+  isPointInBroadcastGeofence,
+} from './geo'
 
 describe('parseCoordinates', () => {
   it('parses valid numeric latitude and longitude', () => {
@@ -103,6 +111,70 @@ describe('findNearbyComplaints', () => {
     expect(findNearbyComplaints(null, [{ latitude: 28.6, longitude: 77.2 }])).toEqual([])
     expect(findNearbyComplaints(origin, [])).toEqual([])
     expect(findNearbyComplaints(origin, null)).toEqual([])
+  })
+})
+
+describe('geohash encoding & decoding', () => {
+  it('encodes known coordinates into accurate Base32 geohash', () => {
+    const hash = encodeGeohash(28.6139, 77.209, 7)
+    expect(hash).toBe('ttnfucj')
+  })
+
+  it('decodes geohash back to coordinate bounds with precision tolerance', () => {
+    const decoded = decodeGeohash('ttnfucj')
+    expect(decoded).not.toBeNull()
+    expect(decoded.lat).toBeCloseTo(28.6139, 2)
+    expect(decoded.lng).toBeCloseTo(77.209, 2)
+  })
+
+  it('generates hierarchical prefix list for spatial querying', () => {
+    const prefixes = getGeohashPrefixes('ttnfucj', 4)
+    expect(prefixes).toEqual(['ttnf', 'ttnfu', 'ttnfuc', 'ttnfucj'])
+  })
+
+  it('returns null for empty or invalid geohash strings', () => {
+    expect(decodeGeohash('')).toBeNull()
+    expect(decodeGeohash(null)).toBeNull()
+    expect(decodeGeohash('invalid@char')).toBeNull()
+  })
+})
+
+describe('isPointInBroadcastGeofence', () => {
+  const connaught = { lat: 28.6139, lng: 77.209 }
+  const southDelhi = { lat: 28.5355, lng: 77.2189 }
+
+  it('handles citywide broadcast affecting all coordinates', () => {
+    expect(isPointInBroadcastGeofence(connaught, { targetType: 'citywide' })).toBe(true)
+    expect(isPointInBroadcastGeofence(southDelhi, { targetType: 'citywide' })).toBe(true)
+  })
+
+  it('handles radius broadcast affecting points inside distance threshold', () => {
+    const broadcast = {
+      targetType: 'radius',
+      targetCenter: connaught,
+      targetRadius: 1000,
+    }
+    // Point ~150m away
+    const nearby = { lat: 28.615, lng: 77.209 }
+    expect(isPointInBroadcastGeofence(nearby, broadcast)).toBe(true)
+    expect(isPointInBroadcastGeofence(southDelhi, broadcast)).toBe(false)
+  })
+
+  it('handles polygon broadcast using pointInPolygon', () => {
+    const broadcast = {
+      targetType: 'polygon',
+      targetPolygon: [
+        [28.61, 77.2],
+        [28.62, 77.2],
+        [28.62, 77.22],
+        [28.61, 77.22],
+        [28.61, 77.2],
+      ],
+    }
+    const inside = { lat: 28.615, lng: 77.21 }
+    const outside = { lat: 28.7, lng: 77.3 }
+    expect(isPointInBroadcastGeofence(inside, broadcast)).toBe(true)
+    expect(isPointInBroadcastGeofence(outside, broadcast)).toBe(false)
   })
 })
 

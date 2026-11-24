@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -7,6 +7,12 @@ import {
   Radio,
   Send,
   XCircle,
+  MapPin,
+  Compass,
+  CircleDot,
+  Pentagon,
+  Globe,
+  Trash2,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -31,9 +37,23 @@ import {
   listenToActiveEmergencyBroadcast,
   publishEmergencyBroadcast,
 } from '@/firebase/emergencyBroadcasts'
+import { getNormalizedWards } from '@/utils/wardBoundaries'
+import { MapContainer, TileLayer, Polygon, Circle, Marker, useMapEvents } from 'react-leaflet'
+import 'leaflet/dist/leaflet.css'
 
 const selectClassName =
   'flex h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100'
+
+function AdminMapEvents({ onMapClick }) {
+  useMapEvents({
+    click: (e) => {
+      if (onMapClick && e?.latlng) {
+        onMapClick(e.latlng)
+      }
+    },
+  })
+  return null
+}
 
 export function AdminBroadcastPage() {
   const { user } = useAuth()
@@ -45,9 +65,21 @@ export function AdminBroadcastPage() {
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
   const [severity, setSeverity] = useState(DEFAULT_BROADCAST_SEVERITY)
+  const [targetType, setTargetType] = useState('citywide')
+  const [selectedWardId, setSelectedWardId] = useState('WARD-01')
+  const [targetRadius, setTargetRadius] = useState(1000)
+  const [targetCenter, setTargetCenter] = useState({ lat: 28.6139, lng: 77.209 })
+  const [customPolygonPoints, setCustomPolygonPoints] = useState([])
+
   const [formError, setFormError] = useState('')
   const [publishing, setPublishing] = useState(false)
   const [ending, setEnding] = useState(false)
+
+  const wards = useMemo(() => getNormalizedWards(), [])
+  const selectedWard = useMemo(
+    () => wards.find((w) => w.wardId === selectedWardId) || wards[0],
+    [wards, selectedWardId]
+  )
 
   useEffect(() => {
     const unsubscribe = listenToActiveEmergencyBroadcast(
@@ -72,6 +104,17 @@ export function AdminBroadcastPage() {
     BROADCAST_SEVERITIES.find((option) => option.value === severity) ||
     BROADCAST_SEVERITIES[0]
 
+  const handleMapClick = (latlng) => {
+    if (targetType === 'radius') {
+      setTargetCenter({ lat: Number(latlng.lat.toFixed(5)), lng: Number(latlng.lng.toFixed(5)) })
+    } else if (targetType === 'polygon') {
+      setCustomPolygonPoints((prev) => [
+        ...prev,
+        [Number(latlng.lat.toFixed(5)), Number(latlng.lng.toFixed(5))],
+      ])
+    }
+  }
+
   const handlePublish = async (event) => {
     event.preventDefault()
     if (publishing) return
@@ -89,19 +132,57 @@ export function AdminBroadcastPage() {
       return
     }
 
+    if (targetType === 'polygon' && customPolygonPoints.length < 3) {
+      setFormError('Click on the map preview to define at least 3 points for the polygon geofence')
+      return
+    }
+
     setPublishing(true)
     setFormError('')
 
     try {
-      await publishEmergencyBroadcast(
-        { title: cleanTitle, message: cleanMessage, severity },
-        { actorUid: user?.uid }
-      )
+      const payload = {
+        title: cleanTitle,
+        message: cleanMessage,
+        severity,
+        ...(targetType !== 'citywide' ? { targetType } : {}),
+      }
+
+      if (targetType === 'ward' && selectedWard) {
+        payload.targetWard = {
+          wardId: selectedWard.wardId,
+          wardName: selectedWard.wardName,
+          zoneName: selectedWard.zoneName,
+        }
+        payload.targetPolygon = selectedWard.positions
+        payload.targetCenter = {
+          lat: selectedWard.center[0],
+          lng: selectedWard.center[1],
+        }
+      } else if (targetType === 'radius') {
+        payload.targetCenter = targetCenter
+        payload.targetRadius = targetRadius
+      } else if (targetType === 'polygon') {
+        payload.targetPolygon = customPolygonPoints
+        const latSum = customPolygonPoints.reduce((sum, pt) => sum + pt[0], 0)
+        const lngSum = customPolygonPoints.reduce((sum, pt) => sum + pt[1], 0)
+        payload.targetCenter = {
+          lat: latSum / customPolygonPoints.length,
+          lng: lngSum / customPolygonPoints.length,
+        }
+      }
+
+      await publishEmergencyBroadcast(payload, { actorUid: user?.uid })
 
       setTitle('')
       setMessage('')
       setSeverity(DEFAULT_BROADCAST_SEVERITY)
-      toast.success('Emergency alert published to all citizens')
+      setCustomPolygonPoints([])
+      if (targetType === 'citywide') {
+        toast.success('Emergency alert published to all citizens')
+      } else {
+        toast.success('Municipal alert published with geofenced targeting')
+      }
     } catch (error) {
       console.error('Broadcast publish error:', error)
       toast.error('Could not publish the emergency alert')
@@ -129,14 +210,19 @@ export function AdminBroadcastPage() {
     }
   }
 
+  const mapCenter =
+    targetType === 'ward' && selectedWard
+      ? selectedWard.center
+      : [targetCenter.lat, targetCenter.lng]
+
   return (
     <div>
       <PageHeader
-        title="Emergency Broadcasts"
-        description="Publish citywide announcements to every active citizen"
+        title="Municipal Broadcasts & Alert Center"
+        description="Publish geofenced announcements, ward advisories, and emergency alerts across municipal jurisdictions"
       />
 
-      <div className="max-w-3xl space-y-6">
+      <div className="max-w-4xl space-y-6">
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -144,9 +230,9 @@ export function AdminBroadcastPage() {
                 <Radio className="h-5 w-5 text-red-600 dark:text-red-400" />
               </div>
               <div>
-                <CardTitle>Active citywide alert</CardTitle>
+                <CardTitle>Active municipal alert</CardTitle>
                 <CardDescription>
-                  The banner citizens currently see in their portal
+                  The broadcast citizens currently see in their affected jurisdiction
                 </CardDescription>
               </div>
             </div>
@@ -172,7 +258,13 @@ export function AdminBroadcastPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                     <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    Live for all citizens
+                    Live for {activeBroadcast.targetType === 'ward'
+                      ? `Ward ${activeBroadcast.targetWard?.wardName || activeBroadcast.targetWard?.wardId}`
+                      : activeBroadcast.targetType === 'radius'
+                        ? `${activeBroadcast.targetRadius}m radius geofence`
+                        : activeBroadcast.targetType === 'polygon'
+                          ? 'targeted polygon geofence'
+                          : 'all citizens'}
                   </p>
 
                   <Button
@@ -193,8 +285,7 @@ export function AdminBroadcastPage() {
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                No citywide alert is active. Use the composer below to publish
-                one.
+                No citywide alert is active. Use the composer below to publish one.
               </div>
             )}
           </CardContent>
@@ -207,19 +298,19 @@ export function AdminBroadcastPage() {
                 <Megaphone className="h-5 w-5 text-primary-600 dark:text-primary-400" />
               </div>
               <div>
-                <CardTitle>Compose broadcast</CardTitle>
+                <CardTitle>Compose Broadcast</CardTitle>
                 <CardDescription>
-                  Publishing a new alert replaces the currently active one
+                  Configure severity, targeting boundaries, and broadcast message
                 </CardDescription>
               </div>
             </div>
           </CardHeader>
 
           <CardContent>
-            <form onSubmit={handlePublish} className="space-y-4">
+            <form onSubmit={handlePublish} className="space-y-5">
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="broadcast-title">Alert title</Label>
+                  <Label htmlFor="broadcast-title">Alert Title</Label>
                   <span className="text-xs text-gray-400 dark:text-gray-500">
                     {title.length}/{BROADCAST_TITLE_MAX_LENGTH}
                   </span>
@@ -232,13 +323,13 @@ export function AdminBroadcastPage() {
                     setTitle(event.target.value)
                     setFormError('')
                   }}
-                  placeholder="e.g. Water supply shutdown in Ward 4"
+                  placeholder="e.g. Water Pipeline Repair & Service Disruption"
                   disabled={publishing}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="broadcast-severity">Severity</Label>
+                <Label htmlFor="broadcast-severity">Alert Severity</Label>
                 <select
                   id="broadcast-severity"
                   value={severity}
@@ -248,7 +339,7 @@ export function AdminBroadcastPage() {
                 >
                   {BROADCAST_SEVERITIES.map((option) => (
                     <option key={option.value} value={option.value}>
-                      {option.label}
+                      {option.label} ({option.value})
                     </option>
                   ))}
                 </select>
@@ -257,9 +348,260 @@ export function AdminBroadcastPage() {
                 </p>
               </div>
 
+              {/* Geofence Targeting Section */}
+              <div className="space-y-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-900/40 p-4">
+                <Label className="text-sm font-semibold flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-primary-600 dark:text-primary-400" />
+                  Target Geofence Boundary
+                </Label>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTargetType('ward')}
+                    className={`flex items-center justify-center gap-1.5 p-2.5 rounded-lg border text-xs font-semibold transition ${
+                      targetType === 'ward'
+                        ? 'border-primary-600 bg-primary-50 text-primary-900 dark:bg-primary-950/60 dark:text-primary-200 dark:border-primary-500'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                    }`}
+                  >
+                    <Compass className="h-3.5 w-3.5" />
+                    Municipal Ward
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTargetType('radius')}
+                    className={`flex items-center justify-center gap-1.5 p-2.5 rounded-lg border text-xs font-semibold transition ${
+                      targetType === 'radius'
+                        ? 'border-primary-600 bg-primary-50 text-primary-900 dark:bg-primary-950/60 dark:text-primary-200 dark:border-primary-500'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                    }`}
+                  >
+                    <CircleDot className="h-3.5 w-3.5" />
+                    Target Radius
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTargetType('polygon')}
+                    className={`flex items-center justify-center gap-1.5 p-2.5 rounded-lg border text-xs font-semibold transition ${
+                      targetType === 'polygon'
+                        ? 'border-primary-600 bg-primary-50 text-primary-900 dark:bg-primary-950/60 dark:text-primary-200 dark:border-primary-500'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                    }`}
+                  >
+                    <Pentagon className="h-3.5 w-3.5" />
+                    Draw Polygon
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTargetType('citywide')}
+                    className={`flex items-center justify-center gap-1.5 p-2.5 rounded-lg border text-xs font-semibold transition ${
+                      targetType === 'citywide'
+                        ? 'border-primary-600 bg-primary-50 text-primary-900 dark:bg-primary-950/60 dark:text-primary-200 dark:border-primary-500'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                    }`}
+                  >
+                    <Globe className="h-3.5 w-3.5" />
+                    Citywide
+                  </button>
+                </div>
+
+                {targetType === 'ward' && (
+                  <div className="space-y-2 pt-2">
+                    <Label htmlFor="broadcast-ward" className="text-xs">
+                      Select Municipal Ward
+                    </Label>
+                    <select
+                      id="broadcast-ward"
+                      data-testid="broadcast-ward-select"
+                      value={selectedWardId}
+                      onChange={(e) => setSelectedWardId(e.target.value)}
+                      className={selectClassName}
+                    >
+                      {wards.map((ward) => (
+                        <option key={ward.wardId} value={ward.wardId}>
+                          {ward.wardId}: {ward.wardName} ({ward.zoneName})
+                        </option>
+                      ))}
+                    </select>
+                    {selectedWard && (
+                      <div className="text-xs text-stone-600 dark:text-stone-400 bg-stone-100 dark:bg-stone-800/60 p-2.5 rounded-md flex items-center justify-between">
+                        <span>Office: {selectedWard.councilorOffice}</span>
+                        <span>Helpline: {selectedWard.helpline}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {targetType === 'radius' && (
+                  <div className="space-y-2 pt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label htmlFor="broadcast-radius" className="text-xs">
+                          Radius (metres)
+                        </Label>
+                        <select
+                          id="broadcast-radius"
+                          data-testid="broadcast-radius-select"
+                          value={targetRadius}
+                          onChange={(e) => setTargetRadius(Number(e.target.value))}
+                          className={selectClassName}
+                        >
+                          <option value={500}>500 metres (Neighbourhood)</option>
+                          <option value={1000}>1,000 metres (1 km)</option>
+                          <option value={2000}>2,000 metres (2 km)</option>
+                          <option value={5000}>5,000 metres (5 km Zonal)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Center Point (Lat / Lng)</Label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Input
+                            data-testid="broadcast-center-lat"
+                            type="number"
+                            step="0.0001"
+                            value={targetCenter.lat}
+                            onChange={(e) =>
+                              setTargetCenter((prev) => ({
+                                ...prev,
+                                lat: parseFloat(e.target.value) || prev.lat,
+                              }))
+                            }
+                            placeholder="Lat"
+                          />
+                          <Input
+                            data-testid="broadcast-center-lng"
+                            type="number"
+                            step="0.0001"
+                            value={targetCenter.lng}
+                            onChange={(e) =>
+                              setTargetCenter((prev) => ({
+                                ...prev,
+                                lng: parseFloat(e.target.value) || prev.lng,
+                              }))
+                            }
+                            placeholder="Lng"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                      Click anywhere on the map preview below to set the geofence radius center.
+                    </p>
+                  </div>
+                )}
+
+                {targetType === 'polygon' && (
+                  <div className="space-y-2 pt-2">
+                    <div className="flex items-center justify-between">
+                      <span
+                        data-testid="polygon-vertex-count"
+                        className="text-xs font-medium text-stone-700 dark:text-stone-300"
+                      >
+                        {customPolygonPoints.length} polygon vertices placed (min 3 required)
+                      </span>
+                      {customPolygonPoints.length > 0 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          data-testid="clear-polygon-btn"
+                          onClick={() => setCustomPolygonPoints([])}
+                          className="h-7 text-xs text-red-600 gap-1 hover:text-red-700"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Clear Points
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                      Click consecutive points on the map preview below to draw the targeted boundary polygon.
+                    </p>
+                  </div>
+                )}
+
+                {targetType === 'citywide' && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 pt-1">
+                    Citywide broadcast: Alert will be shown to every active citizen across all wards.
+                  </p>
+                )}
+
+                {/* Leaflet Map Preview */}
+                <div
+                  data-testid="broadcast-map-preview"
+                  className="relative h-64 w-full rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 mt-3"
+                >
+                  <MapContainer
+                    center={mapCenter}
+                    zoom={targetType === 'ward' ? 13 : 12}
+                    scrollWheelZoom={false}
+                    style={{ width: '100%', height: '100%' }}
+                  >
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+
+                    <AdminMapEvents onMapClick={handleMapClick} />
+
+                    {targetType === 'ward' && selectedWard && (
+                      <Polygon
+                        positions={selectedWard.positions}
+                        pathOptions={{
+                          color: selectedWard.accentColor,
+                          fillColor: selectedWard.fillTint,
+                          fillOpacity: 0.35,
+                          weight: 3,
+                        }}
+                      />
+                    )}
+
+                    {targetType === 'radius' && (
+                      <>
+                        <Circle
+                          center={[targetCenter.lat, targetCenter.lng]}
+                          radius={targetRadius}
+                          pathOptions={{
+                            color: '#dc2626',
+                            fillColor: '#ef4444',
+                            fillOpacity: 0.22,
+                            weight: 2,
+                            dashArray: '6 4',
+                          }}
+                        />
+                        <Marker position={[targetCenter.lat, targetCenter.lng]} />
+                      </>
+                    )}
+
+                    {targetType === 'polygon' && customPolygonPoints.length > 0 && (
+                      <>
+                        {customPolygonPoints.length >= 3 && (
+                          <Polygon
+                            positions={customPolygonPoints}
+                            pathOptions={{
+                              color: '#7c3aed',
+                              fillColor: '#8b5cf6',
+                              fillOpacity: 0.25,
+                              weight: 2.5,
+                              dashArray: '6 4',
+                            }}
+                          />
+                        )}
+                        {customPolygonPoints.map((pt, idx) => (
+                          <Marker key={idx} position={pt} />
+                        ))}
+                      </>
+                    )}
+                  </MapContainer>
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="broadcast-message">Message</Label>
+                  <Label htmlFor="broadcast-message">Alert Message</Label>
                   <span className="text-xs text-gray-400 dark:text-gray-500">
                     {message.length}/{BROADCAST_MESSAGE_MAX_LENGTH}
                   </span>
@@ -273,7 +615,7 @@ export function AdminBroadcastPage() {
                     setMessage(event.target.value)
                     setFormError('')
                   }}
-                  placeholder="Explain what is happening, which areas are affected, and any action residents should take..."
+                  placeholder="Explain what is happening, which areas are affected, and any emergency actions residents should take..."
                   disabled={publishing}
                   className="flex w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                 />
@@ -314,9 +656,9 @@ export function AdminBroadcastPage() {
                 <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
               </div>
               <div>
-                <CardTitle>Citizen preview</CardTitle>
+                <CardTitle>Citizen Preview</CardTitle>
                 <CardDescription>
-                  How the banner will look in the citizen portal
+                  How the banner will appear to citizens in the targeted area
                 </CardDescription>
               </div>
             </div>
@@ -328,8 +670,18 @@ export function AdminBroadcastPage() {
                 title: title.trim() || 'Your alert title',
                 message:
                   message.trim() ||
-                  'Your citywide message will appear here for every active citizen.',
+                  'Your geofenced municipal message will appear here for affected citizens.',
                 severity,
+                targetType,
+                ...(targetType === 'ward' && selectedWard
+                  ? {
+                      targetWard: {
+                        wardId: selectedWard.wardId,
+                        wardName: selectedWard.wardName,
+                      },
+                    }
+                  : {}),
+                ...(targetType === 'radius' ? { targetRadius } : {}),
               }}
               preview
             />

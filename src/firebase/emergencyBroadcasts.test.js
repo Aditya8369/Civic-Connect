@@ -53,6 +53,7 @@ import {
   normalizeBroadcastSeverity,
   normalizeEmergencyBroadcast,
   publishEmergencyBroadcast,
+  isPointInBroadcastGeofence,
 } from './emergencyBroadcasts'
 import {
   collection,
@@ -85,12 +86,14 @@ describe('emergency broadcasts', () => {
     it('accepts only the supported severities', () => {
       expect(isBroadcastSeverity('info')).toBe(true)
       expect(isBroadcastSeverity('warning')).toBe(true)
+      expect(isBroadcastSeverity('emergency')).toBe(true)
       expect(isBroadcastSeverity('critical')).toBe(true)
       expect(isBroadcastSeverity('urgent')).toBe(false)
       expect(isBroadcastSeverity(undefined)).toBe(false)
     })
 
     it('falls back to the advisory severity for unknown values', () => {
+      expect(normalizeBroadcastSeverity('emergency')).toBe('emergency')
       expect(normalizeBroadcastSeverity('critical')).toBe('critical')
       expect(normalizeBroadcastSeverity('bogus')).toBe('warning')
       expect(normalizeBroadcastSeverity(null)).toBe('warning')
@@ -98,17 +101,20 @@ describe('emergency broadcasts', () => {
   })
 
   describe('normalizeEmergencyBroadcast', () => {
-    it('trims input and applies safe defaults', () => {
+    it('trims input and applies safe defaults including geohash index', () => {
       expect(
         normalizeEmergencyBroadcast({
           title: '  Water shutdown  ',
           message: '  Supply stops at 10am.  ',
         })
-      ).toEqual({
+      ).toMatchObject({
         title: 'Water shutdown',
         message: 'Supply stops at 10am.',
         severity: 'warning',
         active: true,
+        targetType: 'citywide',
+        geohash: expect.any(String),
+        geohashes: expect.any(Array),
       })
     })
 
@@ -141,6 +147,60 @@ describe('emergency broadcasts', () => {
 
       expect(broadcast.title).toHaveLength(BROADCAST_TITLE_MAX_LENGTH)
       expect(broadcast.message).toHaveLength(BROADCAST_MESSAGE_MAX_LENGTH)
+    })
+
+    it('normalizes geofenced target boundaries and computes geohash index', () => {
+      const wardAlert = normalizeEmergencyBroadcast({
+        title: 'Ward Alert',
+        message: 'Ward 1 notice',
+        severity: 'emergency',
+        targetType: 'ward',
+        targetWard: { wardId: 'WARD-01', wardName: 'Central Ward' },
+        targetCenter: { lat: 28.6139, lng: 77.209 },
+      })
+
+      expect(wardAlert.targetType).toBe('ward')
+      expect(wardAlert.severity).toBe('emergency')
+      expect(wardAlert.targetWard.wardId).toBe('WARD-01')
+      expect(wardAlert.geohash).toBe('ttnfucj')
+      expect(wardAlert.geohashes).toContain('ttnf')
+      expect(wardAlert.geohashes).toContain('ttnfucj')
+
+      const radiusAlert = normalizeEmergencyBroadcast({
+        title: 'Radius Alert',
+        message: 'Radius notice',
+        severity: 'warning',
+        targetType: 'radius',
+        targetRadius: 1500,
+        targetCenter: { lat: 28.6139, lng: 77.209 },
+      })
+
+      expect(radiusAlert.targetType).toBe('radius')
+      expect(radiusAlert.targetRadius).toBe(1500)
+      expect(radiusAlert.targetCenter).toEqual({ lat: 28.6139, lng: 77.209 })
+    })
+
+    it('determines whether a citizen is inside a broadcast geofence', () => {
+      const connaughtPlace = { lat: 28.6139, lng: 77.209 }
+      const farAway = { lat: 28.7041, lng: 77.1025 }
+
+      const citywideBroadcast = {
+        title: 'Citywide Alert',
+        message: 'All citizens affected',
+        targetType: 'citywide',
+      }
+      expect(isPointInBroadcastGeofence(connaughtPlace, citywideBroadcast)).toBe(true)
+      expect(isPointInBroadcastGeofence(farAway, citywideBroadcast)).toBe(true)
+
+      const radiusBroadcast = {
+        title: 'Local Alert',
+        message: '500m radius only',
+        targetType: 'radius',
+        targetCenter: connaughtPlace,
+        targetRadius: 500,
+      }
+      expect(isPointInBroadcastGeofence(connaughtPlace, radiusBroadcast)).toBe(true)
+      expect(isPointInBroadcastGeofence(farAway, radiusBroadcast)).toBe(false)
     })
   })
 
@@ -279,14 +339,17 @@ describe('emergency broadcasts', () => {
       )
       expect(rt.batch.set).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'new-broadcast-id' }),
-        {
+        expect.objectContaining({
           title: 'Water shutdown',
           message: 'Supply stops at 10am.',
           severity: 'critical',
           active: true,
           createdAt: 'SERVER_TIMESTAMP',
           createdBy: 'admin-1',
-        }
+          targetType: 'citywide',
+          geohash: expect.any(String),
+          geohashes: expect.any(Array),
+        })
       )
       expect(rt.batch.commit).toHaveBeenCalledTimes(1)
       expect(serverTimestamp).toHaveBeenCalled()

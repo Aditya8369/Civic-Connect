@@ -25,6 +25,11 @@ vi.mock('@/firebase/emergencyBroadcasts', () => ({
       description: 'Disruption or service interruption',
     },
     {
+      value: 'emergency',
+      label: 'Emergency alert',
+      description: 'Immediate danger or critical incident',
+    },
+    {
       value: 'critical',
       label: 'Critical emergency',
       description: 'Immediate danger to residents',
@@ -39,6 +44,36 @@ vi.mock('@/firebase/emergencyBroadcasts', () => ({
   }),
   publishEmergencyBroadcast: rt.publish,
   deactivateEmergencyBroadcast: rt.deactivate,
+}))
+
+vi.mock('react-leaflet', () => ({
+  MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
+  TileLayer: () => <div data-testid="tile-layer" />,
+  Polygon: ({ children, positions, pathOptions }) => (
+    <div
+      data-testid="map-polygon"
+      data-positions={JSON.stringify(positions)}
+      data-pathoptions={JSON.stringify(pathOptions)}
+    >
+      {children}
+    </div>
+  ),
+  Circle: ({ children, center, radius, pathOptions }) => (
+    <div
+      data-testid="map-circle"
+      data-center={JSON.stringify(center)}
+      data-radius={radius}
+      data-pathoptions={JSON.stringify(pathOptions)}
+    >
+      {children}
+    </div>
+  ),
+  Marker: ({ children, position }) => (
+    <div data-testid="map-marker" data-position={JSON.stringify(position)}>
+      {children}
+    </div>
+  ),
+  useMapEvents: vi.fn(),
 }))
 
 vi.mock('@/hooks/useAuth', () => ({
@@ -265,5 +300,120 @@ describe('AdminBroadcastPage', () => {
     await setInput(container.querySelector('#broadcast-title'), 'Road closure')
 
     expect(container.textContent).toContain('Road closure')
+  })
+
+  it('allows selecting a municipal ward and publishes geofenced ward broadcast', async () => {
+    await renderPage()
+    emitBroadcast(null)
+
+    const wardButton = [...container.querySelectorAll('button')].find((btn) =>
+      btn.textContent.includes('Municipal Ward')
+    )
+    expect(wardButton).not.toBeNull()
+
+    await act(async () => {
+      wardButton.click()
+    })
+
+    await setInput(container.querySelector('#broadcast-title'), 'Ward 2 Pipeline Burst')
+    await setTextarea(
+      container.querySelector('#broadcast-message'),
+      'Drinking water disruption in Ward 2 for 4 hours.'
+    )
+
+    const wardSelect = container.querySelector('[data-testid="broadcast-ward-select"]')
+    expect(wardSelect).not.toBeNull()
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set
+      setter.call(wardSelect, 'WARD-02')
+      wardSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    await act(async () => {
+      submitButton().click()
+    })
+
+    expect(rt.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Ward 2 Pipeline Burst',
+        message: 'Drinking water disruption in Ward 2 for 4 hours.',
+        targetType: 'ward',
+        targetWard: expect.objectContaining({
+          wardId: 'WARD-02',
+        }),
+      }),
+      { actorUid: 'admin-1' }
+    )
+    expect(toast.success).toHaveBeenCalledWith(
+      'Municipal alert published with geofenced targeting'
+    )
+  })
+
+  it('allows radius targeting with customizable metres', async () => {
+    await renderPage()
+    emitBroadcast(null)
+
+    const radiusButton = [...container.querySelectorAll('button')].find((btn) =>
+      btn.textContent.includes('Target Radius')
+    )
+    expect(radiusButton).not.toBeNull()
+
+    await act(async () => {
+      radiusButton.click()
+    })
+
+    await setInput(container.querySelector('#broadcast-title'), 'Chemical Spill Advisory')
+    await setTextarea(
+      container.querySelector('#broadcast-message'),
+      'Maintain 2km exclusion zone around factory junction.'
+    )
+
+    const radiusSelect = container.querySelector('[data-testid="broadcast-radius-select"]')
+    expect(radiusSelect).not.toBeNull()
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set
+      setter.call(radiusSelect, '2000')
+      radiusSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    await act(async () => {
+      submitButton().click()
+    })
+
+    expect(rt.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Chemical Spill Advisory',
+        message: 'Maintain 2km exclusion zone around factory junction.',
+        targetType: 'radius',
+        targetRadius: 2000,
+      }),
+      { actorUid: 'admin-1' }
+    )
+  })
+
+  it('enforces at least 3 points when draw polygon mode is chosen', async () => {
+    await renderPage()
+    emitBroadcast(null)
+
+    const polygonButton = [...container.querySelectorAll('button')].find((btn) =>
+      btn.textContent.includes('Draw Polygon')
+    )
+    expect(polygonButton).not.toBeNull()
+
+    await act(async () => {
+      polygonButton.click()
+    })
+
+    await setInput(container.querySelector('#broadcast-title'), 'Custom Zone Warning')
+    await setTextarea(container.querySelector('#broadcast-message'), 'Stay out of demarcated perimeter.')
+
+    await act(async () => {
+      submitButton().click()
+    })
+
+    expect(rt.publish).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('define at least 3 points')
   })
 })

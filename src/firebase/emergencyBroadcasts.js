@@ -10,6 +10,14 @@ import {
   writeBatch,
 } from 'firebase/firestore'
 import { db } from './services'
+import {
+  encodeGeohash,
+  getGeohashPrefixes,
+  parseCoordinates,
+  isPointInBroadcastGeofence,
+} from '@/utils/geo'
+
+export { isPointInBroadcastGeofence }
 
 export const BROADCASTS_COLLECTION = 'broadcasts'
 export const BROADCAST_TITLE_MAX_LENGTH = 120
@@ -19,12 +27,17 @@ export const BROADCAST_SEVERITIES = Object.freeze([
   {
     value: 'info',
     label: 'Information',
-    description: 'Routine citywide notice',
+    description: 'Routine citywide or ward notice',
   },
   {
     value: 'warning',
-    label: 'Advisory',
+    label: 'Advisory / Warning',
     description: 'Disruption or service interruption',
+  },
+  {
+    value: 'emergency',
+    label: 'Emergency alert',
+    description: 'Immediate danger or critical incident',
   },
   {
     value: 'critical',
@@ -62,11 +75,65 @@ export function normalizeEmergencyBroadcast(input) {
 
   if (!title || !message) return null
 
+  const targetType = ['ward', 'radius', 'polygon', 'citywide'].includes(input.targetType)
+    ? input.targetType
+    : 'citywide'
+
+  let targetWard = null
+  let targetCenter = null
+  let targetRadius = null
+  let targetPolygon = null
+
+  if (targetType === 'ward' && input.targetWard) {
+    targetWard = {
+      wardId: String(input.targetWard.wardId || ''),
+      wardName: String(input.targetWard.wardName || ''),
+      zoneName: String(input.targetWard.zoneName || ''),
+    }
+    if (Array.isArray(input.targetPolygon) && input.targetPolygon.length >= 3) {
+      targetPolygon = input.targetPolygon
+    }
+    if (input.targetCenter) {
+      const c = parseCoordinates(input.targetCenter)
+      if (c) targetCenter = c
+    }
+  } else if (targetType === 'radius') {
+    const c = parseCoordinates(input.targetCenter) || { lat: 28.6139, lng: 77.209 }
+    targetCenter = c
+    targetRadius = Math.max(100, Math.min(50000, Number(input.targetRadius) || 1000))
+  } else if (targetType === 'polygon' && Array.isArray(input.targetPolygon) && input.targetPolygon.length >= 3) {
+    targetPolygon = input.targetPolygon
+    if (input.targetCenter) {
+      const c = parseCoordinates(input.targetCenter)
+      if (c) targetCenter = c
+    } else {
+      const latSum = targetPolygon.reduce((sum, pt) => sum + (pt[0] || pt.lat || 0), 0)
+      const lngSum = targetPolygon.reduce((sum, pt) => sum + (pt[1] || pt.lng || 0), 0)
+      targetCenter = { lat: latSum / targetPolygon.length, lng: lngSum / targetPolygon.length }
+    }
+  }
+
+  const centerForHash =
+    targetCenter ||
+    (targetPolygon?.[0]
+      ? { lat: targetPolygon[0][0] ?? targetPolygon[0].lat, lng: targetPolygon[0][1] ?? targetPolygon[0].lng }
+      : { lat: 28.6139, lng: 77.209 })
+
+  const geohash = encodeGeohash(centerForHash.lat, centerForHash.lng, 7)
+  const geohashes = getGeohashPrefixes(geohash, 4)
+
   return {
     title,
     message,
     severity: normalizeBroadcastSeverity(input.severity),
     active: typeof input.active === 'boolean' ? input.active : true,
+    targetType,
+    ...(targetWard ? { targetWard } : {}),
+    ...(targetCenter ? { targetCenter } : {}),
+    ...(targetRadius ? { targetRadius } : {}),
+    ...(targetPolygon ? { targetPolygon } : {}),
+    geohash,
+    geohashes,
   }
 }
 
