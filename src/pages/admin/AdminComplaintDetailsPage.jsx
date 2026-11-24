@@ -461,11 +461,14 @@ export function AdminComplaintDetailsPage() {
 
     if (!next || saving || transitionPending.current) return
 
-    // If moving from In Progress to Pending Verification, intercept and open the proof submission modal
-    if (next === 'Pending Verification') {
-      setResolutionModalNotes(resolutionNotes || complaint.resolutionNotes || '')
-      setResolutionModalOpen(true)
-      return
+    // Enforce mandatory Resolution Photo capture for officers before transitioning to Pending Verification or Resolved
+    if (next === 'Pending Verification' || next === 'Resolved') {
+      const existingPhoto = getResolutionPhoto(complaint)
+      if (!existingPhoto) {
+        setResolutionModalNotes(resolutionNotes || complaint.resolutionNotes || '')
+        setResolutionModalOpen(true)
+        return
+      }
     }
 
     transitionPending.current = true

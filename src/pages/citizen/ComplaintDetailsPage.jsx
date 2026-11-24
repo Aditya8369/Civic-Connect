@@ -76,7 +76,14 @@ const statusVariant = {
   'Merged - Duplicate': 'secondary',
 }
 
-const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+const REOPEN_WINDOW_MS = 48 * 60 * 60 * 1000 // 48-hour dispute resolution & reopen window
+
+function getDisputeHoursRemaining(resolvedAt) {
+  if (!resolvedAt) return 0
+  const elapsed = Date.now() - resolvedAt.getTime()
+  const remaining = REOPEN_WINDOW_MS - elapsed
+  return Math.max(0, Math.ceil(remaining / (60 * 60 * 1000)))
+}
 
 const STEPS = [
   {
@@ -825,6 +832,26 @@ export function ComplaintDetailsPage() {
           <div className="lg:col-span-2 space-y-6">
             <MilestoneCelebrationBanner complaint={complaint} />
 
+            {complaint.status === 'Resolved' && complaint.reportedBy === user?.uid && !complaint.feedback && (
+              <div
+                data-testid="satisfaction-rating-prompt"
+                className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl border border-amber-200 bg-amber-50/80 dark:border-amber-900/50 dark:bg-amber-950/20 text-amber-900 dark:text-amber-200 shadow-xs"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-white font-bold text-lg shadow-xs">
+                    ★
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Rate Your Resolution</h4>
+                    <p className="text-xs text-gray-600 dark:text-gray-300">
+                      Please rate the municipal resolution (1–5 stars) and share quick feedback to help improve civic services.
+                    </p>
+                  </div>
+                </div>
+                <ResolutionFeedback key={id} issueId={id} title={complaint.title} feedback={complaint.feedback} />
+              </div>
+            )}
+
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
@@ -923,8 +950,15 @@ export function ComplaintDetailsPage() {
                         Print Official Receipt
                       </Button>
                       {canReopen && (
-                        <Button size="sm" className="shrink-0" onClick={() => setReopenOpen(true)}>
-                          Reopen Issue
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          data-testid="dispute-reopen-btn"
+                          className="shrink-0 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+                          onClick={() => setReopenOpen(true)}
+                        >
+                          <AlertTriangle className="h-4 w-4" />
+                          Dispute Resolution ({getDisputeHoursRemaining(complaint.resolvedAt?.toDate?.())}h left)
                         </Button>
                       )}
                     </div>
@@ -1080,8 +1114,13 @@ export function ComplaintDetailsPage() {
                     <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
                       <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-1.5">
                         <Camera className="h-4 w-4 text-primary-600 dark:text-primary-400" />
-                        Photo Evidence
+                        {initialPhoto && resolutionPhoto ? 'Before & After Visual Verification' : 'Photo Evidence'}
                       </h3>
+                      {initialPhoto && resolutionPhoto && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                          Interactive comparison: Drag the slider horizontally to compare the reported issue (Before) against the verified resolution proof (After).
+                        </p>
+                      )}
                       <div className="relative group inline-block w-full max-w-xl overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
                         <ResolutionProofSlider
                           beforePhoto={initialPhoto}
@@ -1274,9 +1313,9 @@ export function ComplaintDetailsPage() {
         <Dialog open={reopenOpen} onOpenChange={setReopenOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Reopen Issue</DialogTitle>
+              <DialogTitle>Dispute Resolution & Reopen Issue</DialogTitle>
               <DialogDescription>
-                Tell us what is still not fixed. Issues can be reopened within 7 days of resolution.
+                Tell us what is still not fixed on-site. Complaints can be disputed and reopened within the 48-hour Dispute Resolution window if the problem persists on-site.
               </DialogDescription>
             </DialogHeader>
             <textarea

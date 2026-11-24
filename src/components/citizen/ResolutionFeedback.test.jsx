@@ -12,6 +12,23 @@ vi.mock('@/firebase/resolutionFeedback', () => ({
   submitResolutionFeedback: vi.fn(),
 }))
 
+const storageMap = new Map()
+const mockLocalStorage = {
+  getItem: (key) => storageMap.get(key) || null,
+  setItem: (key, val) => storageMap.set(key, String(val)),
+  removeItem: (key) => storageMap.delete(key),
+  clear: () => storageMap.clear(),
+}
+try {
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: mockLocalStorage,
+    configurable: true,
+    writable: true,
+  })
+} catch {
+  globalThis.localStorage = mockLocalStorage
+}
+
 beforeEach(() => {
   localStorage.setItem('civic-connect-language', 'en')
   vi.clearAllMocks()
